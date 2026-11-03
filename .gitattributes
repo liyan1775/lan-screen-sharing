@@ -1,0 +1,3 @@
+# These bytes are embedded in the independently reviewed Windows executable.
+# Keep the same asset bytes when checking out on Windows or another platform.
+internal/web/assets/** -text

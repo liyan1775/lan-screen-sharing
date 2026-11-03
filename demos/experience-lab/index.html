@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'none'; connect-src 'none'; media-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>LAN / 分享 · 设计体验实验室</title>
+  <link rel="stylesheet" href="../frontend-lab/styles.css">
+  <link rel="stylesheet" href="../frontend-lab/layouts/portal.css">
+  <link rel="stylesheet" href="../frontend-lab/layouts/orbit.css">
+  <link rel="stylesheet" href="../frontend-lab/layouts/edge.css">
+  <link rel="stylesheet" href="experience.css">
+  <link rel="stylesheet" href="layouts/channel.css">
+  <link rel="stylesheet" href="layouts/source.css">
+<link rel="stylesheet" href="layouts/relay.css"></head>
+<body>
+  <div class="lab-shell">
+    <header class="lab-header">
+      <div class="lab-heading"><span class="lab-wordmark">LAN / 设计体验实验室</span><h1>一起玩，从进房间开始。</h1><p>在同一情境里比较不同的交互结构，再独立选择喜欢的外观。</p></div>
+      <div class="lab-header-actions"><button type="button" data-lab="compare">研究与互评</button><button type="button" data-lab="copy">记录我的组合</button><button type="button" data-lab="focus">专心体验</button></div>
+    </header>
+    <section class="lab-config" aria-label="设计实验室控制台">
+      <div class="lab-presets"><span class="lab-label">交互结构</span><div class="lab-preset-buttons" aria-label="选择整套交互结构"><button type="button" data-preset="portal">房间会展开</button><button type="button" data-preset="orbit">三人一桌</button><button type="button" data-preset="edge">只留画面</button><button type="button" data-preset="channel">同伴通道</button><button type="button" data-preset="source">来源展开</button><button type="button" data-preset="relay">接力现场</button><button type="button" data-preset="mix" aria-pressed="true">混合示例</button></div><div class="lab-style-picker" aria-label="独立选择视觉风格"><span class="lab-label">风格</span><button type="button" data-style="cinema" aria-pressed="false"><i aria-hidden="true"></i>深色影院</button><button type="button" data-style="lounge" aria-pressed="true"><i aria-hidden="true"></i>纸白客厅</button><button type="button" data-style="precision" aria-pressed="false"><i aria-hidden="true"></i>冷白精密</button><button type="button" data-style="clearblue" aria-pressed="false"><i aria-hidden="true"></i>晴蓝灵感</button></div></div>
+      <details class="lab-options"><summary>自由组合与测试情境<span>三个阶段分别选择结构</span></summary>
+      <div class="lab-selectors">
+        <label>入场结构<select id="layout-entry"><option value="portal">房间会展开</option><option value="orbit">三人一桌</option><option value="edge">只留画面</option><option value="channel">同伴通道</option><option value="source">来源展开</option><option value="relay">接力现场</option></select></label>
+        <label>语音结构<select id="layout-voice"><option value="portal">房间会展开</option><option value="orbit" selected>三人一桌</option><option value="edge">只留画面</option><option value="channel">同伴通道</option><option value="source">来源展开</option><option value="relay">接力现场</option></select></label>
+        <label>观看结构<select id="layout-watch"><option value="portal">房间会展开</option><option value="orbit">三人一桌</option><option value="edge" selected>只留画面</option><option value="channel">同伴通道</option><option value="source">来源展开</option><option value="relay">接力现场</option></select></label>
+        <label class="lab-theme-label">视觉风格<select id="theme-choice"><option value="cinema">深色影院</option><option value="lounge" selected>纸白客厅</option><option value="precision">冷白精密</option><option value="clearblue">晴蓝灵感</option></select></label>
+        <label class="lab-scene-label">体验情境<select id="scenario-choice"><option value="nearby">打开：附近房间</option><option value="chat">三人纯语音</option><option value="watching">朋友正在共享</option><option value="broadcasting">我正在共享</option><option value="handoff">共享已空出，可换人</option><option value="silent">有画面，没有系统声音</option><option value="reconnecting">连接中断与恢复</option><option value="denied">麦克风被拒绝</option><option value="empty">没有发现房间</option><option value="blocked">自动发现受阻</option><option value="full">房间已满</option><option value="long">长房名与窄窗口</option><option value="waiting-audio">语音来源尚未到达</option><option value="custom">当前自由体验</option></select></label>
+      </div>
+      <div class="lab-world"><span class="lab-label">模拟朋友</span><button type="button" data-world="start">朋友开始共享</button><button type="button" data-world="stop">朋友停止共享</button><button type="button" data-world="join">一位朋友加入</button><button type="button" data-world="drop">连接中断</button><button type="button" data-world="restore">连接恢复</button><button type="button" data-lab="reset">重走一次</button><span id="lab-context" role="status"></span></div>
+      </details>
+    </section>
+    <main class="lab-workspace">
+      <div class="lab-preview-caption"><span id="lab-current">混合示例 · 纸白客厅</span><div class="lab-scene-shortcuts" aria-label="快速体验关键阶段"><button type="button" data-preview="nearby">从入场开始</button><button type="button" data-preview="chat">直接聊语音</button><button type="button" data-preview="watching">直接看直播</button></div><span>全部为模拟，不采集设备</span></div>
+      <div id="product-canvas" data-theme="lounge" tabindex="-1" aria-label="可交互设计原型">
+        <div id="demo-surface"></div><div id="overlay-layer"></div><div id="demo-toast" role="status" hidden></div>
+      </div>
+      <div class="lab-bottom"><span>结构与外观独立，也可以按阶段自由组合</span><span>加入 → 开麦 → 观看 / 共享 → 只聊语音 → 离开</span></div>
+    </main>
+    <footer class="lab-footer">两轮设计研究的交互原型，尚未替换正式前端。屏幕内容、房间、权限和声音均为模拟；全屏按钮使用浏览器真实全屏能力。</footer>
+  </div>
+  <div class="lab-focus-tools" aria-label="原型预览工具，不属于产品界面">
+    <span class="lab-focus-note">模拟体验</span>
+    <label class="sr-only" for="focus-route">体验方案</label>
+    <select id="focus-route"><option value="portal">房间会展开</option><option value="orbit">三人一桌</option><option value="edge">只留画面</option><option value="channel">同伴通道</option><option value="source">来源展开</option><option value="relay">接力现场</option><option value="mix">混合示例</option><option value="custom" hidden>自由组合</option></select>
+    <button type="button" data-world="stop">模拟朋友停播</button>
+    <button type="button" data-world="start">模拟朋友开播</button>
+    <button class="lab-exit-focus" type="button" data-lab="focus" hidden>返回比较 <kbd>Esc</kbd></button>
+  </div>
+  <aside id="comparison-panel" class="lab-comparison" aria-label="Terra 互评与综合比较" hidden></aside>
+  <div id="lab-live" class="sr-only" role="status" aria-live="polite"></div>
+  <script src="../frontend-lab/model.js"></script>
+  <script src="../frontend-lab/assets/icons.js"></script>
+  <script src="../frontend-lab/ui.js"></script><script src="boot.js"></script><script src="helpers.js"></script>
+  <script src="../frontend-lab/layouts/portal.js"></script>
+  <script src="../frontend-lab/layouts/orbit.js"></script>
+  <script src="../frontend-lab/layouts/edge.js"></script>
+  <script src="layouts/channel.js"></script>
+  <script src="layouts/source.js"></script>
+  <script src="layouts/relay.js"></script>
+  <script src="review-data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

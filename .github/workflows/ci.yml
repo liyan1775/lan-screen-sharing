@@ -1,0 +1,40 @@
+name: CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: go test ./... -count=1
+      - run: npm test
+      - run: npm run lab:build
+      - run: npm run lab:test
+      - run: npm run experience:build
+      - run: npm run experience:test
+      - name: Build Windows executable
+        shell: pwsh
+        run: ./scripts/build.ps1 -BuildVersion 0.3.0 -OutputPath ./dist/lan-screen-sharing-0.3.0.exe
+      - name: Install isolated Chromium test runtime
+        run: node node_modules/playwright-core/cli.js install chromium
+      - name: Frontend and synthetic media browser regression
+        shell: pwsh
+        run: |
+          $env:LANSW_EXE = (Resolve-Path './dist/lan-screen-sharing-0.3.0.exe').Path
+          $env:LANSW_BROWSER_PATH = (& node --input-type=module -e "import { chromium } from 'playwright-core'; process.stdout.write(chromium.executablePath());").Trim()
+          node --test tests/e2e/frontend-hig.spec.js
+          if ($LASTEXITCODE -ne 0) { throw 'Frontend browser checks failed.' }
+          node --test tests/e2e/mesh.spec.js
+          if ($LASTEXITCODE -ne 0) { throw 'Synthetic media checks failed.' }

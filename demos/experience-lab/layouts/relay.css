@@ -1,0 +1,98 @@
+/* 接力现场：活动与下一步始终在画面前方，不依赖悬停。 */
+.relay-entry,.relay-voice,.relay-watch { color:var(--ink); font-family:var(--font-ui); }
+.relay-entry .re-entry,.relay-voice .re-main,.relay-watch .re-main { width:min(100% - 2rem, 1180px); margin:0 auto; }
+.relay-entry .re-entry { padding:clamp(2rem,6vw,5rem) 0; }
+.relay-entry .re-entry-head { display:flex; justify-content:space-between; align-items:start; gap:1rem; }
+.relay-entry h1 { font-family:var(--font-display); font-size:clamp(1.5rem,3vw,2.25rem); margin:.45rem 0; }
+.relay-entry p { color:var(--muted); line-height:1.6; }
+.relay-entry .re-kicker,.relay-voice .re-kicker,.relay-watch .re-kicker { color:var(--muted); font-size:.8rem; }
+.relay-entry .re-rooms { margin-top:2rem; border-top:1px solid var(--line); }
+.relay-entry .re-room { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:1rem 0; border-bottom:1px solid var(--line); }
+.relay-entry .re-room div { display:grid; gap:.3rem; min-width:0; }
+.relay-entry .re-room strong { overflow-wrap:anywhere; }
+.relay-entry .re-room span,.relay-entry .re-discovery-state { color:var(--muted); }
+.relay-entry .re-discovery-state { margin:2rem 0; padding:1.25rem; background:var(--surface-soft); border-radius:var(--radius); }
+.relay-entry .re-entry-actions { display:flex; flex-wrap:wrap; gap:.65rem; margin-top:1.5rem; }
+.relay-voice .re-main,.relay-watch .re-main { display:flex; flex-direction:column; gap:.8rem; padding:1rem 0 2rem; }
+.relay-voice .re-bar,.relay-watch .re-bar { display:flex; align-items:center; flex-wrap:wrap; gap:.5rem; }
+.relay-voice .re-bar > span,.relay-watch .re-bar > span { color:var(--muted); font-size:.85rem; }
+.relay-voice .re-activity,.relay-watch .re-activity { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:.9rem 1.5rem; padding:1rem 1.15rem; background:var(--surface-raised); border:1px solid var(--line); border-radius:var(--radius); }
+.relay-voice .re-activity { margin-top:clamp(1rem,5vh,3rem); padding:clamp(1.25rem,3vw,2.5rem); }
+.relay-voice .re-activity-copy,.relay-watch .re-activity-copy { display:grid; gap:.3rem; min-width:0; line-height:1.45; }
+.relay-voice .re-activity-copy strong { font-family:var(--font-display); font-size:clamp(1.2rem,2vw,1.6rem); }
+.relay-watch .re-activity-copy strong { font-size:1.05rem; }
+.relay-voice .re-activity-copy > span:not(.re-kicker),.relay-watch .re-activity-copy > span:not(.re-kicker) { color:var(--muted); }
+.relay-voice .re-activity-actions,.relay-watch .re-activity-actions { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; }
+.relay-voice .re-source,.relay-watch .re-source { display:flex; align-items:center; flex-wrap:wrap; gap:.5rem; grid-column:1 / -1; color:var(--muted); font-size:.85rem; }
+.relay-watch .re-stage { min-width:0; }
+.relay-watch .re-stage .d-screen { margin:0; width:100%; aspect-ratio:16 / 9; max-height:calc(100vh - 15rem); background:#080a0d; overflow:hidden; }
+.relay-watch .re-stage .d-screen-image { width:100%; height:100%; object-fit:contain; }
+.relay-voice .re-presence,.relay-watch .re-presence { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:1rem; padding:1rem 0; border-top:1px solid var(--line); }
+.relay-voice .re-presence > div:first-child,.relay-watch .re-presence > div:first-child { display:grid; gap:.2rem; }
+.relay-voice .re-presence span,.relay-watch .re-presence span { color:var(--muted); }
+.relay-voice .re-people,.relay-watch .re-people { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; }
+.relay-entry button:focus-visible,.relay-voice button:focus-visible,.relay-watch button:focus-visible { outline:3px solid var(--accent); outline-offset:3px; }
+@media (max-width:700px) {
+ .relay-voice .re-activity,.relay-watch .re-activity { grid-template-columns:minmax(0,1fr); }
+ .relay-watch .re-stage .d-screen { max-height:none; }
+ .relay-voice .re-source,.relay-watch .re-source { grid-column:auto; }
+ .relay-entry .re-room { align-items:start; }
+}
+@media (prefers-reduced-motion:reduce) { .relay-entry *, .relay-voice *, .relay-watch * { scroll-behavior:auto; } }
+/* 观看阶段在固定舞台内分配空间，画面缩放而非挤走操作与成员。 */
+.relay-watch { height:var(--stage-height); display:flex; flex-direction:column; min-height:0; }
+.relay-watch > .d-header { flex:none; }
+.relay-watch .re-main { flex:1; min-height:0; padding:.35rem 0 .6rem; gap:.4rem; }
+.relay-watch .re-watch-bar { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:.35rem .75rem; padding:.35rem .6rem; background:var(--surface-raised); border:1px solid var(--line); border-radius:var(--radius); flex:none; }
+.relay-watch .re-watch-current,.relay-watch .re-watch-actions { display:flex; align-items:center; flex-wrap:wrap; gap:.3rem .5rem; }
+.relay-watch .re-watch-current > span { color:var(--muted); font-size:.85rem; }
+.relay-watch .re-stage { flex:1; min-height:0; display:flex; justify-content:center; }
+.relay-watch .re-stage .d-screen { width:100%; height:100%; aspect-ratio:auto; max-height:none; }
+.relay-watch .re-presence { flex:none; padding:.2rem 0 0; gap:.35rem; }
+.relay-watch .re-presence > div:first-child span { display:none; }
+@media (max-width:700px) {
+ .relay-watch { height:var(--stage-height); }
+ .relay-watch .re-main { width:calc(100% - 1rem); }
+ .relay-watch .re-watch-bar { gap:.25rem; padding:.3rem; }
+ .relay-watch .re-watch-current,.relay-watch .re-watch-actions { gap:.2rem; }
+ .relay-watch .re-presence { justify-content:flex-start; }
+}
+
+/* 同一个共享席位在观看与语音状态中保持在舞台顶部。 */
+.relay-voice .re-main,.relay-watch .re-main { width:min(100% - 2rem, 1320px); }
+.relay-voice .re-main { gap:0; padding-top:1rem; }
+.relay-voice .re-activity,.relay-watch .re-watch-bar {
+  margin:0; border:1px solid var(--line); border-top:3px solid var(--accent);
+  border-radius:var(--radius) var(--radius) 0 0; background:var(--surface-raised);
+  box-shadow:var(--shadow);
+}
+.relay-voice .re-activity { padding:1.25rem 1.5rem; min-height:9rem; }
+.relay-voice .re-activity-copy { gap:.35rem; }
+.relay-voice .re-activity-copy strong { font-size:clamp(1.35rem,2.3vw,1.9rem); line-height:1.25; }
+.relay-voice .re-activity-copy > span:not(.re-kicker) { max-width:45rem; }
+.relay-voice .re-kicker,.relay-watch .re-kicker { color:var(--accent); font-size:.78rem; font-weight:700; }
+.relay-voice .re-bar { padding:1rem 1.5rem; background:var(--surface-soft); border:1px solid var(--line); border-top:0; }
+.relay-voice .re-presence { margin-top:2rem; padding:1.2rem 0; }
+.relay-watch .re-main { gap:0; }
+.relay-watch .re-watch-bar { padding:.55rem .85rem; box-shadow:none; }
+.relay-watch .re-watch-current { gap:.7rem; }
+.relay-watch .re-watch-copy { display:grid; grid-template-columns:auto auto; align-items:baseline; gap:.05rem .65rem; min-width:0; }
+.relay-watch .re-watch-copy strong { font-size:1rem; }
+.relay-watch .re-watch-copy > span:last-child { grid-column:1 / -1; color:var(--muted); font-size:.8rem; }
+.relay-watch .re-stage .d-screen { border-radius:0 0 var(--radius) var(--radius); }
+.relay-watch .re-presence { padding:.45rem 0 0; }
+@media (max-width:700px) {
+ .relay-voice .re-main,.relay-watch .re-main { width:calc(100% - 1rem); }
+ .relay-voice .re-activity { min-height:0; padding:1rem; }
+ .relay-voice .re-bar { padding:.75rem 1rem; }
+ .relay-watch .re-watch-bar { padding:.45rem .6rem; }
+ .relay-watch .re-watch-copy > span:last-child { font-size:.75rem; }
+ .relay-watch .re-watch-current .ex-person { display:none; }
+}
+/* Keep the activity and picture usable on short, narrow screens by scrolling. */
+@media (max-width:700px) {
+ .relay-watch { height:auto; min-height:var(--stage-height); }
+ .relay-watch .re-main { flex:none; }
+ .relay-watch .re-stage { flex:none; }
+ .relay-watch .re-stage .d-screen { height:auto; min-height:200px; aspect-ratio:16/9; }
+}

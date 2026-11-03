@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark light"><title>LAN / 分享 · 局域网屏幕共享</title><link rel="stylesheet" href="/assets/styles.css"></head>
+<body data-stage="entry"><a class="skip-link" href="#app">跳到主要内容</a>
+<header class="topbar">
+  <div class="brand"><span class="brand-mark" aria-hidden="true">L</span><span>LAN <span class="brand-light">/ 分享</span></span></div>
+  <div class="room-context" hidden><button id="room-menu" class="button room-pill" type="button" aria-haspopup="dialog"><span id="topbar-room-name">房间</span><span id="topbar-room-count"></span><span data-icon="chevron-down"></span></button><span id="watch-source" class="room-source"></span></div>
+  <div class="topbar-right"><span id="connection-status" class="status-pill" role="status" data-state="neutral">正在连接本机服务…</span>
+    <div class="entry-actions"><button id="quick-manual-join" class="button" type="button" data-button-icon="link">手动加入</button><button id="quick-create-room" class="button button-primary" type="button" data-button-icon="plus">创建房间</button></div>
+    <div class="room-top-actions" hidden><button aria-expanded="false" aria-controls="text-panel" class="button" type="button" id="room-text">文字</button><button id="invite-room" class="button" type="button" data-button-icon="link">邀请朋友</button><button id="open-settings" class="button" type="button" data-button-icon="settings">设置</button><button id="leave-room" class="button" type="button" data-button-icon="leave">离开房间</button><button id="end-room" class="button button-danger" type="button" data-button-icon="leave">结束房间</button></div>
+    <button id="entry-settings" class="button icon-button" type="button" aria-label="设置" data-icon="settings"></button>
+  </div>
+</header>
+<main tabindex="-1" id="app" class="shell" data-stage="entry">
+  <p class="error-banner" id="error-message" role="alert" hidden></p>
+  <div id="role-chooser"><section id="discovery-panel" class="discovery-panel" aria-labelledby="nearby-rooms-title">
+    <div class="discovery-heading"><div><h1 id="nearby-rooms-title">附近的房间</h1><p id="discovery-status" class="hint" role="status">正在查找同一局域网的房间…</p></div><button id="refresh-rooms" class="button" type="button" data-button-icon="refresh">刷新</button></div>
+    <div id="discovered-rooms" class="discovered-rooms"></div>
+    <div id="empty-rooms" class="empty-rooms" hidden><span class="empty-mark" data-icon="people" aria-hidden="true"></span><div><h2>附近还没有房间</h2><p>先创建一个房间，邀请朋友一起聊。</p><button id="empty-create-room" class="button button-primary" type="button" data-button-icon="plus">创建房间</button></div></div>
+    <p class="entry-help">没有找到朋友的房间？<button id="choose-viewer" class="button" type="button" data-button-icon="arrow-right">手动加入</button></p>
+    <details class="discovery-help"><summary>未发现房间？查看检查方法与诊断</summary><p class="hint">确认朋友已创建房间并勾选允许发现，两台电脑位于可互通的局域网。若系统提示网络权限，请允许本程序在你信任的网络通信；网络阻止自动查找时仍可手动加入。</p><pre id="discovery-diagnostics">正在读取查找状态…</pre><button id="copy-discovery-diagnostics" class="button button-light" type="button">复制查找诊断</button></details>
+  </section></div>
+  <section id="room-panel" class="room-layout" hidden>
+    <div class="room-main">
+      <div class="room-heading"><div><span id="role-label" class="eyebrow">房间</span><h1 id="room-heading-title">房间</h1></div><div id="room-actions"><button id="browse-rooms" class="button" type="button" data-button-icon="arrow-left">返回房间列表</button></div></div>
+      <form aria-label="创建房间" hidden class="panel invite-panel" id="host-panel">
+          <div class="panel-heading"><div><h2>给朋友留一个位置</h2></div><span class="panel-icon" aria-hidden="true">↗</span></div>
+          <label class="room-name-label">房间名（可不填）<input id="room-name" type="text" maxlength="32" placeholder="例如：今晚一起玩" autocomplete="off"></label>
+          <label class="room-visibility"><input id="room-discoverable" type="checkbox" checked>允许同一局域网发现并直接加入</label>
+          <button id="create-room" class="button button-primary" type="submit">创建新房间</button>
+          <details class="manual-invite"><summary>备用：手动加入信息</summary><div class="invite-card" hidden>
+            <div class="invite-code"><span>房间码</span><strong id="room-code">——</strong></div>
+            <div class="invite-network"><span>房主局域网地址</span><strong><input id="host-address" readonly aria-label="房主局域网地址"> <b>:</b> <input id="host-port" readonly aria-label="信令端口"></strong></div>
+            <button id="copy-invite" class="button button-light" type="button">复制加入信息</button>
+          </div></details>
+          <p class="hint">房主负责维持房间，任何成员都可轮流共享。换人开播无需更改加入信息。</p>
+        </form>
+      <form aria-label="手动加入" hidden class="panel join-panel" id="viewer-panel">
+          <div class="panel-heading"><div><h2>输入朋友的加入信息</h2></div><span class="panel-icon" aria-hidden="true">⌕</span></div>
+          <div class="form-grid"><label>房主局域网 IPv4<input pattern="(?:[0-9]{1,3}\.){3}[0-9]{1,3}" id="join-address" type="text" inputmode="decimal" placeholder="例如 192.168.1.20" autocomplete="off"></label><label>信令端口<input id="join-port" type="number" min="1" max="65535" placeholder="例如 45678"></label><label class="full-field">房间码<input id="join-code" type="text" maxlength="8" placeholder="8 位房间码" autocomplete="off"></label></div>
+          <button id="join-room" class="button button-primary" type="submit">加入房间</button>
+          <p class="hint">麦克风稍后单独开启；拒绝麦克风权限仍可接收画面和房间语音。</p>
+        </form>
+      <section id="share-panel" class="media-panel" hidden><h1 class="sr-only watch-title" id="watch-title">共享画面</h1>
+        <section id="voice-stage" class="orbit-room" aria-labelledby="voice-title"><div class="voice-intro"><div><p class="eyebrow">房间语音</p><h1 id="voice-title">围坐在一起</h1></div><button id="voice-sound" class="button" type="button" data-button-icon="headphones">声音设置</button></div>
+          <div class="orbit-table"><div id="members" class="member-list" role="group" aria-label="房间里的成员"></div><div id="voice-activity" class="voice-activity"><div class="activity-mark" data-icon="screen" aria-hidden="true"></div><h2 id="voice-activity-title">还没有人共享</h2><p id="voice-stage-message">先聊着，任何人都可以开始共享。</p><div id="voice-share-slot"></div><div id="voice-view-slot"></div><button id="share-options" class="text-button" type="button">共享画质与声音选项</button></div></div>
+        </section>
+        <div class="screen-stage"><video id="remote-screen" autoplay playsinline muted aria-label="成员共享画面"></video><div class="screen-placeholder"><span class="empty-mark" data-icon="screen" aria-hidden="true"></span><strong id="presentation-status">等待共享画面</strong><span id="screen-wait-message">连接就绪后会显示画面</span></div><div class="screen-label" id="screen-source-label"></div><div class="fullscreen-slot"><button id="fullscreen-screen" class="button" type="button" aria-pressed="false" disabled data-button-icon="fullscreen">全屏观看</button></div></div>
+        <video id="local-preview" autoplay playsinline muted hidden aria-label="主播本机静音预览"></video>
+        <div role="group" class="room-controls" aria-label="房间主要操作"><div class="audio-controls"><div id="mic-home"><button id="toggle-mic" class="button" type="button" aria-pressed="false">开启麦克风</button></div><button hidden id="enable-audio" class="button" type="button" data-button-icon="speaker">启用声音</button><div id="view-home"><button id="voice-only" class="button" type="button" aria-pressed="false" data-button-icon="headphones">只聊语音</button></div><div id="share-home"><div id="host-share-controls" class="host-share-controls" hidden><div class="button-row"><button id="start-share" class="button button-primary" type="button">共享我的屏幕</button><button id="stop-share" class="button button-danger" type="button" disabled>停止共享</button></div><p id="sharing-permission" class="hint"></p></div></div></div><button aria-expanded="false" aria-controls="text-panel" class="button" type="button" id="watch-text">文字</button><button id="watch-sound" class="button sound-button" type="button" data-button-icon="speaker" aria-haspopup="dialog">声音</button><p id="voice-only-warning" class="hint" hidden>选择只聊语音会停止你的共享，麦克风状态保留。</p></div>
+      <aside aria-labelledby="text-title" hidden class="text-panel" id="text-panel"><div class="dialog-heading"><h2 id="text-title">房间文字</h2><button id="close-text" class="button icon-button" aria-label="关闭文字面板" type="button" data-icon="close"></button></div><p id="text-connection" class="hint" role="status">朋友加入后就可以发送文字。</p><div tabindex="0" aria-relevant="additions" aria-live="polite" aria-label="房间文字消息" role="log" id="text-log"></div><form id="text-form"><label for="text-input">消息</label><textarea id="text-input" rows="3" maxlength="1000" aria-describedby="text-input-help" placeholder="不开麦，也可以一起聊"></textarea><p id="text-input-help" class="hint">最多 500 字。Enter 发送，Shift+Enter 换行。</p><p id="text-error" role="alert" class="error-banner" hidden></p><button id="send-text" class="button button-primary" type="submit" disabled>发送</button></form><p class="hint text-privacy">文字只发给房间里的成员；本机仅保留最近 100 条，离开房间或刷新页面后清空。</p></aside></section>
+    </div>
+  </section>
+</main>
+<dialog aria-labelledby="sound-dialog-title" id="sound-dialog" class="room-dialog sound-dialog"><div class="dialog-heading"><h2 id="sound-dialog-title">你听到的声音</h2><button class="button icon-button" type="button" data-close-dialog="" aria-label="关闭声音面板" data-icon="close"></button></div><p hidden role="alert" class="dialog-feedback error-banner"></p><div role="group" id="audio-sources" class="audio-sources" aria-label="成员与系统音频音量控制"></div><p id="sound-empty" class="hint">等待其他成员的语音来源。</p><p class="hint">只调整你在本机听到的声音，其他人的音量不受影响。</p></dialog>
+<dialog aria-labelledby="members-dialog-title" id="members-dialog" class="room-dialog"><div class="dialog-heading"><h2 id="members-dialog-title">房间里的成员</h2><button class="button icon-button" type="button" data-close-dialog="" aria-label="关闭成员面板" data-icon="close"></button></div><p hidden role="alert" class="dialog-feedback error-banner"></p><div id="watch-members-slot"><div id="member-summary" role="group" aria-label="当前房间成员"></div></div><p class="hint">声音只影响本机收听。</p><button id="members-sound" class="button" type="button">调节声音</button></dialog>
+<dialog aria-labelledby="invite-dialog-title" id="invite-dialog" class="room-dialog"><div class="dialog-heading"><h2 id="invite-dialog-title">邀请朋友</h2><button class="button icon-button" type="button" data-close-dialog="" aria-label="关闭邀请面板" data-icon="close"></button></div><p hidden role="alert" class="dialog-feedback error-banner"></p><p>朋友运行程序后，可以在附近房间中加入。也可使用下方信息手动加入。</p><div id="invite-content"></div></dialog>
+<dialog aria-labelledby="settings-dialog-title" id="settings-dialog" class="room-dialog settings-dialog"><div class="dialog-heading"><h2 id="settings-dialog-title">设置</h2><button class="button icon-button" type="button" data-close-dialog="" aria-label="关闭设置面板" data-icon="close"></button></div><p hidden role="alert" class="dialog-feedback error-banner"></p><p class="hint appearance-note">外观跟随系统。观看共享画面时，界面会调暗，方便专注内容。</p><div class="room-settings"><section aria-labelledby="sharing-settings-title" class="settings-basic"><h3 id="sharing-settings-title">共享</h3><label>共享模式<select id="share-mode"><option value="limited">画面 + 语音（无游戏声音）</option><option value="combined">画面 + 屏幕系统音频 + 语音</option></select></label><div class="media-controls">
+            <label class="select-control">我的共享画质<select id="quality-target"><option value="1080p60">1080p · 60 FPS</option><option value="720p60">720p · 60 FPS</option><option value="720p30">720p · 30 FPS</option></select></label>
+            
+          </div><label class="room-visibility"><input id="share-cursor" type="checkbox">共享我的鼠标（浏览器支持时生效）</label><p id="system-audio-note" class="hint" role="status">当前未共享系统声音；选择含系统声音的模式后，可以直接开始共享。</p><button id="stop-system-audio" class="button button-secondary" type="button" disabled>停止共享系统声音</button></section><details class="settings-section"><summary>连接与兼容性诊断</summary>            
+          
+          <p id="actual-stats" class="stats-line">实际统计：等待媒体连接</p>
+          <p id="capture-stats" class="stats-line" hidden></p>
+          <p id="performance-hint" class="hint" hidden></p>
+          <div class="button-row"><button id="copy-media-diagnostics" class="button button-light" type="button">复制媒体诊断</button></div>
+          <p class="hint">全屏游戏期间也会保留统计。主播玩一会儿后返回这里，点“复制媒体诊断”即可带上那段记录，不必在游戏中切回来读数。</p>
+          <details class="discovery-help"><summary>浏览器到后台就掉帧？后台直播检查</summary><p class="hint">先保持相同画面和画质，只改变前后台状态作对比。若切回前台就恢复，在主播 Edge 的“设置 → 系统和性能 → 性能”中临时关闭节能/效率模式，再试一次；也可把当前页面加入“始终保持这些站点处于活动状态”。睡眠标签页例外与 Windows 进程效率策略并不完全相同，不能保证某一项设置就能解决。</p><button id="copy-background-site" class="button button-light" type="button">复制当前页面地址供添加例外</button><p class="hint">启动端口变化后，浏览器可能需要重新添加当前地址。软件不会替你改浏览器设置。测试后点“复制媒体诊断”保留前后台记录。<a href="https://support.microsoft.com/en-us/edge/learn-about-performance-features-in-microsoft-edge" target="_blank" rel="noopener noreferrer">Edge 官方性能说明</a></p></details>
+          <p class="hint">如果 Edge 仍在后台，播放 Steam 等其他应用的视频就能恢复帧率，说明并非固定的后台 30 FPS 上限。请记录播放前后的媒体诊断，以区分采集帧率与发送限制；不用额外播放视频维持直播。</p>
+            
+            
+            <div class="isolation-box"><span>屏幕声音隔离</span><strong id="isolation-status" data-state="unverified">未验证</strong><p>浏览器设置只能说明约束已应用，不能证明真实声音没有回灌。</p><details><summary>系统声音兼容性诊断</summary><pre id="system-audio-diagnostics">尚未尝试屏幕系统声音。</pre></details></div>
+            <div id="manual-check" class="manual-check"><button id="manual-verify-start" class="button button-light" type="button" disabled>检查是否回声（可选）</button><div id="manual-checklist" hidden><p id="manual-check-status"></p><div class="button-row"><button id="manual-verify-pass" class="button button-primary" type="button">听感正常</button><button id="manual-verify-fail" class="button button-secondary" type="button">听到了回声</button></div></div></div>
+            <span id="quality-target-text" class="target-note">目标 1080p60 · 初始发送参数，实际效果以统计为准</span></details></div><div class="settings-footer"><p class="hint">媒体在局域网内点对点传输。房主退出会结束房间。</p><button id="exit-program" class="button button-danger" type="button">退出本机程序</button></div></dialog><dialog aria-describedby="confirm-description" aria-labelledby="confirm-title" role="alertdialog" class="room-dialog confirm-dialog" id="confirm-dialog"><h2 id="confirm-title"></h2><p id="confirm-description"></p><div class="button-row confirm-actions"><button id="confirm-cancel" class="button" type="button" autofocus>取消</button><button id="confirm-accept" class="button button-danger" type="button"></button></div></dialog>
+<div id="audio-stash" hidden></div><p id="ui-announcement" class="sr-only" role="status" aria-live="polite"></p>
+<script type="module" src="/assets/app.js"></script>
+</body></html>
+
+
+
+
+
+
+

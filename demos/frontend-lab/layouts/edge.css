@@ -1,0 +1,175 @@
+.edge-entry,.edge-voice,.edge-watch{color:var(--ink);background:var(--surface);font-family:var(--font-ui);min-height:100%;}
+.edge-entry *, .edge-voice *, .edge-watch *{box-sizing:border-box}
+.edge-entry :focus-visible,.edge-voice :focus-visible,.edge-watch :focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+.edge-discovery{width:min(880px,calc(100% - 48px));margin:clamp(48px,9vh,110px) auto 80px}
+.edge-discovery-heading{display:flex;justify-content:space-between;align-items:end;gap:24px;padding-bottom:28px;border-bottom:1px solid var(--line)}
+.edge-eyebrow{display:block;color:var(--muted);font-size:.78rem;font-weight:700;letter-spacing:.12em}
+.edge-discovery h1,.edge-voice h1,.edge-empty-stage h1{font-family:var(--font-display);font-size:clamp(1.8rem,3vw,2.7rem);line-height:1.15;margin:12px 0}
+.edge-discovery p,.edge-voice p,.edge-empty-stage p{color:var(--muted);line-height:1.6;margin:0}
+.edge-room-row{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:22px 0;border-bottom:1px solid var(--line)}
+.edge-room-row>div{min-width:0;overflow-wrap:anywhere}.edge-room-row>.d-button{flex:none}
+.edge-room-row strong,.edge-room-row span,.edge-list-message span{display:block}
+.edge-room-row span,.edge-list-message span{color:var(--muted);font-size:.9rem;margin-top:6px}
+.edge-list-message{padding:44px 0;border-bottom:1px solid var(--line)}
+.edge-list-message .d-button{margin-top:18px}
+.edge-entry-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:28px}
+.edge-voice,.edge-watch{position:relative;display:flex;flex-direction:column;min-height:var(--stage-height,690px)}
+.edge-room-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 20px;background:var(--surface);z-index:2}
+.edge-room-identity,.edge-room-actions{display:flex;align-items:center;gap:10px}
+.edge-room-identity{flex:1;min-width:0;flex-wrap:wrap}.edge-room-actions{flex:none}
+.edge-brand{flex:none;font-weight:800;font-size:.78rem;letter-spacing:.04em;white-space:nowrap}.edge-brand span{color:var(--muted);font-weight:500}
+.edge-room-pill{display:inline-flex;align-items:center;gap:6px;min-width:0;max-width:100%;overflow:hidden}.edge-room-pill>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.edge-room-pill svg{flex:none}
+.edge-status{font-size:.78rem;color:var(--muted)}
+.edge-room-identity .d-button{border-radius:999px}
+.edge-voice-main{display:grid;place-items:center;flex:1;padding:40px 24px}
+.edge-voice-content{width:min(600px,100%);text-align:center}
+.edge-voice-content>p{max-width:500px;margin:0 auto}
+.edge-people{display:flex;justify-content:center;gap:12px;flex-wrap:wrap;margin:38px 0}
+.edge-person{display:inline-flex;align-items:center;gap:9px;border:1px solid var(--line);border-radius:999px;padding:6px 13px 6px 6px;background:var(--surface-raised);font-size:.9rem}
+.edge-person-mark{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:var(--surface-soft);font-weight:700}
+.edge-voice-content .edge-voice-hint{margin:0 auto 20px}
+.edge-controls{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.edge-voice>.edge-controls{justify-content:center;padding:16px 20px;background:var(--surface-raised);border-top:1px solid var(--line)}
+.edge-stage{display:flex;align-items:center;justify-content:center;flex:1;min-height:0;background:#080a0d}
+.edge-stage .d-screen{width:100%;max-height:calc(100vh - 142px);aspect-ratio:16/9}
+.edge-stage .d-screen-image{width:100%;height:100%;object-fit:contain}
+.edge-empty-stage{display:grid;place-items:center;width:100%;min-height:360px;aspect-ratio:16/9;background:var(--surface-soft);text-align:center;padding:30px}
+.edge-empty-stage p{margin-bottom:22px}
+.edge-notice{position:absolute;top:76px;left:50%;transform:translateX(-50%);z-index:3;max-width:calc(100% - 32px)}
+.edge-watch-bottom{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 20px;background:var(--surface);z-index:2}
+.edge-watch .edge-stage .d-screen{max-height:calc(100vh - 70px)}
+.edge-watch-controls{position:absolute;inset:0;pointer-events:none;z-index:4}
+.edge-watch-controls .d-controls{position:absolute;left:16px;right:16px;bottom:16px;display:grid;grid-template-columns:auto auto 1fr auto auto;grid-template-areas:'mic view . share sound';align-items:end;gap:8px;pointer-events:none}
+.edge-watch-controls .d-control--mic{grid-area:mic}.edge-watch-controls .d-control--view{grid-area:view}.edge-watch-controls .d-control--share{grid-area:share}.edge-watch-controls .d-control--sound{grid-area:sound}
+.edge-watch-controls .d-control--settings{position:absolute;left:0;bottom:56px}
+.edge-watch-controls .d-controls .d-button{pointer-events:auto;background:var(--surface-raised);color:var(--ink);border:1px solid var(--line);box-shadow:var(--shadow);opacity:.88}
+.edge-watch-controls .d-controls .d-control--share,.edge-watch-controls .d-controls .d-button:hover,.edge-watch-controls .d-controls .d-button:focus-visible,.edge-watch-controls .d-controls:focus-within .d-button{opacity:1}
+.edge-watch-controls .d-controls .d-button:disabled{opacity:.5;box-shadow:none;cursor:not-allowed}
+@media(max-width:700px){.edge-discovery{width:calc(100% - 32px);margin-top:48px}.edge-discovery-heading{align-items:flex-start}.edge-room-bar{padding:10px 12px}.edge-room-actions{gap:4px}.edge-watch-bottom{padding:10px 12px;align-items:flex-end;flex-wrap:wrap}.edge-stage .d-screen{max-height:none}.edge-empty-stage{min-height:260px}.edge-voice-main{padding:32px 16px}.edge-status{width:100%;padding-left:8px}.edge-room-row{align-items:flex-start}.edge-notice{top:100px}}
+@media(prefers-reduced-motion:reduce){.edge-entry *, .edge-voice *, .edge-watch *{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+@media(max-width:700px){.edge-room-identity{flex-wrap:nowrap}.edge-room-pill{flex:1}.edge-status{display:none}}
+@media(max-width:700px){.edge-watch-controls .d-controls{left:10px;right:10px;bottom:10px;grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-areas:'mic share' 'view sound';justify-items:start}.edge-watch-controls .d-control--share,.edge-watch-controls .d-control--sound{justify-self:end}.edge-watch-controls .d-control--settings{bottom:108px}}
+@media(max-width:700px){.edge-watch .edge-room-bar{flex-wrap:wrap}.edge-watch .edge-room-identity{flex:1 1 120px}.edge-watch .edge-room-actions{flex-wrap:wrap}}
+
+/* Fit the entire frame inside the current preview rather than below the fold. */
+.edge-watch { height: var(--stage-height, 690px); min-height: 0; }
+.edge-watch .edge-stage { overflow: hidden; flex: 1 1 0; min-height: 0; }
+.edge-watch .edge-stage .d-screen { height: 100%; max-height: 100%; min-height: 0; aspect-ratio: auto; margin: 0; }
+.edge-watch .edge-stage .d-screen-image { width: 100%; height: 100%; object-fit: contain; }
+.edge-watch .edge-watch-controls .d-controls .d-button {
+  background: #151a20eb; color: #f6f6f4; border-color: #ffffff30;
+  box-shadow: 0 3px 14px #0002; opacity: 1;
+}
+.edge-watch .edge-watch-controls .d-controls .d-button:hover { background: #30353df5; }
+.edge-watch .edge-watch-controls .d-controls .d-button:disabled { opacity: .6; }
+.edge-watch .edge-watch-controls .d-control--settings { left: auto; right: 0; bottom: 56px; }
+.edge-watch .edge-watch-controls .d-controls .d-danger { color: #ffc3b5; border-color: #c77c6860; }
+@media (max-width: 700px) {
+  .edge-watch-controls .d-controls { gap: 6px; }
+  .edge-watch-controls .d-controls .d-button { padding: 8px; min-height: 40px; font-size: 11px; }
+  .edge-watch .edge-watch-controls .d-control--settings { bottom: 98px; }
+  .edge-watch .edge-room-bar { gap: 6px; padding: 10px; }
+  .edge-room-actions .d-button { padding: 7px 9px; font-size: 11px; }
+  .edge-brand { display: none; }
+  .edge-room-pill { max-width: 185px; }
+}
+/* 观看时画面是主空间；动作固定在边缘，不依赖悬停。 */
+.edge-watch .edge-room-bar { flex:none; }
+.edge-watch .edge-stage { flex:1 1 0; min-height:0; }
+.edge-watch .edge-stage .d-screen { display:flex; align-items:center; justify-content:center; width:100%; height:100%; max-height:none; min-height:0; }
+.edge-watch .edge-stage .d-screen-image { width:100%; height:100%; object-fit:contain; }
+.edge-watch .edge-empty-stage { width:100%; height:100%; min-height:0; aspect-ratio:auto; }
+.edge-watch .edge-action-bar { flex:none; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px 12px; padding:8px 16px; background:var(--surface); border-top:1px solid var(--line); }
+.edge-watch .edge-action-left,.edge-watch .edge-action-right { display:flex; align-items:center; flex-wrap:wrap; gap:6px; }
+.edge-watch .edge-action-bar button { min-height:44px; }
+.edge-watch .edge-source-status { position:absolute; top:75px; left:16px; z-index:3; max-width:calc(100% - 32px); padding:7px 10px; border-radius:8px; color:#fff; background:#151a20ed; font-size:12px; line-height:1.4; pointer-events:none; }
+.edge-watch .edge-stage .d-screen-caption { display:none; }
+.edge-watch .edge-notice:has(.d-notice) + .edge-source-status { top:145px; }
+@media(max-width:700px) {
+  .edge-watch .edge-action-bar { padding:6px 8px; gap:5px; }
+  .edge-watch .edge-action-left,.edge-watch .edge-action-right { gap:4px; }
+  .edge-watch .edge-action-bar button { min-height:44px; padding:7px 9px; }
+  .edge-watch .edge-source-status { top:100px; left:8px; max-width:calc(100% - 16px); }
+  .edge-watch .edge-notice:has(.d-notice) + .edge-source-status { top:165px; }
+}
+/* 状态行随顶部内容自然排布，长房名和窄屏不与控件重叠。 */
+.edge-watch .edge-notice { position:static; transform:none; max-width:none; flex:none; }
+.edge-watch .edge-notice:empty { display:none; }
+.edge-watch .edge-source-status { position:static; max-width:none; flex:none; border-radius:0; background:var(--surface-raised); color:var(--ink); padding:5px 16px; }
+.edge-has-offer .edge-controls .d-control--share { display:none; }
+@media(max-width:700px) {
+  .edge-watch .edge-source-status { padding:5px 10px; }
+  .edge-watch .edge-room-identity { min-width:0; }
+  .edge-watch .edge-room-actions { max-width:100%; }
+}
+/* 沉浸观看：深色舞台是共享画面的承载面，外观主题仍独立控制其他阶段。 */
+.edge-watch { background:#080c12; color:#f2f5fa; }
+.edge-watch .edge-room-bar { background:#080c12; padding:12px 24px; gap:10px; }
+.edge-watch .edge-room-identity { min-width:0; }
+.edge-watch .edge-brand { display:none; }
+.edge-watch .edge-room-pill,.edge-watch .edge-room-actions .d-button,.edge-watch .edge-action-bar .d-button { background:#141b25; color:#f2f5fa; border:1px solid #343d4c; border-radius:999px; min-height:44px; padding:9px 15px; box-shadow:none; }
+.edge-watch .edge-room-pill:hover,.edge-watch .edge-room-actions .d-button:hover,.edge-watch .edge-action-bar .d-button:hover { background:#253244; border-color:#779cd5; }
+.edge-watch .edge-room-pill:focus-visible,.edge-watch .edge-room-actions .d-button:focus-visible,.edge-watch .edge-action-bar .d-button:focus-visible { outline:3px solid #a8c9ff; outline-offset:2px; }
+.edge-watch .edge-room-pill { max-width:min(380px,100%); }
+.edge-watch .edge-status { color:#c5cedc; font-size:12px; overflow-wrap:anywhere; }
+.edge-watch .edge-stage { background:#080c12; }
+.edge-watch .edge-action-bar { background:#080c12; border:0; padding:10px 24px; }
+.edge-watch .edge-action-left,.edge-watch .edge-action-right { gap:8px; }
+.edge-watch .edge-action-bar .d-button[data-action="sound"] { border-color:#78aaff; background:#17273c; }
+.edge-watch .edge-action-bar .d-button[data-action="stop-share"] { border-color:#a97270; color:#ffd8d3; }
+.edge-watch .edge-action-bar .d-button:disabled { opacity:.6; }
+.edge-watch .edge-notice .d-notice { margin:0; }
+#product-canvas[data-layout="edge"] .d-popover { color:#f1f4fb; background:#1b222e; border:1px solid #4b5669; border-radius:18px; box-shadow:0 14px 40px #0006; }
+#product-canvas[data-layout="edge"] .d-popover .d-audio-note,#product-canvas[data-layout="edge"] .d-popover output { color:#c4cede; }
+#product-canvas[data-layout="edge"] .d-popover button { color:#f1f4fb; background:#242d3a; border-color:#4b5669; }
+#product-canvas[data-layout="edge"] .d-popover input[type="range"] { accent-color:#77aaff; }
+@media(max-width:700px) {
+  .edge-watch .edge-room-bar { padding:8px 10px; }
+  .edge-watch .edge-room-identity { flex:1 1 100%; }
+  .edge-watch .edge-room-pill { max-width:100%; min-width:0; }
+  .edge-watch .edge-status { display:block; width:auto; padding:0; }
+  .edge-watch .edge-room-actions { justify-content:flex-end; flex-wrap:wrap; }
+  .edge-watch .edge-room-actions .d-button,.edge-watch .edge-action-bar .d-button { min-height:44px; padding:8px 11px; font-size:12px; }
+  .edge-watch .edge-action-bar { padding:7px 10px; gap:6px; }
+}
+/* The picture keeps a dark backing; the surrounding controls follow the chosen visual theme. */
+#product-canvas[data-layout="edge"] { --edge-chrome:#080c12; --edge-face:#141b25; --edge-ink:#f2f5fa; --edge-muted:#c5cedc; --edge-line:#343d4c; --edge-accent:#d5bb86; --edge-accent-face:#29251e; --edge-hover:#2c3038; }
+#product-canvas[data-layout="edge"][data-theme="lounge"] { --edge-chrome:#f7f4ed; --edge-face:#fffdf8; --edge-ink:#2d322f; --edge-muted:#626a65; --edge-line:#d6d4c9; --edge-accent:#a54d37; --edge-accent-face:#f5e6de; --edge-hover:#eee8dc; }
+#product-canvas[data-layout="edge"][data-theme="precision"] { --edge-chrome:#f1f4f7; --edge-face:#fff; --edge-ink:#173043; --edge-muted:#5f7180; --edge-line:#cbd6df; --edge-accent:#007d87; --edge-accent-face:#e2f1f1; --edge-hover:#e4ecf1; }
+#product-canvas[data-layout="edge"][data-theme="clearblue"] { --edge-chrome:#080c12; --edge-face:#171e2a; --edge-ink:#f2f5fa; --edge-muted:#c5cedc; --edge-line:#39485d; --edge-accent:#80aaff; --edge-accent-face:#182b46; --edge-hover:#28384d; }
+.edge-watch { background:var(--edge-chrome); color:var(--edge-ink); }
+.edge-watch .edge-room-bar,.edge-watch .edge-action-bar { background:var(--edge-chrome); }
+.edge-watch .edge-room-pill,.edge-watch .edge-room-actions .d-button,.edge-watch .edge-action-bar .d-button { color:var(--edge-ink); background:var(--edge-face); border-color:var(--edge-line); }
+.edge-watch .edge-room-pill:hover,.edge-watch .edge-room-actions .d-button:hover,.edge-watch .edge-action-bar .d-button:hover { background:var(--edge-hover); border-color:var(--edge-accent); }
+.edge-watch .edge-status { color:var(--edge-muted); }
+.edge-watch .edge-action-bar .d-button[data-action="sound"] { color:var(--edge-ink); border-color:var(--edge-accent); background:var(--edge-accent-face); }
+.edge-watch .edge-room-pill:focus-visible,.edge-watch .edge-room-actions .d-button:focus-visible,.edge-watch .edge-action-bar .d-button:focus-visible { outline-color:var(--edge-accent); }
+#product-canvas[data-layout="edge"] .d-popover { color:var(--edge-ink); background:var(--edge-face); border-color:var(--edge-line); }
+#product-canvas[data-layout="edge"] .d-popover .d-audio-note,#product-canvas[data-layout="edge"] .d-popover output { color:var(--edge-muted); }
+#product-canvas[data-layout="edge"] .d-popover button { color:var(--edge-ink); background:var(--edge-face); border-color:var(--edge-line); }
+#product-canvas[data-layout="edge"] .d-popover input[type="range"] { accent-color:var(--edge-accent); }
+#product-canvas[data-layout="edge"] .d-audio-compact { gap:12px; }
+#product-canvas[data-layout="edge"] .d-audio-compact .d-audio-row { grid-template-columns:22px minmax(0,105px) minmax(0,1fr) 46px; grid-template-areas:"icon label range value"; gap:8px; }
+#product-canvas[data-layout="edge"] .d-audio-kind { grid-area:icon; display:inline-flex; color:var(--edge-muted); }
+#product-canvas[data-layout="edge"] .d-popover h2 { font-size:19px; }
+#product-canvas[data-layout="edge"] .d-audio-compact label { grid-area:label; font-size:14px; line-height:1.4; }
+#product-canvas[data-layout="edge"] .d-audio-compact output { grid-area:value; text-align:right; font-size:13px; }
+#product-canvas[data-layout="edge"] .d-audio-compact .d-audio-range { grid-area:range; min-width:0; gap:4px; }
+#product-canvas[data-layout="edge"] .d-audio-compact .d-audio-range .d-button { flex:none; width:44px; min-width:44px; padding:6px; }
+#product-canvas[data-layout="edge"] .d-audio-compact .d-audio-range .d-button > span:not(.d-icon) { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
+@media(max-width:420px) {
+  #product-canvas[data-layout="edge"] .d-audio-compact .d-audio-row { grid-template-columns:20px minmax(0,1fr) 46px; grid-template-areas:"icon label value" ". range range"; gap:4px 8px; }
+}
+@media(max-width:700px) {
+  .edge-watch .edge-action-bar { flex-wrap:nowrap; align-items:flex-end; }
+  .edge-watch .edge-action-left { flex:1 1 0; min-width:0; }
+  .edge-watch .edge-action-right { flex:0 0 auto; }
+}
+@media (min-width:1000px) and (min-height:850px) {
+  #product-canvas .edge-watch .edge-room-pill,
+  #product-canvas .edge-watch .edge-room-actions .d-button,
+  #product-canvas .edge-watch .edge-action-bar .d-button { min-height:54px; padding:10px 18px; font-size:16px; }
+  #product-canvas .edge-watch .edge-status { font-size:14px; }
+  #product-canvas[data-layout="edge"] .d-audio-compact label { font-size:15px; }
+  #product-canvas[data-layout="edge"] .d-audio-compact output { font-size:14px; }
+}

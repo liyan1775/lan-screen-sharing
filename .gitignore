@@ -1,0 +1,14 @@
+/dist/*.exe
+/dist/*.exe~
+/dist/局域网屏幕共享-*-公开测试版/
+/dist/局域网屏幕共享-*-公开测试版.zip
+/dist/局域网屏幕共享-*-公开测试版.zip.sha256
+/node_modules/
+/.superpowers/
+/dist/release-*/
+/docs/design-research/visual-fidelity-baseline/
+/docs/design-research/apple-hig-qa/*.png
+/docs/design-research/apple-hig-qa/axe-initial.json
+/.superpowers/sdd/lan-screen-sharing/build/
+/.superpowers/sdd/2026-11-02-audio-priority/
+/.superpowers/sdd/**/*.diff

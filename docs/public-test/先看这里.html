@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>局域网屏幕共享 · 公开测试使用说明 0.2.2</title>
+  <style>
+    :root { color-scheme: light; --ink:#18372d; --muted:#57675f; --green:#176244; --line:#dce6df; --paper:#fff; --wash:#f3f7f4; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--ink); background:var(--wash); font:17px/1.85 "Microsoft YaHei","PingFang SC",system-ui,sans-serif; }
+    a { color:var(--green); text-underline-offset:.2em; }
+    a:focus-visible { outline:3px solid #c58826; outline-offset:4px; }
+    .wrap { max-width:1060px; margin:auto; padding:34px 26px 60px; }
+    .brand { display:flex; align-items:center; gap:12px; margin-bottom:28px; font-size:15px; }
+    .logo { display:grid; place-items:center; width:34px; height:34px; border-radius:9px; background:var(--green); color:white; font-weight:700; }
+    .badge { margin-left:auto; border:1px solid #c9dacf; border-radius:99px; padding:3px 12px; background:#fff; font-size:13px; }
+    header { padding:34px; border-radius:20px; background:var(--paper); border:1px solid var(--line); }
+    .eyebrow { color:var(--green); font-size:14px; letter-spacing:.12em; }
+    h1 { margin:12px 0 16px; font-size:clamp(30px,5vw,48px); line-height:1.3; letter-spacing:-.03em; }
+    .lead { margin:0; font-size:20px; color:var(--muted); }
+    .facts { display:flex; flex-wrap:wrap; gap:8px; margin:24px 0 0; padding:0; list-style:none; }
+    .facts li { padding:5px 12px; border-radius:7px; background:var(--wash); font-size:15px; }
+    .note { border-left:4px solid #d09b39; background:#fff8e9; padding:15px 20px; margin:22px 0; border-radius:0 10px 10px 0; color:#584626; }
+    .note p { margin:0; }
+    nav { display:flex; flex-wrap:wrap; gap:10px 22px; padding:20px 4px; font-size:15px; }
+    section { margin-top:22px; padding:30px 34px; border:1px solid var(--line); border-radius:16px; background:var(--paper); scroll-margin-top:20px; }
+    .section-tag { font-size:13px; color:var(--green); letter-spacing:.12em; }
+    h2 { margin:5px 0 16px; font-size:27px; line-height:1.4; }
+    h3 { margin:24px 0 8px; font-size:20px; }
+    p { margin:12px 0; }
+    ol,ul { padding-left:26px; }
+    li { margin:9px 0; }
+    .steps { list-style:none; padding:0; counter-reset:step; }
+    .steps>li { position:relative; padding:3px 0 20px 48px; counter-increment:step; border-bottom:1px solid var(--line); margin:18px 0 0; }
+    .steps>li:last-child { border:0; padding-bottom:0; }
+    .steps>li::before { content:counter(step); position:absolute; left:0; top:3px; display:grid; place-items:center; width:32px; height:32px; border-radius:50%; background:#e5f0e9; color:var(--green); font-weight:700; }
+    .steps strong { display:block; font-size:19px; }
+    .ui { white-space:normal; display:inline; font-weight:600; color:#174f39; }
+    .file { font-weight:600; overflow-wrap:anywhere; }
+    .hint { color:var(--muted); font-size:15px; }
+    .example { padding:18px 22px; background:var(--wash); border:1px dashed #b8cebe; border-radius:10px; margin:16px 0; }
+    .example dl { display:grid; grid-template-columns:130px 1fr; margin:8px 0 0; gap:4px 16px; }
+    dt { color:var(--muted); } dd { margin:0; font-weight:600; overflow-wrap:anywhere; }
+    .table-wrap { overflow:auto; }
+    table { width:100%; border-collapse:collapse; font-size:16px; }
+    th,td { text-align:left; vertical-align:top; padding:13px 12px; border-bottom:1px solid var(--line); }
+    th { background:var(--wash); font-weight:600; }
+    td:first-child { min-width:145px; font-weight:600; }
+    .checklist { list-style:none; padding:0; }
+    .checklist li::before { content:"□"; color:var(--green); font-weight:700; margin-right:10px; }
+    footer { padding:25px 4px 0; color:var(--muted); font-size:14px; }
+    @media(max-width:620px) { .wrap { padding:20px 14px 40px; } header,section { padding:24px 20px; } .lead { font-size:18px; } .steps>li { padding-left:42px; } .example dl { grid-template-columns:1fr; gap:0; } dd { margin-bottom:10px; } }
+    @media print { body { background:white; font-size:11pt; color:#000; } .wrap { max-width:none; padding:0; } header,section { border:0; border-radius:0; padding:12pt 0; } h1 { font-size:27pt; } h2 { font-size:19pt; } nav { display:none; } section { margin-top:12pt; } h2,h3 { break-after:avoid; } .steps>li,tr,.note { break-inside:avoid; } a { color:inherit; } }
+  </style>
+</head>
+<body>
+<main class="wrap">
+  <div class="brand"><span class="logo" aria-hidden="true">L</span><strong>局域网屏幕共享</strong><span class="badge">0.2.2 · 公开测试版</span></div>
+  <header>
+    <div class="eyebrow">先看这里 · 不需要编程知识</div>
+    <h1>谁想开播谁来播，也能只聊语音。</h1>
+    <p class="lead">每个人在自己的电脑上打开程序，再按下面的步骤创建或加入房间。</p>
+    <ul class="facts"><li>最多三人 · 任意成员轮流共享</li><li>同一局域网</li><li>Windows x64 电脑</li><li>桌面版 Chrome / Edge</li><li>解压即用</li></ul>
+  </header>
+  <aside class="note" aria-label="测试版说明"><p><strong>这是 0.2.2 系统声音优先测试包。</strong>选择含系统声音的模式即可直接开始；隔离未确认也不会拦截，听感检查改为可选。后台降帧增加了具体排查步骤，尚不能宣称已修复。请所有人使用同一个新包。默认模式有画面和语音、没有游戏声音；需要游戏声时按第 04 节切换模式。</p></aside>
+  <nav aria-label="说明目录"><a href="#prepare">① 准备</a><a href="#host">② 创建房间</a><a href="#viewer">③ 加入与开播</a><a href="#game-audio">④ 试游戏声音</a><a href="#exit">⑤ 停止与退出</a><a href="#help">遇到问题</a><a href="#feedback">帮忙测什么</a></nav>
+
+  <section id="prepare">
+    <div class="section-tag">01 / 每个人都要做</div><h2>先解压，再打开程序</h2>
+    <ol class="steps">
+      <li><strong>把同一个压缩包发给参加测试的朋友。</strong>每人都要在自己的 Windows x64 电脑上操作。连接同一个家庭网络或可互通的局域网；一人连 Wi-Fi、另一人插同一路由器网线也可以测试。不同城市、手机流量、访客 Wi-Fi 不适合这次测试。</li>
+      <li><strong>完整解压压缩包。</strong>在压缩包上右键，选择“全部解压缩”，进入解压后的文件夹。不要直接在压缩包里运行程序。</li>
+      <li><strong>双击 <span class="file">局域网屏幕共享.exe</span>。</strong>程序会尝试打开本机浏览器。无需安装 Go、Node 或任何编程工具；每台电脑先运行一次即可。</li>
+      <li><strong>用 Chrome 或 Edge 打开程序页面。</strong>若弹出手动打开的提示，把其中的地址复制到 Chrome 或 Edge 地址栏。若默认浏览器不是这两种，也可把已打开页面的地址复制过去。地址每次启动可能不同。</li>
+    </ol>
+    <p class="hint">“localhost”表示你自己的电脑，朋友不能用它加入。正常情况下在房间列表直接加入即可；自动发现不可用时再使用房主提供的备用加入信息。本说明是离线文件，可以随时双击打开，也可以用浏览器的打印功能打印。</p>
+  </section>
+
+  <section id="host">
+    <div class="section-tag">02 / 创建者操作</div><h2>先创建房间，邀请朋友</h2>
+    <ol class="steps">
+      <li><strong>点击首页的“创建房间”，可填一个房间名，再点击“创建新房间”。</strong>默认允许同一局域网的人发现并直接加入；若不希望出现在列表中，创建前取消勾选“允许同一局域网发现并直接加入”。</li>
+      <li><strong>让朋友在首页“附近的房间”里找到你。</strong>稍等几秒，点击房间上的“加入房间”即可，不用填写地址、端口或房间码。房主只负责维持房间，开播者可以换成任何成员；房主退出会结束房间。</li>
+      <li><strong>需要说话时，点击“开启麦克风”。</strong>按浏览器提示允许使用麦克风。麦克风是单独开启的，创建房间不会自动替你打开。</li>
+      <li><strong>保持默认“画面 + 语音（无游戏声音）”。</strong>点击“选择显示器并开始共享”。在浏览器弹出的选择器中，选择<strong class="ui">整个屏幕 / 整个显示器</strong>，再确认共享。不要选某个窗口或某个浏览器标签页。</li>
+      <li><strong>打开游戏，等朋友加入。</strong>任何成员都可以这样开始共享。同一时间一人共享，先停止的人让出位置，下一位无需退房就能开播。共享整块显示器后，切换游戏通常不需要重新选择画面；实际表现仍需验证。切到聊天窗口、桌面或其他软件时，朋友也会看到这些内容，开播前请收起私人信息。</li>
+    </ol>
+    <div class="example"><strong>自动发现不可用时才需要：展开“备用：手动加入信息”并复制给朋友。以下仅为格式示例。</strong><dl><dt>房主局域网 IPv4</dt><dd>192.168.1.20</dd><dt>信令端口</dt><dd>45678</dd><dt>房间码</dt><dd>ABCD2345</dd></dl></div>
+    <p class="hint">公开房间允许同一局域网的成员发现并直接加入，最多三人。关闭公开发现后，邀请码只发给指定朋友；不要把浏览器整段地址当作邀请信息。</p>
+  </section>
+
+  <section id="viewer">
+    <div class="section-tag">03 / 其他成员操作</div><h2>加入后能看、能聊，也能开播</h2>
+    <ol class="steps">
+      <li><strong>先在自己电脑上解压并打开程序。</strong>首页会自动显示“附近的房间”。找到朋友的房间，点卡片上的“加入房间”就能进入，不用填写三项信息。</li>
+      <li><strong>还没有找到房间？稍等几秒，点“刷新列表”。</strong>如果网络不允许自动发现，或房主没有公开房间，再点击首页“手动加入”，填朋友提供的房主地址、信令端口和房间码。</li>
+      <li><strong>想聊天，点击“开启麦克风”。</strong>按浏览器提示允许。只想看和听，可以不开麦；拒绝麦克风权限也不应影响接收。想重新尝试时，点击“重试麦克风”。</li>
+      <li><strong>等待成员共享的画面，或自己开始共享。</strong>有画面后，点画面右下角“全屏观看”，或双击画面；按 Esc 退出全屏。听不到声音时先点“启用声音”，再检查电脑音量和页面里是否把对应声音静音。默认模式没有游戏声音，这不代表出错。</li>
+    </ol>
+    <p><strong>想自己开播：</strong>等当前分享者点“停止屏幕共享”后，直接用同一房间里的“选择显示器并开始共享”。不用换房、不用重新发邀请码。<strong>只想聊天：</strong>不开屏幕共享即可；已有画面时可点“只聊语音”，在本机暂停画面和游戏声，点“恢复观看”返回。自己正开播时点“只聊语音”会停止自己的共享，但保留语音。</p>
+    <p>页面下方可以分别调整<strong>成员语音</strong>和<strong>屏幕系统音频</strong>的音量。关闭自己的麦克风只是不再说话，不等于关闭朋友的语音。</p>
+    <p><strong>鼠标怎么隐藏：</strong>观看区自己的指针停住约一秒半后会隐藏，移动后恢复；当前分享者默认请求不录入鼠标，需要展示时可勾选“共享我的鼠标”。浏览器可能忽略这个采集设置；已经录入视频的指针不会被观看区的隐藏效果抹除。</p>
+  </section>
+
+  <section id="game-audio">
+    <div class="section-tag">04 / 想让朋友听到游戏</div><h2>直接共享系统声音，隔离检查可选</h2>
+    <p><strong>声音隔离不是开播前提。</strong>浏览器只要捕获到系统声音，就可以共享；隔离未知时可能同时包含房间语音，页面会显示状态。无需凑齐三人或先通过人工检查。</p>
+    <ol class="steps">
+      <li><strong>当前分享者先点“停止屏幕共享”。</strong>语音房间继续保留。已经开播时，需要先停止，才能开始下面的专项测试。</li>
+      <li><strong>选择“画面 + 屏幕系统音频 + 语音”，点“选择显示器并开始共享”。</strong>重新选择整个显示器，并勾选浏览器提供的系统声音选项（若有）。仍然共享整屏，不要求锁定某个窗口。</li>
+      <li><strong>让游戏正常发声，朋友就可以听。</strong>隔离不支持、未应用或没报告都不会阻止共享。“系统声音兼容性诊断”会如实显示浏览器返回的结果。</li>
+      <li><strong>想检查回声时，点“检查是否回声（可选）”。</strong>成员轮流说话，记录“听感正常”或“听到了回声”；两种结果都不会自动关闭声音。你想停止时再点“停止共享系统声音”，画面和房间语音继续。</li>
+    </ol>
+    <aside class="note"><p><strong>浏览器没有捕获到系统声音？</strong>这与隔离未确认不同：没有声音来源就无法发送。可以取消后重新选择，并确认系统声音选项；也可点“继续共享画面与语音（无游戏声）”，使用已保留的画面。复制媒体诊断能记录浏览器版本、音轨能力和设置，方便定位。</p></aside>
+    <p class="hint">“浏览器报告约束已应用”不等于你们已经听过并确认正常。耳机可以减少麦克风收到扬声器声音的情况，但不能代替这次“语音有没有被直播重复传回”的检查。</p>
+  </section>
+
+  <section id="exit">
+    <div class="section-tag">05 / 用完怎么关</div><h2>停止画面、离房和退出有什么区别？</h2>
+    <div class="table-wrap"><table><thead><tr><th scope="col">操作</th><th scope="col">会发生什么</th></tr></thead><tbody>
+      <tr><td>停止屏幕共享</td><td>停画面和游戏 / 系统声音，房间语音继续。要继续直播，可重新选择显示器。</td></tr>
+      <tr><td>停止共享系统声音</td><td>只停止直播里的系统声音，画面和成员语音继续；再次共享系统声音时重新开始含声音的屏幕共享。</td></tr>
+      <tr><td>关闭麦克风</td><td>停止自己的语音。仍可观看画面、听别人说话。</td></tr>
+      <tr><td>离开房间</td><td>观众离房，自己的媒体停止，其他人可以继续。</td></tr>
+      <tr><td>结束房间</td><td>房主结束整个房间，观众会收到结束通知。</td></tr>
+      <tr><td>退出程序</td><td>立即结束自己这次程序运行。房主退出时，房间也会结束。</td></tr>
+      <tr><td>关闭最后一个项目标签页</td><td>程序通常会在约 3 秒后退出。如果还有同一程序的其他页面打开，程序会继续运行。只关本说明文件不影响程序。</td></tr>
+    </tbody></table></div>
+    <p class="hint">刷新页面可能需要重新创建或加入房间、重新开启共享。刷新会保留短暂的程序恢复时间，但不承诺正在进行的画面和语音不中断。</p>
+  </section>
+
+  <section id="help">
+    <div class="section-tag">06 / 常见问题</div><h2>遇到问题，先按这一列排查</h2>
+    <div class="table-wrap"><table><thead><tr><th scope="col">看到的情况</th><th scope="col">先试什么</th></tr></thead><tbody>
+      <tr><td>双击后没看到页面</td><td>先看看浏览器有没有在后台打开。若有启动提示，尽快把提示中的本机地址复制到 Chrome / Edge；地址已失效时再打开一次程序。仍打不开，把实际提示发给提供测试包的人，避免连续启动很多次。</td></tr>
+      <tr><td>Windows 或安全软件拦截</td><td>本测试包尚未数字签名。记录提示并交给提供测试包的人核对；不要关闭系统防护来完成测试。</td></tr>
+      <tr><td>附近没有房间</td><td>确认朋友已经创建房间并允许发现，稍等几秒刷新。本版同时尝试广播和组播。仍没有时，双方展开“未发现房间？查看检查方法与诊断”，点“复制查找诊断”发回；系统弹出网络权限提示时，按你们信任的网络设置允许本程序通信。受网络策略限制时仍可手动加入，不需要关闭系统防护。</td></tr>
+      <tr><td>加入失败 / 地址不可用</td><td>确认大家在可互通的同一个网络、使用房主刚发的三项加入信息。不要填 localhost，不要填本说明的示例。避开访客 Wi-Fi；VPN、多个网卡或单位网络限制也可能影响连接，需要时让熟悉网络的人协助。</td></tr>
+      <tr><td>房间已满</td><td>房间最多三个人。让离开的观众点“离开房间”或关闭其程序，等待片刻后再加入。短暂断线的席位最多可能保留约 20 秒。</td></tr>
+      <tr><td>提示等一会儿再加入</td><td>先核对房间码，按页面提示等待后重试，不要连续反复点加入。</td></tr>
+      <tr><td>能看但不能说话</td><td>点“开启麦克风”并允许浏览器使用麦克风；之前拒绝过时，检查该页面的麦克风权限，再点“重试麦克风”。不开麦仍可观看。</td></tr>
+      <tr><td>听不到朋友说话</td><td>先点“启用声音”，检查 Windows 输出设备和音量，再看页面中对应成员是否被静音。也请对方确认麦克风已经开启。</td></tr>
+      <tr><td>能聊天但没有游戏声</td><td>默认是无游戏声音模式；按第 04 节切到含系统声音模式并在浏览器允许。隔离未确认不会阻止声音，但浏览器确实没捕获到声音时，需重新选择或继续无声画面。</td></tr>
+      <tr><td>黑屏 / 画面冻结</td><td>确认分享者选择了整个显示器。若游戏使用独占全屏，可尝试把游戏改成无边框窗口，再保持整屏共享。记录哪个游戏、什么显示模式出了问题。</td></tr>
+      <tr><td>画面卡顿</td><td>分享者先把“目标画质”改为“720p · 30 FPS”，并检查网络。1080p60 是目标，不是保证；反馈时带上页面下方的采集设置、实际采集帧率、每位成员发送 / 接收帧率，以及是否显示“带宽限制 / 编码性能限制”。采集设置 60 不代表实际已经达到 60。</td></tr>
+      <tr><td>只有游戏全屏时降到 20–30 FPS</td><td>分享者先全屏玩约半分钟，再回到网页点“复制媒体诊断”。记录包含最近的前后台历史和区间平均，不会只留下切回后恢复的 59 FPS。可再比较无边框窗口，继续共享整个显示器；编码限制可试 720p60。本版尚未确认已解决所有独占全屏捕获问题。</td></tr>
+      <tr><td>浏览器到后台就掉帧，回前台恢复</td><td>保持同一画面，在主播 Edge → 设置 → 系统和性能 → 性能，暂时关闭节能/效率模式再对比一次；也可把本页完整地址加入“始终保持这些站点处于活动状态”。项目页面“后台直播检查”中可以复制当前地址，启动端口变化后可能需重新添加。这是排查方法，不能保证一次设置即解决；测试后复制媒体诊断发回。</td></tr>
+      <tr><td>Edge 后台时，Steam 视频让帧率恢复</td><td>这表明不是固定的后台 30 FPS 硬上限。记录播放前后“实际采集 / 发送 / 接收”，需要区分画面变化频率、采集和系统调度；不必额外播放视频维持直播，本版尚未确认根因。</td></tr>
+      <tr><td>准星附近多出系统鼠标</td><td>让当前分享者保持“共享我的鼠标”未勾选，再查看媒体诊断里的鼠标实际设置。若仍残留，记录游戏和显示模式并反馈；浏览器可能不支持隐藏已采集的指针。本版对此增加设置与定位，尚未完成实机确认。</td></tr>
+      <tr><td>断线后没有恢复</td><td>短暂断线可先等约 20 秒。仍未恢复时，观众重新加入；房主房间已经结束时，重新建房并发新信息。</td></tr>
+      <tr><td>关了页面，程序还在</td><td>确认同一次程序是否还开着其他项目页面。关掉最后一页后稍等；需要立即退出时，在项目页面点“退出程序”。</td></tr>
+    </tbody></table></div>
+  </section>
+
+  <section id="feedback">
+    <div class="section-tag">07 / 帮忙测一轮，约 10 分钟</div><h2>不用写技术报告，告诉我们真实体验就好</h2>
+    <p>条件允许时，安排三位成员。先测默认模式，再单独测游戏声音；每人轮流开播一次，观察语音是否保持。测试时可以按下面几项记录：</p>
+    <ul class="checklist"><li>房间能否自动出现、点一下能否加入；三个人能否看到画面、互相说话；轮流开播是否无需重新建房。</li><li>持续约 10 分钟，中途至少切换一次游戏或应用，画面和语音是否继续。</li><li>分享者停止屏幕共享后，大家能否继续说话；下一位能否接着开播。</li><li>全屏按钮、双击画面和 Esc 能否正常使用；“只聊语音 / 恢复观看”是否只影响本机观看。</li><li>关闭自己的麦克风、调某个成员音量时，是否只影响对应声音。</li><li>关闭最后一个项目页面后，程序是否自行退出。</li></ul>
+    <p>出现问题时，打开同文件夹的 <a href="测试反馈.txt">测试反馈.txt</a>，按提示填写，再发给给你测试包的人。不会描述也没关系，写“我点了什么，看到 / 听到了什么”即可；未测试的项直接写“未测试”。</p>
+    <p><strong>这次优先看：</strong>未确认隔离时系统声音是否仍能直接共享；可选回声结果是否只记录状态；主动关系统声音后是否保留画面与语音。后台掉帧先做前后台与 Edge 节能设置对照，再复制媒体诊断；记录包含此前的统计，不用边玩边切回读数。</p>
+    <p class="hint">截图前遮住房间码、地址栏和其他私人内容。不要把整段邀请信息发到公开反馈里。仅一台电脑或仅两个人的结果也欢迎反馈，但不能据此认定三人使用与声音隔离已验证。</p>
+  </section>
+  <footer>局域网屏幕共享 0.2.2 公开测试版 · 说明更新于 2026-11-02（中国标准时间）<br>离线说明 · 无需联网加载字体、图片或脚本 · <a href="快速上手.txt">纯文字速查</a> · <a href="版本与校验.txt">版本信息</a></footer>
+</main>
+</body>
+</html>
