@@ -145,6 +145,17 @@ async function collectActualPCStats(page) {
   });
 }
 
+async function waitForActualPCStats(page, predicate, message) {
+  const deadline=Date.now()+10000;
+  let rows=[];
+  while(Date.now()<deadline){
+    rows=await collectActualPCStats(page);
+    if(predicate(rows))return rows;
+    await new Promise(resolve=>setTimeout(resolve,100));
+  }
+  assert.fail(message+': '+JSON.stringify(rows));
+}
+
 async function assertTrackRoleMapping(page, role) {
   const data = await page.evaluate(async () => {
     const messages = window.__lanScreenTest.incoming;
@@ -196,7 +207,7 @@ test('hostPlusTwoViewersExchangeSyntheticTracks', async (t) => withScenario(t, {
   const ids = await memberIds(host);
   assert.equal(new Set(ids).size, 3, 'the room must contain three distinct authenticated peers');
   for (const page of [host, ...viewers]) {
-    const stats = await collectActualPCStats(page);
+    const stats = await waitForActualPCStats(page,rows=>rows.some(item=>item.kind==='video'&&item.bytes>0&&item.frames>0)&&rows.some(item=>item.kind==='audio'&&item.bytes>0),'native media stats must report video frames and audio bytes');
     assert.ok(stats.some((item) => item.kind === 'video' && item.bytes > 0 && item.frames > 0), 'native RTCPeerConnection video stats must show sent/received frames and bytes');
     assert.ok(stats.some((item) => item.kind === 'audio' && item.bytes > 0), 'native RTCPeerConnection audio stats must show real transport bytes');
   }
