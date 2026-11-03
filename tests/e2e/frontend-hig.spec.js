@@ -102,7 +102,11 @@ test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearan
   await settings(host);assert.equal(await host.locator('.settings-section').evaluate(n=>n.open),false,'advanced diagnosis starts collapsed');await capture(host,'06-settings');await axe(host,'settings');
   await trap(host,'settings-dialog');await ax(host,'settings controls');
   await host.locator('#exit-program').click();await host.locator('#confirm-dialog').waitFor({state:'visible'});assert.equal(await host.locator('#confirm-cancel').evaluate(n=>document.activeElement===n),true);await trap(host,'confirm-dialog');await ax(host,'destructive confirmation');await capture(host,'07-exit-confirm');await host.locator('#confirm-cancel').click();
-  assert.equal(await host.locator('#settings-dialog').isVisible(),true);assert.equal(await host.locator('#exit-program').evaluate(n=>document.activeElement===n),true);await closeSettings(host);
+  // Native dialog close dispatches a queued event. Wait for the restored task
+  // before asserting its focus; a click acknowledgment alone is too early.
+  await host.locator('#settings-dialog').waitFor({state:'visible',timeout:3000});
+  await host.waitForFunction(()=>document.activeElement===document.querySelector('#exit-program'),null,{timeout:3000});
+  assert.equal(await host.locator('#exit-program').evaluate(n=>document.activeElement===n),true);await closeSettings(host);
   await host.locator('#end-room').click();await host.locator('#confirm-dialog').waitFor({state:'visible'});await host.locator('#confirm-cancel').press('Escape');assert.equal(await host.locator('body').getAttribute('data-stage'),'voice');
   await settings(host);await host.locator('#share-mode').selectOption('combined');await closeSettings(host);
   await settings(viewer);await viewer.locator('#quality-target').focus();await host.locator('#start-share').click();await viewer.locator('body[data-stage="watch"]').waitFor();assert.equal(await viewer.locator('#settings-dialog').isVisible(),true,'remote sharing preserves the current settings task');assert.equal(await viewer.locator('#quality-target').evaluate(n=>document.activeElement===n),true);await closeSettings(viewer);
