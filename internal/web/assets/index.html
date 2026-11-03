@@ -24,25 +24,33 @@
     <div class="room-main">
       <div class="room-heading"><div><span id="role-label" class="eyebrow">房间</span><h1 id="room-heading-title">房间</h1></div><div id="room-actions"><button id="browse-rooms" class="button" type="button" data-button-icon="arrow-left">返回房间列表</button></div></div>
       <form aria-label="创建房间" hidden class="panel invite-panel" id="host-panel">
-          <div class="panel-heading"><div><h2>给朋友留一个位置</h2></div><span class="panel-icon" aria-hidden="true">↗</span></div>
+          <div class="panel-heading"><div><h2>房间信息</h2></div><span class="panel-icon" aria-hidden="true">↗</span></div>
           <label class="room-name-label">房间名（可不填）<input id="room-name" type="text" maxlength="32" placeholder="例如：今晚一起玩" autocomplete="off"></label>
           <label class="room-visibility"><input id="room-discoverable" type="checkbox" checked>允许同一局域网发现并直接加入</label>
           <button id="create-room" class="button button-primary" type="submit">创建新房间</button>
-          <details class="manual-invite"><summary>备用：手动加入信息</summary><div class="invite-card" hidden>
-            <div class="invite-code"><span>房间码</span><strong id="room-code">——</strong></div>
-            <div class="invite-network"><span>房主局域网地址</span><strong><input id="host-address" readonly aria-label="房主局域网地址"> <b>:</b> <input id="host-port" readonly aria-label="信令端口"></strong></div>
-            <button id="copy-invite" class="button button-light" type="button">复制加入信息</button>
+          <details class="manual-invite"><summary>邀请信息</summary><div class="invite-card" hidden>
+            <label>完整邀请信息<input id="invite-text" type="text" readonly aria-describedby="invite-help"></label>
+            <p id="invite-help" class="hint">复制发给朋友，在“手动加入”中粘贴即可。</p>
+            <button id="copy-invite" class="button button-primary" type="button">复制邀请信息</button>
+            <details class="invite-details"><summary>查看地址、端口和房间码</summary>
+              <div class="invite-code"><span>房间码</span><strong id="room-code">——</strong></div>
+              <div class="invite-network"><span>房主局域网地址</span><strong><input id="host-address" readonly aria-label="房主局域网地址"> <b>:</b> <input id="host-port" readonly aria-label="信令端口"></strong></div>
+            </details>
           </div></details>
           <p class="hint">房主负责维持房间，任何成员都可轮流共享。换人开播无需更改加入信息。</p>
         </form>
       <form aria-label="手动加入" hidden class="panel join-panel" id="viewer-panel">
-          <div class="panel-heading"><div><h2>输入朋友的加入信息</h2></div><span class="panel-icon" aria-hidden="true">⌕</span></div>
-          <div class="form-grid"><label>房主局域网 IPv4<input pattern="(?:[0-9]{1,3}\.){3}[0-9]{1,3}" id="join-address" type="text" inputmode="decimal" placeholder="例如 192.168.1.20" autocomplete="off"></label><label>信令端口<input id="join-port" type="number" min="1" max="65535" placeholder="例如 45678"></label><label class="full-field">房间码<input id="join-code" type="text" maxlength="8" placeholder="8 位房间码" autocomplete="off"></label></div>
+          <div class="panel-heading"><div><h2>加入信息</h2></div><span class="panel-icon" aria-hidden="true">⌕</span></div>
+          <label>邀请信息<input id="join-invite" type="text" maxlength="256" placeholder="粘贴朋友发来的完整邀请信息" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="join-invite-help"></label>
+          <p id="join-invite-help" class="hint">请朋友在房间内点“邀请朋友 → 复制邀请信息”，整段粘贴到这里。</p>
+          <details id="join-manual-fields" class="join-manual-fields"><summary>分别填写地址、端口和房间码</summary>
+            <div class="form-grid"><label>房主局域网 IPv4<input pattern="(?:[0-9]{1,3}\.){3}[0-9]{1,3}" id="join-address" type="text" inputmode="decimal" placeholder="例如 192.168.1.20" autocomplete="off"></label><label>信令端口<input id="join-port" type="number" min="1" max="65535" placeholder="例如 45678"></label><label class="full-field">房间码<input id="join-code" type="text" maxlength="8" placeholder="8 位房间码" autocomplete="off"></label></div>
+          </details>
           <button id="join-room" class="button button-primary" type="submit">加入房间</button>
           <p class="hint">麦克风稍后单独开启；拒绝麦克风权限仍可接收画面和房间语音。</p>
         </form>
       <section id="share-panel" class="media-panel" hidden><h1 class="sr-only watch-title" id="watch-title">共享画面</h1>
-        <section id="voice-stage" class="orbit-room" aria-labelledby="voice-title"><div class="voice-intro"><div><p class="eyebrow">房间语音</p><h1 id="voice-title">围坐在一起</h1></div><button id="voice-sound" class="button" type="button" data-button-icon="headphones">声音设置</button></div>
+        <section id="voice-stage" class="orbit-room" aria-labelledby="voice-title"><div class="voice-intro"><div><p class="eyebrow">当前房间</p><h1 id="voice-title">房间语音</h1></div><button id="voice-sound" class="button" type="button" data-button-icon="headphones">声音设置</button></div>
           <div class="orbit-table"><div id="members" class="member-list" role="group" aria-label="房间里的成员"></div><div id="voice-activity" class="voice-activity"><div class="activity-mark" data-icon="screen" aria-hidden="true"></div><h2 id="voice-activity-title">还没有人共享</h2><p id="voice-stage-message">先聊着，任何人都可以开始共享。</p><div id="voice-share-slot"></div><div id="voice-view-slot"></div><button id="share-options" class="text-button" type="button">共享画质与声音选项</button></div></div>
         </section>
         <div class="screen-stage"><video id="remote-screen" autoplay playsinline muted aria-label="成员共享画面"></video><div class="screen-placeholder"><span class="empty-mark" data-icon="screen" aria-hidden="true"></span><strong id="presentation-status">等待共享画面</strong><span id="screen-wait-message">连接就绪后会显示画面</span></div><div class="screen-label" id="screen-source-label"></div><div class="fullscreen-slot"><button id="fullscreen-screen" class="button" type="button" aria-pressed="false" disabled data-button-icon="fullscreen">全屏观看</button></div></div>
@@ -54,11 +62,11 @@
 </main>
 <dialog aria-labelledby="sound-dialog-title" id="sound-dialog" class="room-dialog sound-dialog"><div class="dialog-heading"><h2 id="sound-dialog-title">你听到的声音</h2><button class="button icon-button" type="button" data-close-dialog="" aria-label="关闭声音面板" data-icon="close"></button></div><p hidden role="alert" class="dialog-feedback error-banner"></p><div role="group" id="audio-sources" class="audio-sources" aria-label="成员与系统音频音量控制"></div><p id="sound-empty" class="hint">等待其他成员的语音来源。</p><p class="hint">只调整你在本机听到的声音，其他人的音量不受影响。</p></dialog>
 <dialog aria-labelledby="members-dialog-title" id="members-dialog" class="room-dialog"><div class="dialog-heading"><h2 id="members-dialog-title">房间里的成员</h2><button class="button icon-button" type="button" data-close-dialog="" aria-label="关闭成员面板" data-icon="close"></button></div><p hidden role="alert" class="dialog-feedback error-banner"></p><div id="watch-members-slot"><div id="member-summary" role="group" aria-label="当前房间成员"></div></div><p class="hint">声音只影响本机收听。</p><button id="members-sound" class="button" type="button">调节声音</button></dialog>
-<dialog aria-labelledby="invite-dialog-title" id="invite-dialog" class="room-dialog"><div class="dialog-heading"><h2 id="invite-dialog-title">邀请朋友</h2><button class="button icon-button" type="button" data-close-dialog="" aria-label="关闭邀请面板" data-icon="close"></button></div><p hidden role="alert" class="dialog-feedback error-banner"></p><p>朋友运行程序后，可以在附近房间中加入。也可使用下方信息手动加入。</p><div id="invite-content"></div></dialog>
-<dialog aria-labelledby="settings-dialog-title" id="settings-dialog" class="room-dialog settings-dialog"><div class="dialog-heading"><h2 id="settings-dialog-title">设置</h2><button class="button icon-button" type="button" data-close-dialog="" aria-label="关闭设置面板" data-icon="close"></button></div><p hidden role="alert" class="dialog-feedback error-banner"></p><p class="hint appearance-note">外观跟随系统。观看共享画面时，界面会调暗，方便专注内容。</p><div class="room-settings"><section aria-labelledby="sharing-settings-title" class="settings-basic"><h3 id="sharing-settings-title">共享</h3><label>共享模式<select id="share-mode"><option value="limited">画面 + 语音（无游戏声音）</option><option value="combined">画面 + 屏幕系统音频 + 语音</option></select></label><div class="media-controls">
+<dialog aria-labelledby="invite-dialog-title" id="invite-dialog" class="room-dialog"><div class="dialog-heading"><h2 id="invite-dialog-title">邀请朋友</h2><button class="button icon-button" type="button" data-close-dialog="" aria-label="关闭邀请面板" data-icon="close"></button></div><p hidden role="alert" class="dialog-feedback error-banner"></p><p>朋友运行程序后，可以在附近房间中加入，也可以粘贴你的邀请信息加入。</p><div id="invite-content"></div></dialog>
+<dialog aria-labelledby="settings-dialog-title" id="settings-dialog" class="room-dialog settings-dialog"><div class="dialog-heading"><h2 id="settings-dialog-title">设置</h2><button class="button icon-button" type="button" data-close-dialog="" aria-label="关闭设置面板" data-icon="close"></button></div><p hidden role="alert" class="dialog-feedback error-banner"></p><p class="hint appearance-note">外观跟随系统。观看共享画面时，界面会调暗，方便专注内容。</p><div class="room-settings"><section aria-labelledby="sharing-settings-title" class="settings-basic"><h3 id="sharing-settings-title">共享</h3><label>共享模式<select id="share-mode"><option value="combined" selected>画面 + 屏幕系统音频 + 语音</option><option value="limited">画面 + 语音（无游戏声音）</option></select></label><div class="media-controls">
             <label class="select-control">我的共享画质<select id="quality-target"><option value="1080p60">1080p · 60 FPS</option><option value="720p60">720p · 60 FPS</option><option value="720p30">720p · 30 FPS</option></select></label>
             
-          </div><label class="room-visibility"><input id="share-cursor" type="checkbox">共享我的鼠标（浏览器支持时生效）</label><p id="system-audio-note" class="hint" role="status">当前未共享系统声音；选择含系统声音的模式后，可以直接开始共享。</p><button id="stop-system-audio" class="button button-secondary" type="button" disabled>停止共享系统声音</button></section><details class="settings-section"><summary>连接与兼容性诊断</summary>            
+          </div><label class="room-visibility"><input id="share-cursor" type="checkbox">共享我的鼠标（浏览器支持时生效）</label><p id="system-audio-note" class="hint" role="status">共享时默认包含系统声音；请在浏览器选择显示器并允许共享系统音频。</p><button id="stop-system-audio" class="button button-secondary" type="button" disabled>停止共享系统声音</button></section><details class="settings-section"><summary>连接与兼容性诊断</summary>
           
           <p id="actual-stats" class="stats-line">实际统计：等待媒体连接</p>
           <p id="capture-stats" class="stats-line" hidden></p>

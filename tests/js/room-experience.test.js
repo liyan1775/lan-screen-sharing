@@ -46,3 +46,37 @@ test('destructive confirmation is cancellable and uses explicit safe and destruc
   assert.equal($('#confirm-accept').textContent,'结束房间');
   $('#confirm-dialog').close('cancel');assert.equal(await result,false);
 });
+
+test('voice member controls precede the sharing area in reading and keyboard order',async()=>{
+  const {document,experience,$}=await fixture();
+  for (const name of ['left','right','near']) {
+    const seat=document.createElement('article');seat.className='member-seat';seat.dataset.seat=name;
+    seat.dataset.empty='true';seat.innerHTML='<span class="member-avatar">+</span><strong>空位</strong><small class="member-status"></small><div class="seat-audio"></div>';
+    $('#members').append(seat);
+  }
+  experience.sync({stage:'voice',memberCount:1,roomName:'房间',microphone:false});
+  assert.deepEqual([...$('#members').children].map(node=>node.dataset.seat || node.id),['left','right','near','voice-activity']);
+  assert.equal($('#voice-activity #start-share')?.id,'start-share');
+});
+
+test('invitation focus wraps through visible controls when connection details are collapsed or expanded',async()=>{
+  const {document,window,experience,$}=await fixture();
+  experience.sync({stage:'voice',memberCount:1,roomName:'房间',microphone:false});
+  $('.manual-invite').setAttribute('open','');
+  const dialog=$('#invite-dialog'), close=dialog.querySelector('[data-close-dialog]');
+  let focused=close;
+  Object.defineProperty(document,'activeElement',{configurable:true,get:()=>focused});
+  for (const control of dialog.querySelectorAll('button,input,summary')) {
+    Object.defineProperty(control,'tabIndex',{configurable:true,value:0});
+    control.getClientRects=()=>[{}]; control.focus=()=>{focused=control;};
+  }
+  const tab=shiftKey=>{
+    const event=new window.Event('keydown',{bubbles:true,cancelable:true});
+    Object.assign(event,{key:'Tab',shiftKey});dialog.dispatchEvent(event);
+  };
+  tab(true);assert.ok(focused===$('.invite-details > summary'),'closed connection fields are excluded even if they report rectangles');
+  tab(false);assert.ok(focused===close);
+  $('.invite-details').setAttribute('open','');
+  tab(true);assert.ok(focused===$('#host-port'),'expanded connection fields remain keyboard accessible');
+  tab(false);assert.ok(focused===close);
+});

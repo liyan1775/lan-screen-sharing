@@ -1,0 +1,2076 @@
+{
+  "completed": true,
+  "environment": "Windows / isolated Edge / synthetic capture / native WebRTC",
+  "checks": [
+    {
+      "check": "unchanged discovery status has no repeated DOM mutation across two polls",
+      "passed": true
+    },
+    {
+      "check": "room cards 390 horizontal fit",
+      "width": 390,
+      "content": 390
+    },
+    {
+      "check": "single invitation 390 horizontal fit",
+      "width": 390,
+      "content": 390
+    },
+    {
+      "check": "copy invitation 390 horizontal fit",
+      "width": 390,
+      "content": 390
+    },
+    {
+      "check": "invite-dialog keyboard focus cycle",
+      "passed": true
+    },
+    {
+      "check": "members-dialog keyboard focus cycle",
+      "passed": true
+    },
+    {
+      "check": "settings-dialog keyboard focus cycle",
+      "passed": true
+    },
+    {
+      "check": "confirm-dialog keyboard focus cycle",
+      "passed": true
+    },
+    {
+      "check": "sound-dialog keyboard focus cycle",
+      "passed": true
+    },
+    {
+      "check": "watch 390 horizontal fit",
+      "width": 390,
+      "content": 390
+    },
+    {
+      "check": "voice 390 horizontal fit",
+      "width": 390,
+      "content": 390
+    },
+    {
+      "check": "voice 200 percent text horizontal fit",
+      "width": 720,
+      "content": 720
+    },
+    {
+      "check": "settings 200 percent text horizontal fit",
+      "width": 720,
+      "content": 720
+    },
+    {
+      "check": "settings-dialog keyboard focus cycle",
+      "passed": true
+    },
+    {
+      "check": "text 200 percent horizontal fit",
+      "width": 720,
+      "content": 720
+    },
+    {
+      "check": "actual local socket loss automatically resumes the original seat without recapture",
+      "passed": true
+    },
+    {
+      "check": "all core paths above",
+      "passed": true,
+      "realHardwareCapture": false
+    }
+  ],
+  "screens": [
+    "01-entry-dark.png",
+    "02-entry-light.png",
+    "15-rooms-fixture.png",
+    "15b-rooms-fixture-light.png",
+    "16-rooms-fixture-390.png",
+    "20-joining-fixture.png",
+    "17-stale-room.png",
+    "22-paste-invite-dark.png",
+    "23-paste-invite-light.png",
+    "24-paste-invite-390.png",
+    "18-invalid-join.png",
+    "03-create.png",
+    "25-copy-invitation-dark.png",
+    "26-copy-invitation-light.png",
+    "27-copy-invitation-390.png",
+    "04-voice-three.png",
+    "21-voice-members.png",
+    "05a-text-conversation.png",
+    "05-text.png",
+    "06-settings.png",
+    "07-exit-confirm.png",
+    "08-watch.png",
+    "09-sound.png",
+    "10-fullscreen.png",
+    "11-watch-390.png",
+    "12-voice-light-390.png",
+    "13-voice-text-200.png",
+    "14-settings-text-200.png",
+    "22-text-200.png",
+    "23-local-recovered.png"
+  ],
+  "axe": [
+    {
+      "state": "entry dark",
+      "violations": [],
+      "incomplete": [],
+      "passes": 35
+    },
+    {
+      "state": "entry light",
+      "violations": [],
+      "incomplete": [],
+      "passes": 35
+    },
+    {
+      "state": "discovery populated fixture",
+      "violations": [],
+      "incomplete": [],
+      "passes": 35
+    },
+    {
+      "state": "discovery populated light",
+      "violations": [],
+      "incomplete": [],
+      "passes": 35
+    },
+    {
+      "state": "stale room failure",
+      "violations": [],
+      "incomplete": [],
+      "passes": 35
+    },
+    {
+      "state": "single invitation dark",
+      "violations": [],
+      "incomplete": [],
+      "passes": 39
+    },
+    {
+      "state": "single invitation light",
+      "violations": [],
+      "incomplete": [],
+      "passes": 39
+    },
+    {
+      "state": "create",
+      "violations": [],
+      "incomplete": [],
+      "passes": 39
+    },
+    {
+      "state": "copy invitation dark",
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "nodes": [
+            [
+              "#invite-dialog-title"
+            ]
+          ]
+        }
+      ],
+      "passes": 21
+    },
+    {
+      "state": "copy invitation light",
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "nodes": [
+            [
+              "#invite-dialog-title"
+            ]
+          ]
+        }
+      ],
+      "passes": 21
+    },
+    {
+      "state": "voice dark",
+      "violations": [],
+      "incomplete": [],
+      "passes": 34
+    },
+    {
+      "state": "text",
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "nodes": [
+            [
+              "#text-title"
+            ]
+          ]
+        }
+      ],
+      "passes": 37
+    },
+    {
+      "state": "settings",
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "nodes": [
+            [
+              "#settings-dialog-title"
+            ]
+          ]
+        }
+      ],
+      "passes": 26
+    },
+    {
+      "state": "watch",
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "nodes": [
+            [
+              "#screen-source-label"
+            ]
+          ]
+        },
+        {
+          "id": "video-caption",
+          "impact": "critical",
+          "nodes": [
+            [
+              "#remote-screen"
+            ]
+          ]
+        }
+      ],
+      "passes": 34
+    },
+    {
+      "state": "sound",
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "nodes": [
+            [
+              "#sound-dialog-title"
+            ]
+          ]
+        }
+      ],
+      "passes": 23
+    },
+    {
+      "state": "watch narrow",
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "nodes": [
+            [
+              "#screen-source-label"
+            ]
+          ]
+        },
+        {
+          "id": "video-caption",
+          "impact": "critical",
+          "nodes": [
+            [
+              "#remote-screen"
+            ]
+          ]
+        }
+      ],
+      "passes": 34
+    },
+    {
+      "state": "voice light narrow",
+      "violations": [],
+      "incomplete": [],
+      "passes": 37
+    },
+    {
+      "state": "voice 200 percent text",
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "nodes": [
+            [
+              "article[data-role=\"host\"] > .member-avatar[aria-hidden=\"true\"]"
+            ],
+            [
+              "article[data-seat=\"right\"][data-self=\"false\"][data-role=\"viewer\"] > .member-avatar[aria-hidden=\"true\"]"
+            ],
+            [
+              "article[data-self=\"true\"] > .member-avatar[aria-hidden=\"true\"]"
+            ]
+          ]
+        }
+      ],
+      "passes": 37
+    },
+    {
+      "state": "settings 200 percent text",
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "nodes": [
+            [
+              "#settings-dialog-title"
+            ],
+            [
+              ".appearance-note"
+            ]
+          ]
+        }
+      ],
+      "passes": 27
+    },
+    {
+      "state": "text 200 percent",
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "nodes": [
+            [
+              "article[data-role=\"host\"] > .member-avatar[aria-hidden=\"true\"]"
+            ],
+            [
+              "article[data-seat=\"right\"][data-self=\"false\"][data-role=\"viewer\"] > .member-avatar[aria-hidden=\"true\"]"
+            ],
+            [
+              "article[data-self=\"true\"] > .member-avatar[aria-hidden=\"true\"]"
+            ],
+            [
+              "#text-title"
+            ],
+            [
+              "#text-connection"
+            ],
+            [
+              ".text-message:nth-child(1) > strong"
+            ],
+            [
+              "time[datetime=\"2026-11-03T10:20:19.275Z\"]"
+            ],
+            [
+              ".self-message.text-message:nth-child(2) > strong"
+            ],
+            [
+              "time[datetime=\"2026-11-03T10:20:19.382Z\"]"
+            ]
+          ]
+        }
+      ],
+      "passes": 38
+    },
+    {
+      "state": "local connection recovered",
+      "violations": [],
+      "incomplete": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "nodes": [
+            [
+              "#screen-source-label"
+            ]
+          ]
+        },
+        {
+          "id": "video-caption",
+          "impact": "critical",
+          "nodes": [
+            [
+              "#remote-screen"
+            ]
+          ]
+        }
+      ],
+      "passes": 34
+    }
+  ],
+  "ax": [
+    {
+      "state": "stale room alert",
+      "nodes": [
+        {
+          "role": "status",
+          "name": "",
+          "properties": [
+            {
+              "name": "live",
+              "value": "polite"
+            },
+            {
+              "name": "atomic",
+              "value": true
+            },
+            {
+              "name": "relevant",
+              "value": "additions text"
+            }
+          ]
+        },
+        {
+          "role": "status",
+          "name": "",
+          "properties": [
+            {
+              "name": "live",
+              "value": "polite"
+            },
+            {
+              "name": "atomic",
+              "value": true
+            },
+            {
+              "name": "relevant",
+              "value": "additions text"
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "手动加入",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "创建房间",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "设置",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            }
+          ]
+        },
+        {
+          "role": "alert",
+          "name": "",
+          "properties": [
+            {
+              "name": "live",
+              "value": "assertive"
+            },
+            {
+              "name": "atomic",
+              "value": true
+            },
+            {
+              "name": "relevant",
+              "value": "additions text"
+            }
+          ]
+        },
+        {
+          "role": "heading",
+          "name": "附近的房间",
+          "properties": [
+            {
+              "name": "level",
+              "value": 1
+            }
+          ]
+        },
+        {
+          "role": "status",
+          "name": "",
+          "properties": [
+            {
+              "name": "live",
+              "value": "polite"
+            },
+            {
+              "name": "atomic",
+              "value": true
+            },
+            {
+              "name": "relevant",
+              "value": "additions text"
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "刷新",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "手动加入",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            }
+          ]
+        },
+        {
+          "role": "group",
+          "name": "",
+          "properties": []
+        },
+        {
+          "role": "heading",
+          "name": "测试 · 周末游戏",
+          "properties": [
+            {
+              "name": "level",
+              "value": 2
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "加入房间 测试 · 周末游戏",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            }
+          ]
+        },
+        {
+          "role": "heading",
+          "name": "测试 · 已满房间",
+          "properties": [
+            {
+              "name": "level",
+              "value": 2
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "房间已满 测试 · 已满房间",
+          "properties": [
+            {
+              "name": "disabled",
+              "value": true
+            },
+            {
+              "name": "invalid",
+              "value": "false"
+            }
+          ]
+        },
+        {
+          "role": "heading",
+          "name": "测试 · 聊会儿",
+          "properties": [
+            {
+              "name": "level",
+              "value": 2
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "加入房间 测试 · 聊会儿",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "state": "invite dialog",
+      "nodes": [
+        {
+          "role": "dialog",
+          "name": "邀请朋友",
+          "properties": [
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "modal",
+              "value": true
+            },
+            {
+              "name": "labelledby"
+            }
+          ]
+        },
+        {
+          "role": "heading",
+          "name": "邀请朋友",
+          "properties": [
+            {
+              "name": "level",
+              "value": 2
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "关闭邀请面板",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "focused",
+              "value": true
+            }
+          ]
+        },
+        {
+          "role": "group",
+          "name": "",
+          "properties": []
+        },
+        {
+          "role": "button",
+          "name": "复制邀请信息",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            }
+          ]
+        },
+        {
+          "role": "group",
+          "name": "",
+          "properties": []
+        },
+        {
+          "role": "textbox",
+          "name": "完整邀请信息",
+          "description": "复制发给朋友，在“手动加入”中粘贴即可。",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "editable",
+              "value": "plaintext"
+            },
+            {
+              "name": "multiline",
+              "value": false
+            },
+            {
+              "name": "readonly",
+              "value": true
+            },
+            {
+              "name": "required",
+              "value": false
+            },
+            {
+              "name": "describedby",
+              "value": "invite-help"
+            },
+            {
+              "name": "labelledby"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "state": "voice members",
+      "nodes": [
+        {
+          "role": "dialog",
+          "name": "房间里的成员",
+          "properties": [
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "modal",
+              "value": true
+            },
+            {
+              "name": "labelledby"
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "调节声音",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            }
+          ]
+        },
+        {
+          "role": "heading",
+          "name": "房间里的成员",
+          "properties": [
+            {
+              "name": "level",
+              "value": 2
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "关闭成员面板",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "focused",
+              "value": true
+            }
+          ]
+        },
+        {
+          "role": "group",
+          "name": "当前房间成员",
+          "properties": []
+        }
+      ]
+    },
+    {
+      "state": "text log and input",
+      "nodes": [
+        {
+          "role": "status",
+          "name": "",
+          "properties": [
+            {
+              "name": "live",
+              "value": "polite"
+            },
+            {
+              "name": "atomic",
+              "value": true
+            },
+            {
+              "name": "relevant",
+              "value": "additions text"
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "周二游戏夜 3 人",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "hasPopup",
+              "value": "dialog"
+            }
+          ]
+        },
+        {
+          "role": "status",
+          "name": "",
+          "properties": [
+            {
+              "name": "live",
+              "value": "polite"
+            },
+            {
+              "name": "atomic",
+              "value": true
+            },
+            {
+              "name": "relevant",
+              "value": "additions text"
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "房间文字",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "expanded",
+              "value": true
+            },
+            {
+              "name": "controls",
+              "value": "text-panel"
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "邀请朋友",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "设置",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "结束房间",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            }
+          ]
+        },
+        {
+          "role": "group",
+          "name": "房间主要操作",
+          "properties": []
+        },
+        {
+          "role": "heading",
+          "name": "房间语音",
+          "properties": [
+            {
+              "name": "level",
+              "value": 1
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "声音设置",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            }
+          ]
+        },
+        {
+          "role": "status",
+          "name": "",
+          "properties": [
+            {
+              "name": "live",
+              "value": "polite"
+            },
+            {
+              "name": "atomic",
+              "value": true
+            },
+            {
+              "name": "relevant",
+              "value": "additions text"
+            }
+          ]
+        },
+        {
+          "role": "log",
+          "name": "房间文字消息",
+          "properties": [
+            {
+              "name": "live",
+              "value": "polite"
+            },
+            {
+              "name": "atomic",
+              "value": false
+            },
+            {
+              "name": "relevant",
+              "value": "additions"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            }
+          ]
+        },
+        {
+          "role": "group",
+          "name": "房间里的成员",
+          "properties": []
+        },
+        {
+          "role": "heading",
+          "name": "房间文字",
+          "properties": [
+            {
+              "name": "level",
+              "value": 2
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "关闭文字面板",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            }
+          ]
+        },
+        {
+          "role": "textbox",
+          "name": "消息",
+          "description": "最多 500 字。Enter 发送，Shift+Enter 换行。",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "focused",
+              "value": true
+            },
+            {
+              "name": "editable",
+              "value": "plaintext"
+            },
+            {
+              "name": "settable",
+              "value": true
+            },
+            {
+              "name": "multiline",
+              "value": true
+            },
+            {
+              "name": "readonly",
+              "value": false
+            },
+            {
+              "name": "required",
+              "value": false
+            },
+            {
+              "name": "describedby",
+              "value": "text-input-help"
+            },
+            {
+              "name": "labelledby"
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "发送",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            }
+          ]
+        },
+        {
+          "role": "status",
+          "name": "",
+          "properties": [
+            {
+              "name": "live",
+              "value": "polite"
+            },
+            {
+              "name": "atomic",
+              "value": true
+            },
+            {
+              "name": "relevant",
+              "value": "additions text"
+            },
+            {
+              "name": "invalid",
+              "value": "false"
+            }
+          ]
+        },
+        {
+          "role": "slider",
+          "name": "成员 1 · 语音音量",
+          "value": 1,
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "settable",
+              "value": true
+            },
+            {
+              "name": "orientation",
+              "value": "horizontal"
+            },
+            {
+              "name": "valuemin",
+              "value": 0
+            },
+            {
+              "name": "valuemax",
+              "value": 1
+            },
+            {
+              "name": "valuetext",
+              "value": "1"
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "静音成员 1 · 语音",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "pressed",
+              "value": "false"
+            }
+          ]
+        },
+        {
+          "role": "status",
+          "name": "",
+          "properties": [
+            {
+              "name": "live",
+              "value": "polite"
+            },
+            {
+              "name": "atomic",
+              "value": true
+            },
+            {
+              "name": "relevant",
+              "value": "additions text"
+            },
+            {
+              "name": "invalid",
+              "value": "false"
+            }
+          ]
+        },
+        {
+          "role": "slider",
+          "name": "成员 2 · 语音音量",
+          "value": 1,
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "settable",
+              "value": true
+            },
+            {
+              "name": "orientation",
+              "value": "horizontal"
+            },
+            {
+              "name": "valuemin",
+              "value": 0
+            },
+            {
+              "name": "valuemax",
+              "value": 1
+            },
+            {
+              "name": "valuetext",
+              "value": "1"
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "静音成员 2 · 语音",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "pressed",
+              "value": "false"
+            }
+          ]
+        },
+        {
+          "role": "heading",
+          "name": "还没有人共享",
+          "properties": [
+            {
+              "name": "level",
+              "value": 2
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "共享画质与声音选项",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "开启麦克风",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "pressed",
+              "value": "false"
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "共享我的屏幕",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "state": "settings controls",
+      "nodes": [
+        {
+          "role": "dialog",
+          "name": "设置",
+          "properties": [
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "modal",
+              "value": true
+            },
+            {
+              "name": "labelledby"
+            }
+          ]
+        },
+        {
+          "role": "group",
+          "name": "",
+          "properties": []
+        },
+        {
+          "role": "button",
+          "name": "退出本机程序",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            }
+          ]
+        },
+        {
+          "role": "heading",
+          "name": "设置",
+          "properties": [
+            {
+              "name": "level",
+              "value": 2
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "关闭设置面板",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "focused",
+              "value": true
+            }
+          ]
+        },
+        {
+          "role": "heading",
+          "name": "共享",
+          "properties": [
+            {
+              "name": "level",
+              "value": 3
+            }
+          ]
+        },
+        {
+          "role": "status",
+          "name": "",
+          "properties": [
+            {
+              "name": "live",
+              "value": "polite"
+            },
+            {
+              "name": "atomic",
+              "value": true
+            },
+            {
+              "name": "relevant",
+              "value": "additions text"
+            }
+          ]
+        },
+        {
+          "role": "combobox",
+          "name": "共享模式",
+          "value": "画面 + 屏幕系统音频 + 语音",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "hasPopup",
+              "value": "menu"
+            },
+            {
+              "name": "expanded",
+              "value": false
+            },
+            {
+              "name": "labelledby"
+            }
+          ]
+        },
+        {
+          "role": "combobox",
+          "name": "我的共享画质",
+          "value": "1080p · 60 FPS",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "hasPopup",
+              "value": "menu"
+            },
+            {
+              "name": "expanded",
+              "value": false
+            },
+            {
+              "name": "labelledby"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "state": "destructive confirmation",
+      "nodes": [
+        {
+          "role": "alertdialog",
+          "name": "退出本机程序？",
+          "description": "你是房主。退出将结束房间，所有成员都会断开连接。",
+          "properties": [
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "modal",
+              "value": true
+            },
+            {
+              "name": "describedby",
+              "value": "confirm-description"
+            },
+            {
+              "name": "labelledby"
+            }
+          ]
+        },
+        {
+          "role": "heading",
+          "name": "退出本机程序？",
+          "properties": [
+            {
+              "name": "level",
+              "value": 2
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "取消",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "focused",
+              "value": true
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "退出程序",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "state": "sound slider and mute state",
+      "nodes": [
+        {
+          "role": "dialog",
+          "name": "你听到的声音",
+          "properties": [
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "modal",
+              "value": true
+            },
+            {
+              "name": "labelledby"
+            }
+          ]
+        },
+        {
+          "role": "group",
+          "name": "成员与系统音频音量控制",
+          "properties": []
+        },
+        {
+          "role": "heading",
+          "name": "你听到的声音",
+          "properties": [
+            {
+              "name": "level",
+              "value": 2
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "关闭声音面板",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "focused",
+              "value": true
+            }
+          ]
+        },
+        {
+          "role": "status",
+          "name": "",
+          "properties": [
+            {
+              "name": "live",
+              "value": "polite"
+            },
+            {
+              "name": "atomic",
+              "value": true
+            },
+            {
+              "name": "relevant",
+              "value": "additions text"
+            },
+            {
+              "name": "invalid",
+              "value": "false"
+            }
+          ]
+        },
+        {
+          "role": "slider",
+          "name": "房主 · 共享声音音量",
+          "value": 1,
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "settable",
+              "value": true
+            },
+            {
+              "name": "orientation",
+              "value": "horizontal"
+            },
+            {
+              "name": "valuemin",
+              "value": 0
+            },
+            {
+              "name": "valuemax",
+              "value": 1
+            },
+            {
+              "name": "valuetext",
+              "value": "1"
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "静音房主 · 共享声音",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "pressed",
+              "value": "false"
+            }
+          ]
+        },
+        {
+          "role": "status",
+          "name": "",
+          "properties": [
+            {
+              "name": "live",
+              "value": "polite"
+            },
+            {
+              "name": "atomic",
+              "value": true
+            },
+            {
+              "name": "relevant",
+              "value": "additions text"
+            },
+            {
+              "name": "invalid",
+              "value": "false"
+            }
+          ]
+        },
+        {
+          "role": "slider",
+          "name": "房主 · 语音音量",
+          "value": 1,
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "settable",
+              "value": true
+            },
+            {
+              "name": "orientation",
+              "value": "horizontal"
+            },
+            {
+              "name": "valuemin",
+              "value": 0
+            },
+            {
+              "name": "valuemax",
+              "value": 1
+            },
+            {
+              "name": "valuetext",
+              "value": "1"
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "静音房主 · 语音",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "pressed",
+              "value": "false"
+            }
+          ]
+        },
+        {
+          "role": "status",
+          "name": "",
+          "properties": [
+            {
+              "name": "live",
+              "value": "polite"
+            },
+            {
+              "name": "atomic",
+              "value": true
+            },
+            {
+              "name": "relevant",
+              "value": "additions text"
+            },
+            {
+              "name": "invalid",
+              "value": "false"
+            }
+          ]
+        },
+        {
+          "role": "slider",
+          "name": "成员 1 · 语音音量",
+          "value": 1,
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "settable",
+              "value": true
+            },
+            {
+              "name": "orientation",
+              "value": "horizontal"
+            },
+            {
+              "name": "valuemin",
+              "value": 0
+            },
+            {
+              "name": "valuemax",
+              "value": 1
+            },
+            {
+              "name": "valuetext",
+              "value": "1"
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "静音成员 1 · 语音",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "pressed",
+              "value": "false"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "state": "local connection recovered",
+      "nodes": [
+        {
+          "role": "status",
+          "name": "",
+          "properties": [
+            {
+              "name": "live",
+              "value": "polite"
+            },
+            {
+              "name": "atomic",
+              "value": true
+            },
+            {
+              "name": "relevant",
+              "value": "additions text"
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "周二游戏夜 3 人",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "hasPopup",
+              "value": "dialog"
+            }
+          ]
+        },
+        {
+          "role": "status",
+          "name": "",
+          "properties": [
+            {
+              "name": "live",
+              "value": "polite"
+            },
+            {
+              "name": "atomic",
+              "value": true
+            },
+            {
+              "name": "relevant",
+              "value": "additions text"
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "房间文字",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "expanded",
+              "value": false
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "邀请朋友",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "设置",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "离开房间",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            }
+          ]
+        },
+        {
+          "role": "heading",
+          "name": "正在观看房主的共享画面",
+          "properties": [
+            {
+              "name": "level",
+              "value": 1
+            }
+          ]
+        },
+        {
+          "role": "group",
+          "name": "房间主要操作",
+          "properties": []
+        },
+        {
+          "role": "button",
+          "name": "房间文字",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "expanded",
+              "value": false
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "声音",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "hasPopup",
+              "value": "dialog"
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "全屏观看",
+          "description": "全屏观看（也可双击画面）",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "pressed",
+              "value": "false"
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "开启麦克风",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "pressed",
+              "value": "false"
+            }
+          ]
+        },
+        {
+          "role": "button",
+          "name": "只聊语音",
+          "properties": [
+            {
+              "name": "invalid",
+              "value": "false"
+            },
+            {
+              "name": "focusable",
+              "value": true
+            },
+            {
+              "name": "pressed",
+              "value": "false"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "sourceHashes": {
+    "index.html": "30a97ecb292dde4d6049af453313476768cc3c0909772592f035288305a57c00",
+    "styles.css": "719a8853133b619e27288d127663640be331e2ea3254a667ab8f9a064ab8939a",
+    "app.js": "065358697f98f5b2dfc0df04917ead8fe39a88b1b899bde5b3171fa4e7a21f75",
+    "client.js": "d8720f26bafea5f68bd2641f2ef163e4ff30605e3ac8c2e264a3d93cc8e2c913",
+    "connection-lifecycle.js": "ad716a0a1520f53d02d6051f0cd4fd0139fc69ba623fa929096cc8fc12fb8e65",
+    "page-lease.js": "f1f4c5db949cbbd4ec89606dd53ecbc0df413985712877cbcbf5812186a3cd30",
+    "room-browser.js": "faef98cd3c9dc4076d2858a6add479a090f234e42348143441dc571d232e826b",
+    "room-invite.js": "f4addd0f7bdf5fedfafe38789ec7a2a985461a00f1914318867a358a8c9150cc",
+    "room-experience.js": "468919a0592a490aaf8c3ed605a31f6a3881e28e2684956c05d865de9bf318df",
+    "room-text.js": "788fd2e1c33f3e17ba33435aa7b77cb8f91e0bf24fa38a0bbc5d98745ae78751",
+    "room-text-ui.js": "4ad8f820f9116121c316a55ae54bb6b4b9e623a7700ff8cc5f087e97ad0dd9c5",
+    "media.js": "47089a1e383d6b0b273d18c6ae8832368de0f409b2a0ec598d02217c896db533",
+    "fullscreen.js": "3a47bd3bf0598465a6719c6c15332afe100701f931744c4b0f234f1998fddf04",
+    "preview-playback.js": "dd0cced67ecc5c8c2088005e55210728700c032c935194dbe9e0e6a39ddc1a1a"
+  },
+  "browserVersion": "155.0.4283.45",
+  "servedHashes": {
+    "index.html": "30a97ecb292dde4d6049af453313476768cc3c0909772592f035288305a57c00",
+    "styles.css": "719a8853133b619e27288d127663640be331e2ea3254a667ab8f9a064ab8939a",
+    "app.js": "065358697f98f5b2dfc0df04917ead8fe39a88b1b899bde5b3171fa4e7a21f75",
+    "client.js": "d8720f26bafea5f68bd2641f2ef163e4ff30605e3ac8c2e264a3d93cc8e2c913",
+    "connection-lifecycle.js": "ad716a0a1520f53d02d6051f0cd4fd0139fc69ba623fa929096cc8fc12fb8e65",
+    "page-lease.js": "f1f4c5db949cbbd4ec89606dd53ecbc0df413985712877cbcbf5812186a3cd30",
+    "room-browser.js": "faef98cd3c9dc4076d2858a6add479a090f234e42348143441dc571d232e826b",
+    "room-invite.js": "f4addd0f7bdf5fedfafe38789ec7a2a985461a00f1914318867a358a8c9150cc",
+    "room-experience.js": "468919a0592a490aaf8c3ed605a31f6a3881e28e2684956c05d865de9bf318df",
+    "room-text.js": "788fd2e1c33f3e17ba33435aa7b77cb8f91e0bf24fa38a0bbc5d98745ae78751",
+    "room-text-ui.js": "4ad8f820f9116121c316a55ae54bb6b4b9e623a7700ff8cc5f087e97ad0dd9c5",
+    "media.js": "47089a1e383d6b0b273d18c6ae8832368de0f409b2a0ec598d02217c896db533",
+    "fullscreen.js": "3a47bd3bf0598465a6719c6c15332afe100701f931744c4b0f234f1998fddf04",
+    "preview-playback.js": "dd0cced67ecc5c8c2088005e55210728700c032c935194dbe9e0e6a39ddc1a1a"
+  },
+  "errors": [],
+  "externalRequestCount": 0,
+  "buildSHA256": "ef192dcd2f45deba97d2eed66f9753ec1c21e2c03e178e1ad66be4a7cea85d63"
+}

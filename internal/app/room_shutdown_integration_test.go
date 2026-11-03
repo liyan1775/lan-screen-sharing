@@ -83,7 +83,9 @@ func TestTwoServerRoomLifecycleLeavesOneViewerAndEndsRoomOnHostShutdown(t *testi
 	readUntilType(t, host, "peer.joined")
 	readUntilType(t, host, "peer.joined")
 
-	if err = viewerOne.Close(websocket.StatusNormalClosure, "local viewer page closed"); err != nil {
+	writeEnvelope(t, viewerOne, protocol.Envelope{V: 1, Type: "viewer.leave", RequestID: "explicit-leave-one", RoomID: invite.RoomID, Payload: rawPayload(map[string]any{})})
+	readUntilType(t, viewerOne, "peer.left")
+	if err = viewerOne.Close(websocket.StatusNormalClosure, "viewer explicitly left"); err != nil {
 		t.Fatalf("close first local viewer socket: %v", err)
 	}
 	left := readUntilType(t, host, "peer.left")

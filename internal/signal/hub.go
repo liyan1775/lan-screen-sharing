@@ -462,18 +462,35 @@ func (h *Hub) ServeLocal(ctx context.Context, conn *Connection, hostToken string
 			return
 		}
 	case protocol.RoleViewer:
-		if hello.HostToken != "" {
+		if hello.HostToken != "" || hello.RoomID != "" {
 			h.sendError(ctx, conn, first.RequestID, "AUTH_REQUIRED", "观众连接不得携带主播凭证", false)
 			return
 		}
 	}
-	_ = h.writeEnvelope(ctx, conn, protocol.Envelope{V: 1, Type: "room.state", RequestID: first.RequestID, Payload: raw(map[string]any{"members": []any{}, "screenSharing": false})})
 	s := &session{role: hello.Role, conn: conn, cancel: cancel}
 	if !h.trackSession(s) {
 		conn.CloseNow()
 		return
 	}
 	defer h.untrackSession(s)
+	ack := protocol.Envelope{V: 1, Type: "room.state", RequestID: first.RequestID, Payload: raw(map[string]any{"members": []any{}, "screenSharing": false})}
+	if hello.RoomID != "" {
+		snap, err := h.resumeLocalHost(s, hello.RoomID)
+		if err != nil {
+			h.sendError(ctx, conn, first.RequestID, protocol.ErrorCode(err), "原房间已结束，无法恢复", false)
+			return
+		}
+		ack.RoomID, ack.PeerID = snap.ID, s.peerID
+		ack.Payload = raw(map[string]any{"name": snap.Name, "roomCode": snap.Code, "members": snap.Members, "screenSharing": snap.ScreenSharing, "presenterPeerId": snap.PresenterPeerID, "presentationRevision": snap.PresentationRevision, "hasSystemAudio": snap.HasSystemAudio, "isolationStatus": snap.IsolationStatus, "resumed": true})
+	}
+	if err := h.writeEnvelope(ctx, conn, ack); err != nil {
+		h.disconnect(s)
+		return
+	}
+	if hello.RoomID != "" {
+		h.broadcast(s.roomID, s.peerID, event("peer.state", "", s.roomID, s.peerID, map[string]any{"peerId": s.peerID, "state": "connected", "restartMedia": true}))
+		h.sendCurrentRoomState(s.roomID, "")
+	}
 	for {
 		msg, err := readEnvelope(ctx, conn)
 		if err != nil {
@@ -651,8 +668,9 @@ func (h *Hub) ServeLAN(ctx context.Context, conn *Connection) {
 		return
 	}
 	var p struct {
-		RoomCode    string `json:"roomCode"`
-		ResumeToken string `json:"resumeToken,omitempty"`
+		RoomCode     string `json:"roomCode"`
+		ResumeToken  string `json:"resumeToken,omitempty"`
+		RestartMedia bool   `json:"restartMedia,omitempty"`
 	}
 	if json.Unmarshal(first.Payload, &p) != nil {
 		h.sendError(ctx, conn, first.RequestID, "INVALID_INVITE", "房间信息无效", false)
@@ -710,23 +728,27 @@ func (h *Hub) ServeLAN(ctx context.Context, conn *Connection) {
 	}
 	h.acknowledgeViewerJoin(conn)
 	if resuming {
-		h.broadcastWithContext(fanoutCtx, s.roomID, s.peerID, event("peer.state", first.RequestID, s.roomID, s.peerID, map[string]any{"peerId": s.peerID, "state": "connected"}))
+		h.broadcastWithContext(fanoutCtx, s.roomID, s.peerID, event("peer.state", first.RequestID, s.roomID, s.peerID, map[string]any{"peerId": s.peerID, "state": "connected", "restartMedia": p.RestartMedia}))
 	} else {
 		h.broadcastWithContext(fanoutCtx, s.roomID, s.peerID, event("peer.joined", "", s.roomID, s.peerID, map[string]any{"peerId": s.peerID, "role": "viewer"}))
 	}
 	h.sendRoomStateExcludingWithContext(fanoutCtx, snap, "", s.peerID)
+	if resuming {
+		_ = h.writeEnvelope(fanoutCtx, conn, event("room.state", "", snap.ID, "", map[string]any{"name": snap.Name, "members": snap.Members, "screenSharing": snap.ScreenSharing, "presenterPeerId": snap.PresenterPeerID, "presentationRevision": snap.PresentationRevision, "hasSystemAudio": snap.HasSystemAudio, "isolationStatus": snap.IsolationStatus}))
+	}
 	cancelFanout()
 	h.completeViewerJoin(conn)
 	cancelJoin()
 	for {
 		msg, e := readEnvelope(ctx, conn)
 		if e != nil {
-			h.rooms.Disconnect(s.roomID, s.peerID)
-			h.unregister(s)
+			if !h.detachPeer(s) {
+				return
+			}
 			h.broadcast(s.roomID, s.peerID, event("peer.state", "", s.roomID, s.peerID, map[string]any{"peerId": s.peerID, "state": "reconnecting"}))
 			h.sendCurrentRoomState(s.roomID, "")
 			roomID, peerID := s.roomID, s.peerID
-			time.AfterFunc(20*time.Second, func() {
+			time.AfterFunc(room.ReconnectWindow, func() {
 				h.rooms.ExpireDisconnected(roomID, peerID)
 				if snapshot, ok := h.rooms.Get(roomID); ok {
 					present := false
@@ -750,8 +772,14 @@ func (h *Hub) ServeLAN(ctx context.Context, conn *Connection) {
 				h.sendError(ctx, conn, msg.RequestID, protocol.ErrorCode(e), "信令目标不属于当前房间", false)
 			}
 		case "signal.leave":
+			h.lifecycleMu.Lock()
+			if !h.ownsConnection(s) {
+				h.lifecycleMu.Unlock()
+				return
+			}
 			h.rooms.Leave(s.roomID, s.peerID)
 			h.unregister(s)
+			h.lifecycleMu.Unlock()
 			h.broadcast(s.roomID, s.peerID, event("peer.left", msg.RequestID, s.roomID, s.peerID, map[string]any{"peerId": s.peerID, "reason": "left"}))
 			h.sendCurrentRoomState(s.roomID, msg.RequestID)
 			return
@@ -773,6 +801,9 @@ func (h *Hub) joinBridge(ctx context.Context, s *session, msg protocol.Envelope,
 		return err
 	}
 	joinPayload := map[string]any{"roomCode": p.RoomCode}
+	if p.RestartMedia {
+		joinPayload["restartMedia"] = true
+	}
 	if p.ResumeToken != "" {
 		joinPayload["resumeToken"] = p.ResumeToken
 	}
@@ -838,7 +869,7 @@ func (h *Hub) pumpBridge(ctx context.Context, s *session, bridge *Connection) {
 		}
 		if err = s.conn.Write(ctx, data); err != nil {
 			// The browser connection is gone. Closing the LAN socket lets ServeLAN
-			// preserve its seat for the normal 20 second resume window.
+			// preserve its seat for the normal resume window.
 			bridge.Close()
 			return
 		}
@@ -939,9 +970,13 @@ func (h *Hub) joinViewerAndRegister(conn *Connection, roomCode, resumeToken stri
 	s := &session{role: protocol.RoleViewer, roomID: snapshot.ID, peerID: peerSession.PeerID, conn: conn}
 	pending := &pendingViewerJoin{conn: conn, ackReady: make(chan struct{}), done: make(chan struct{}), cancelFanout: cancelFanout}
 	h.mu.Lock()
+	previous := h.connections[connKey(s.roomID, s.peerID)]
 	h.connections[connKey(s.roomID, s.peerID)] = conn
 	h.pendingJoins[conn] = pending
 	h.mu.Unlock()
+	if previous != nil && previous != conn {
+		go h.closeReplaced(previous, s.roomID, s.peerID)
+	}
 	return peerSession, snapshot, s, nil
 }
 
@@ -979,7 +1014,54 @@ func (h *Hub) completeViewerJoin(conn *Connection) {
 func (h *Hub) unregister(s *session) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	delete(h.connections, connKey(s.roomID, s.peerID))
+	if h.connections[connKey(s.roomID, s.peerID)] == s.conn {
+		delete(h.connections, connKey(s.roomID, s.peerID))
+	}
+}
+
+func (h *Hub) ownsConnection(s *session) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.connections[connKey(s.roomID, s.peerID)] == s.conn
+}
+
+func (h *Hub) detachPeer(s *session) bool {
+	h.lifecycleMu.Lock()
+	defer h.lifecycleMu.Unlock()
+	if h.shuttingDown || !h.ownsConnection(s) {
+		return false
+	}
+	h.rooms.Disconnect(s.roomID, s.peerID)
+	h.unregister(s)
+	return true
+}
+
+func (h *Hub) resumeLocalHost(s *session, roomID string) (room.RoomSnapshot, error) {
+	h.lifecycleMu.Lock()
+	defer h.lifecycleMu.Unlock()
+	if h.shuttingDown {
+		return room.RoomSnapshot{}, errors.New("ROOM_NOT_FOUND")
+	}
+	snap, err := h.rooms.ResumeHost(roomID)
+	if err != nil {
+		return room.RoomSnapshot{}, err
+	}
+	s.roomID, s.peerID = roomID, hostPeer(snap)
+	h.mu.Lock()
+	previous := h.connections[connKey(s.roomID, s.peerID)]
+	h.connections[connKey(s.roomID, s.peerID)] = s.conn
+	h.mu.Unlock()
+	if previous != nil && previous != s.conn {
+		go h.closeReplaced(previous, s.roomID, s.peerID)
+	}
+	return snap, nil
+}
+
+func (h *Hub) closeReplaced(conn *Connection, roomID, peerID string) {
+	ctx, cancel := gracefulRoomEndContext(context.Background())
+	defer cancel()
+	_ = h.writeEnvelope(ctx, conn, event("room.ended", "", roomID, peerID, map[string]any{"reason": "session_replaced"}))
+	closeWithin(ctx, conn)
 }
 func (h *Hub) broadcast(roomID, exclude string, e protocol.Envelope) {
 	h.broadcastWithContext(context.Background(), roomID, exclude, e)
@@ -1063,14 +1145,28 @@ func (h *Hub) disconnect(s *session) {
 		return
 	}
 	if s.role == protocol.RoleHost {
-		ctx, cancel := gracefulRoomEndContext(context.Background())
-		defer cancel()
-		h.endRoom(ctx, s, "")
+		if !h.detachPeer(s) {
+			return
+		}
+		h.broadcast(s.roomID, s.peerID, event("peer.state", "", s.roomID, s.peerID, map[string]any{"peerId": s.peerID, "state": "reconnecting"}))
+		h.sendCurrentRoomState(s.roomID, "")
+		roomID, peerID := s.roomID, s.peerID
+		time.AfterFunc(room.ReconnectWindow, func() {
+			ctx, cancel := gracefulRoomEndContext(context.Background())
+			defer cancel()
+			h.lifecycleMu.Lock()
+			defer h.lifecycleMu.Unlock()
+			if !h.shuttingDown && h.rooms.DisconnectedExpired(roomID, peerID) {
+				h.endRoomLocked(ctx, roomID, "")
+			}
+		})
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 750*time.Millisecond)
-	defer cancel()
-	h.leaveViewer(ctx, s, "", false, false)
+	// A lost local browser socket is not an explicit leave. Let the host retain
+	// this viewer's identity for the authenticated resume window.
+	if bridge := s.clearBridge(); bridge != nil {
+		bridge.CloseNow()
+	}
 }
 
 func (h *Hub) leaveViewer(ctx context.Context, s *session, requestID string, sendResponse, reportTransportLoss bool) {

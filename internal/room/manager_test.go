@@ -44,13 +44,13 @@ func TestReconnectKeepsPeerIDAndReclaimsSeat(t *testing.T) {
 	}
 }
 
-func TestDisconnectedSeatExpiresAfterTwentySeconds(t *testing.T) {
+func TestDisconnectedSeatExpiresAfterRecoveryWindow(t *testing.T) {
 	now := time.Unix(100, 0)
 	m := NewManager(WithClock(func() time.Time { return now }))
 	r, _, _ := m.CreateHost()
 	p, _, _ := m.Join(r.Code, "")
 	m.Disconnect(r.ID, p.PeerID)
-	now = now.Add(21 * time.Second)
+	now = now.Add(ReconnectWindow + time.Second)
 	m.SetClock(func() time.Time { return now })
 	m.ExpireDisconnected(r.ID, p.PeerID)
 	if _, _, err := m.Join(r.Code, p.ResumeToken); err == nil || !strings.Contains(err.Error(), "INVALID_INVITE") {
@@ -58,6 +58,52 @@ func TestDisconnectedSeatExpiresAfterTwentySeconds(t *testing.T) {
 	}
 	if _, _, err := m.Join(r.Code, ""); err != nil {
 		t.Fatalf("expired seat was not reclaimed: %v", err)
+	}
+}
+
+func TestAuthenticatedResumeCanReplaceAnOldTransportBeforeItsCloseArrives(t *testing.T) {
+	m := NewManager()
+	r, _, _ := m.CreateHost()
+	first, _, _ := m.Join(r.Code, "")
+	_, _, _ = m.Join(r.Code, "")
+	restored, snap, err := m.Join(r.Code, first.ResumeToken)
+	if err != nil || restored.PeerID != first.PeerID || len(snap.Members) != 3 {
+		t.Fatalf("resume duplicated or lost a seat: %#v %#v %v", restored, snap, err)
+	}
+	if restored.ResumeToken == first.ResumeToken {
+		t.Fatal("resume did not rotate credentials")
+	}
+	if _, _, err = m.Join(r.Code, first.ResumeToken); err == nil {
+		t.Fatal("retired token was reusable")
+	}
+}
+
+func TestHostRecoveryWindowAndExplicitEnd(t *testing.T) {
+	now := time.Unix(100, 0)
+	m := NewManager(WithClock(func() time.Time { return now }))
+	r, _, _ := m.CreateHost()
+	host := r.Members[0].PeerID
+	m.Disconnect(r.ID, host)
+	now = now.Add(ReconnectWindow - time.Second)
+	snap, err := m.ResumeHost(r.ID)
+	if err != nil || snap.ID != r.ID || snap.Code != r.Code || snap.Members[0].State != "connected" {
+		t.Fatalf("host did not resume: %#v %v", snap, err)
+	}
+	if m.DisconnectedExpired(r.ID, host) {
+		t.Fatal("an old deadline expired a recovered host")
+	}
+	m.Disconnect(r.ID, host)
+	now = now.Add(ReconnectWindow + time.Second)
+	if !m.DisconnectedExpired(r.ID, host) {
+		t.Fatal("host grace did not expire")
+	}
+	if _, err = m.ResumeHost(r.ID); err == nil {
+		t.Fatal("expired host could still resume")
+	}
+	r2, _, _ := m.CreateHost()
+	m.End(r2.ID)
+	if _, err = m.ResumeHost(r2.ID); err == nil {
+		t.Fatal("explicitly ended room was restored")
 	}
 }
 func TestLeaveAndEndInvalidateCredentials(t *testing.T) {

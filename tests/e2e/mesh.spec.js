@@ -64,6 +64,7 @@ async function createScenario({ denyViewerMic = false } = {}) {
     async function join(page, service) {
       await page.goto(service.baseURL);
       await page.locator('#quick-manual-join').click();
+      await page.locator('#join-manual-fields > summary').click();
       await page.locator('#join-address').fill(invite.hostIPv4);
       await page.locator('#join-port').fill(String(invite.hostPort));
       await page.locator('#join-code').fill(invite.roomCode);
@@ -243,9 +244,7 @@ test('thirdViewerIsRejected', async (t) => withScenario(t, {}, async ({ browser,
   const third = await context.newPage();
   await third.goto(extraService.baseURL);
   await third.locator('#quick-manual-join').click();
-  await third.locator('#join-address').fill(invite.hostIPv4);
-  await third.locator('#join-port').fill(String(invite.hostPort));
-  await third.locator('#join-code').fill(invite.roomCode);
+  await third.locator('#join-invite').fill(`${invite.hostIPv4}:${invite.hostPort}  房间码 ${invite.roomCode}`);
   await third.locator('#join-room').click();
   await third.locator('#error-message').waitFor({ state: 'visible' });
   assert.match(await third.locator('#error-message').textContent(), /房间已满/);
@@ -317,7 +316,7 @@ test('viewerViewerVoiceConnects', async (t) => withScenario(t, {}, async ({ host
   assert.ok(ready, 'every viewer connection must send and receive native audio RTP bytes: '+JSON.stringify({viewerStats,diagnosis}));
 }));
 
-test('localSocketLossStopsMediaAndFreshJoinReclaimsSeat', async (t) => withScenario(t, {}, async ({ host, viewers, invite, services }) => {
+test('localSocketLossAutomaticallyResumesSameSeatAndRetainsMicrophone', async (t) => withScenario(t, {}, async ({ host, viewers, services }) => {
   const viewer = viewers[0];
   const original = await viewer.evaluate(() => {
     const joined = [...window.__lanScreenTest.incoming, ...window.__lanScreenTest.sent].findLast((message) => message.type === 'room.joined');
@@ -325,22 +324,72 @@ test('localSocketLossStopsMediaAndFreshJoinReclaimsSeat', async (t) => withScena
   });
   assert.ok(original.peerId && original.resumeToken, 'initial UI join receives an authenticated identity');
   await enableMic(viewer);
+  const microphoneRequests=await viewer.evaluate(()=>window.__lanScreenTest.captures.filter(item=>item.type==='microphone-request').length);
   await viewer.evaluate(() => window.__lanScreenTest.sockets.findLast(socket=>new URL(socket.url).pathname==='/ws/v1'&&socket.readyState===WebSocket.OPEN).close());
-  await viewer.locator('body[data-stage="entry"]').waitFor();
-  assert.match(await viewer.locator('#error-message').textContent(),/采集已停止/);
-  assert.equal(await viewer.evaluate(()=>window.__lanScreenTest.pcs.every(pc=>pc.connectionState==='closed')),true,'loss of the local service connection closes media');
-  await host.waitForFunction((peerId) => {
-    return ![...document.querySelectorAll('#members .member-seat')].some(element=>element.dataset.peerId===peerId);
-  }, original.peerId, { timeout: 25000 });
-  await viewer.locator('#quick-manual-join').click();
-  await viewer.locator('#join-address').fill(invite.hostIPv4);await viewer.locator('#join-port').fill(String(invite.hostPort));await viewer.locator('#join-code').fill(invite.roomCode);await viewer.locator('#join-room').click();
-  await viewer.locator('body[data-stage="voice"]').waitFor();
+  await viewer.waitForFunction(()=>window.__lanScreenTest.incoming.filter(message=>message.type==='room.joined').length>=2);
+  await viewer.locator('#connection-status').filter({hasText:'房间已恢复'}).waitFor();
   const rejoined=await viewer.evaluate(()=>window.__lanScreenTest.incoming.findLast(message=>message.type==='room.joined'));
-  assert.equal(rejoined.roomId,original.roomId);assert.notEqual(rejoined.peerId,original.peerId,'fresh rejoin retires the cleaned local identity');
-  assert.equal(await viewer.locator('#toggle-mic').getAttribute('aria-pressed'),'false','fresh join cannot implicitly recapture microphone');
+  assert.equal(rejoined.roomId,original.roomId);assert.equal(rejoined.peerId,original.peerId,'automatic resume retains the original identity');
+  assert.notEqual(rejoined.payload.resumeToken,original.resumeToken,'resume credentials rotate');
+  assert.equal(await viewer.locator('#toggle-mic').getAttribute('aria-pressed'),'true','a live page retains its granted microphone');
+  assert.equal(await viewer.evaluate(()=>window.__lanScreenTest.captures.filter(item=>item.type==='microphone-request').length),microphoneRequests);
   const hostIds = await memberIds(host);
   assert.ok(hostIds.includes(rejoined.peerId), 'fresh viewer rejoins the same room');
   assert.equal(services.length, 3);
+}));
+
+test('viewerAndHostRefreshRestoreRoomIdentityAndWatchingWithoutRecapturing', async (t) => withScenario(t, {}, async ({ host, viewers, invite }) => {
+  const [viewer,other]=viewers;
+  const originalHost=await host.evaluate(()=>window.__lanScreenTest.incoming.find(message=>message.type==='room.created'));
+  const originalViewer=await viewer.evaluate(()=>window.__lanScreenTest.incoming.find(message=>message.type==='room.joined'));
+  await enableMic(viewer);await shareSyntheticScreen(host);
+  await viewer.waitForFunction(()=>document.querySelector('#remote-screen').videoWidth>0);
+  await viewer.reload();await viewer.locator('body[data-stage="watch"]').waitFor();
+  const restored=await viewer.evaluate(()=>window.__lanScreenTest.incoming.findLast(message=>message.type==='room.joined'));
+  assert.equal(restored.roomId,originalViewer.roomId);assert.equal(restored.peerId,originalViewer.peerId);
+  assert.equal(await viewer.locator('#toggle-mic').getAttribute('aria-pressed'),'false');
+  assert.equal(await viewer.evaluate(()=>window.__lanScreenTest.captures.length),0,'refresh cannot silently recapture microphone or screen');
+  await viewer.waitForFunction(()=>document.querySelector('#remote-screen').videoWidth>0);
+  await host.locator('#stop-share').click();await shareSyntheticScreen(other);
+  await host.waitForFunction(()=>document.querySelector('#remote-screen').videoWidth>0);
+  await host.reload();await host.locator('body[data-stage="watch"]').waitFor();
+  const resumedHost=await host.evaluate(()=>window.__lanScreenTest.incoming.find(message=>message.type==='room.state'&&message.payload.resumed));
+  assert.equal(resumedHost.roomId,originalHost.roomId);assert.equal(resumedHost.peerId,originalHost.peerId);assert.equal(resumedHost.payload.roomCode,invite.roomCode);
+  assert.equal(await host.evaluate(()=>window.__lanScreenTest.captures.length),0);
+  await host.waitForFunction(()=>document.querySelector('#remote-screen').videoWidth>0);
+  for(const page of [host,...viewers])assert.equal((await memberIds(page)).length,3,'refresh does not remove or duplicate a seat');
+  await other.locator('#stop-share').click();await enableMic(host);await shareSyntheticScreen(host);
+  const captures=await host.evaluate(()=>window.__lanScreenTest.captures.length);
+  await host.evaluate(()=>window.__lanScreenTest.sockets.findLast(socket=>new URL(socket.url).pathname==='/ws/v1'&&socket.readyState===WebSocket.OPEN).close());
+  await host.waitForFunction(()=>window.__lanScreenTest.incoming.filter(message=>message.type==='room.state'&&message.payload.resumed).length>=2);
+  await host.locator('#connection-status').filter({hasText:'房间已恢复'}).waitFor();
+  assert.equal(await host.evaluate(()=>window.__lanScreenTest.captures.length),captures,'a transport interruption retains all active capture');
+  assert.equal(await host.locator('#toggle-mic').getAttribute('aria-pressed'),'true');
+  assert.equal(await host.locator('#stop-share').isEnabled(),true);
+  await viewer.waitForFunction(()=>document.querySelector('#remote-screen').videoWidth>0);
+  await host.reload();await host.locator('body[data-stage="voice"]').waitFor();
+  await viewer.locator('body[data-stage="voice"]').waitFor();
+  assert.equal(await host.evaluate(()=>window.__lanScreenTest.captures.length),0,'refreshing a presenter releases its vanished capture without ending the room');
+  assert.equal((await memberIds(host)).length,3);
+  await host.locator('#end-room').click();await host.locator('#confirm-accept').click();
+  for(const page of [host,...viewers]) { await page.locator('body[data-stage="entry"]').waitFor();await page.reload();await page.locator('#quick-create-room').waitFor();assert.equal(await page.evaluate(()=>sessionStorage.getItem('lan-screen-sharing.room')),null,'explicit end clears refresh recovery'); }
+}));
+
+test('briefLocalServiceFailureRetriesWithoutLeavingOrRecapturing', async (t) => withScenario(t, {}, async ({ host, viewers }) => {
+  const viewer=viewers[0];await enableMic(viewer);
+  const original=await viewer.evaluate(()=>window.__lanScreenTest.incoming.find(message=>message.type==='room.joined'));
+  let failures=0;
+  await viewer.route('**/api/v1/bootstrap',route=>++failures<=2 ? route.fulfill({status:503,body:'temporary test outage'}) : route.continue());
+  await viewer.evaluate(()=>{window.__recoveryStages=[];window.__recoveryObserver=new MutationObserver(()=>window.__recoveryStages.push(document.querySelector('#app').dataset.stage));window.__recoveryObserver.observe(document.querySelector('#app'),{attributes:true,attributeFilter:['data-stage']});window.__lanScreenTest.sockets.findLast(socket=>new URL(socket.url).pathname==='/ws/v1'&&socket.readyState===WebSocket.OPEN).close();});
+  await viewer.waitForFunction(()=>window.__lanScreenTest.incoming.filter(message=>message.type==='room.joined').length>=2);
+  await viewer.locator('#connection-status').filter({hasText:'房间已恢复'}).waitFor();
+  const restored=await viewer.evaluate(()=>window.__lanScreenTest.incoming.findLast(message=>message.type==='room.joined'));
+  assert.equal(restored.peerId,original.peerId);assert.equal(restored.roomId,original.roomId);assert.ok(failures>=3);
+  assert.equal(await viewer.evaluate(()=>window.__recoveryStages.includes('entry')),false,'the room stays visible through retries');
+  assert.equal(await viewer.locator('#toggle-mic').getAttribute('aria-pressed'),'true');
+  assert.equal((await memberIds(host)).length,3);
+  await viewer.locator('#leave-room').click();await viewer.reload();await viewer.locator('#quick-create-room').waitFor();
+  assert.equal(await viewer.evaluate(()=>sessionStorage.getItem('lan-screen-sharing.room')),null,'explicit leave does not refresh back into the room');
 }));
 
 test('isolationSettingsDoNotMarkRealValidation', async (t) => withScenario(t, {}, async ({ host }) => {

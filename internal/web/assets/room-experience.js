@@ -65,7 +65,14 @@ export function createRoomExperience(documentRef = document) {
     dialog.querySelector('[data-close-dialog]')?.addEventListener('click', () => dialog.close());
     dialog.addEventListener('keydown', event => {
       if (event.key !== 'Tab' || event.ctrlKey || event.altKey || event.metaKey) return;
-      const controls = [...dialog.querySelectorAll('button,input,select,textarea,summary,a[href],[tabindex]')].filter(node => !node.disabled && node.tabIndex >= 0 && node.getClientRects().length > 0);
+      const controls = [...dialog.querySelectorAll('button,input,select,textarea,summary,a[href],[tabindex]')].filter(node => {
+        if (node.disabled || node.tabIndex < 0 || !node.getClientRects().length) return false;
+        // Chromium can report rectangles for descendants of a closed details element.
+        for (let details = node.parentElement?.closest('details:not([open])'); details; details = details.parentElement?.closest('details:not([open])')) {
+          if (![...details.children].find(child => child.tagName === 'SUMMARY')?.contains(node)) return false;
+        }
+        return true;
+      });
       const first = controls[0], last = controls.at(-1);
       if (event.shiftKey && documentRef.activeElement === first) { event.preventDefault(); last.focus(); }
       else if (!event.shiftKey && documentRef.activeElement === last) { event.preventDefault(); first.focus(); }
@@ -118,7 +125,9 @@ export function createRoomExperience(documentRef = document) {
       const left = seats.find(node => node.dataset.seat === 'left');
       const right = seats.find(node => node.dataset.seat === 'right');
       const near = seats.find(node => node.dataset.seat === 'near');
-      const nodes = [left, activity, right, near].filter(Boolean);
+      // Keep the reading and keyboard order aligned with the member column,
+      // then move to the sharing area. The media elements remain in place.
+      const nodes = [left, right, near, activity].filter(Boolean);
       nodes.forEach((node,index) => { if ($('#members').children[index] !== node) $('#members').insertBefore(node, $('#members').children[index] || null); });
       place($('#members'), $('.orbit-table'));
       place($('#toggle-mic'), near?.querySelector('.seat-mic') || $('#mic-home'));

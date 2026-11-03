@@ -50,6 +50,7 @@ test('member UI joins a discovered room in one click and preserves mic across sh
   };
   const microphones = [];
   let nextSystemAudio = null;
+  let displayConstraints;
   const { document, window } = parseHTML(await readFile(new URL('../../internal/web/assets/index.html', import.meta.url), 'utf8'));
   // Exercise the production DOM, retaining an awaitable click for asynchronous app handlers.
   const clicks = new WeakMap();
@@ -90,7 +91,8 @@ test('member UI joins a discovered room in one click and preserves mic across sh
       microphones.push(microphone);
       return Promise.resolve({ getAudioTracks: () => [microphone], getTracks: () => [microphone] });
     },
-    getDisplayMedia() {
+    getDisplayMedia(constraints) {
+      displayConstraints = constraints;
       const video = { readyState:'live', stopped:false, getSettings:()=>({displaySurface:'monitor',width:1920,height:1080,frameRate:60}), addEventListener(){}, stop(){this.stopped=true;this.readyState='ended';} };
       return Promise.resolve({getVideoTracks:()=>[video],getAudioTracks:()=>nextSystemAudio?[nextSystemAudio]:[],getTracks:()=>nextSystemAudio?[video,nextSystemAudio]:[video]});
     },
@@ -165,15 +167,27 @@ test('member UI joins a discovered room in one click and preserves mic across sh
   assert.equal(mediaInstance.microphoneTrack, null);
 
   await choose.click();
+  document.querySelector('#join-invite').value = 'ABCD2345';
+  await document.querySelector('#join-room').click();
+  assert.equal(socket.sent.filter(message => message.type === 'viewer.join').length, 2, 'incomplete invitation must not send a join request');
+  assert.equal(document.querySelector('#join-invite').getAttribute('aria-invalid'), 'true');
+  document.querySelector('#join-address').setAttribute('aria-invalid', 'true');
+  document.querySelector('#join-invite').value = '192.168.1.20:45678  房间码 abcd2345';
   const rejoin = document.querySelector('#join-room').click();
   await until(() => socket.sent.filter((message) => message.type === 'viewer.join').length === 3);
   const secondJoin = socket.sent.findLast((message) => message.type === 'viewer.join');
+  assert.equal(secondJoin.payload.hostIPv4, '192.168.1.20');
+  assert.equal(secondJoin.payload.hostPort, 45678);
+  assert.equal(secondJoin.payload.roomCode, 'ABCD2345', 'one pasted invitation supplies all three connection fields');
+  assert.equal(document.querySelector('#join-address').hasAttribute('aria-invalid'), false, 'a valid invitation clears errors left by the manual fallback');
   socket.respond({ v: 1, type: 'room.joined', requestId: secondJoin.requestId, roomId: 'room-two', peerId: 'viewer-one', payload: { members: [], peerId: 'viewer-one', resumeToken: 'resume-two' } });
   await rejoin;
   assert.equal(globalThis.navigator.mediaDevices.calls, 1, 'rejoining must not implicitly recapture the microphone');
   assert.equal(mediaInstance.microphoneTrack, null);
   assert.equal(toggle.textContent, '开启麦克风');
   assert.equal(toggle.dataset.enabled, 'false');
+  await document.querySelector('#copy-invite').click();
+  assert.equal(copiedReport, '192.168.1.20:45678  房间码 ABCD2345', 'a joined member can copy the complete invitation');
 
   await toggle.click();
   assert.equal(globalThis.navigator.mediaDevices.calls, 2);
@@ -184,13 +198,15 @@ test('member UI joins a discovered room in one click and preserves mic across sh
 
   const sharedAudio = {kind:'audio',readyState:'live',stopped:false,getSettings:()=>({restrictOwnAudio:false}),stop(){this.stopped=true;},addEventListener(){}};
   nextSystemAudio = sharedAudio;
-  document.querySelector('#share-mode').value = 'combined';
+  assert.equal(document.querySelector('#share-mode').value, 'combined', 'system audio must be included by default without opening settings');
   const startSharing = document.querySelector('#start-share').click();
   await until(() => socket.sent.some(message => message.type === 'share.claim'));
   const claim = socket.sent.findLast(message => message.type === 'share.claim');
   assert.equal(claim.roomId, 'room-two', 'ordinary member claims within the joined room');
   socket.respond({v:1,type:'room.state',requestId:claim.requestId,roomId:'room-two',payload:{members:[],presenterPeerId:'viewer-one',screenSharing:false,presentationRevision:1}});
   await startSharing;
+  assert.equal(displayConstraints.audio, true, 'default sharing requests an audio track');
+  assert.equal(displayConstraints.systemAudio, 'include', 'default sharing asks the browser to include system audio');
   const capturedVideo = mediaInstance.screenVideoTrack;
   assert.ok(capturedVideo, 'ordinary member can use the actual app sharing handler');
   socket.respond({v:1,type:'room.state',roomId:'room-two',payload:{members:[],presenterPeerId:'viewer-one',screenSharing:true,presentationRevision:2}});

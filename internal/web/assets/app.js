@@ -13,6 +13,7 @@ import { bindPlayerPointer } from './player-pointer.js';
 import { MediaDiagnosticsHistory } from './media-history.js';
 import { createRoomExperience } from './room-experience.js';
 import { createRoomTextUI } from './room-text-ui.js';
+import { formatRoomInvite, parseRoomInvite } from './room-invite.js';
 
 const $ = (selector) => document.querySelector(selector);
 const ui = {
@@ -47,7 +48,7 @@ textUI = createRoomTextUI({ documentRef:document, transport:media.text, nameForP
 
 let activeRole = '';
 let currentRoomName = '';
-let reconnectTimer = null;
+let awaitingRecoveredPeers = false;
 let statsTimer = null;
 let latestMediaRows = [];
 let statsInFlight = false;
@@ -62,9 +63,7 @@ const nearbyRooms = createRoomBrowser({
     try {
       if (!await chooseRole('viewer')) throw new Error('本机服务连接失败，请稍后再试。');
       ui.viewerPanel.hidden = true;
-      $('#join-address').value = room.hostIPv4;
-      $('#join-port').value = String(room.hostPort);
-      $('#join-code').value = room.roomCode;
+      setJoinInvite(room);
       await joinRoomFromInputs();
     } catch (error) {
       showRoomList(); showError(error.message); throw error;
@@ -74,16 +73,15 @@ const nearbyRooms = createRoomBrowser({
 void localControlReady.then((ready) => {
   if (ready) {
     nearbyRooms.start();
-    if (!activeRole) setStatus('本机程序已就绪', 'neutral');
+    if (client.prepareRestore()) connectionLifecycle.recover();
+    else if (!activeRole) setStatus('本机程序已就绪', 'neutral');
   } else {
     $('#discovery-status').textContent = '本机服务尚未连接，请确认程序仍在运行后刷新页面。';
     if (!activeRole) setStatus('本机服务暂不可用', 'error');
   }
 });
 
-bindLocalConnectionLifecycle(client, media, () => {
-  if (reconnectTimer) clearTimeout(reconnectTimer);
-  reconnectTimer = null;
+const connectionLifecycle = bindLocalConnectionLifecycle(client, media, () => {
   ui.roomPanel.hidden = true; ui.roleChooser.hidden = false; ui.sharePanel.hidden = true;
   ui.hostPanel.hidden = true; ui.viewerPanel.hidden = true; activeRole = '';
   $('#discovery-panel').hidden = false;
@@ -94,8 +92,11 @@ bindLocalConnectionLifecycle(client, media, () => {
   $('#toggle-mic').textContent = '开启麦克风'; $('#toggle-mic').dataset.enabled = 'false';
   clearAudioControls();
   updateMembers(null);
-  setStatus('本机信令已断开，媒体已停止；请重新连接。', 'error');
-  showError('本机程序连接已关闭，屏幕与麦克风采集已停止。请重新加入房间；原席位最多保留 20 秒，若提示满员可稍候重试。');
+  setStatus('房间未能恢复，请重新加入', 'error');
+  showError('30 秒内未能恢复连接，或原房间已结束。采集已停止，请重新加入房间。');
+}, {
+  onRecovering: () => setStatus('连接暂时中断，正在自动恢复房间…', 'connecting'),
+  onRecovered: () => { showError(''); setStatus('房间已恢复', 'connected'); },
 });
 
 function showError(text) {
@@ -113,6 +114,10 @@ function syncPresentationStage() {
   $('#voice-only-warning').hidden = !(media.screenVideoTrack || media.pendingScreenStream);
   $('#voice-stage-message').textContent = media.voiceOnly && client.room?.screenSharing
     ? '只聊语音中；你可以随时恢复观看。' : '先聊着，准备好时可以共享画面。';
+  let invite = '';
+  try { invite = formatRoomInvite({ hostIPv4: ui.hostAddress.value, hostPort: ui.hostPort.value, roomCode: ui.roomCode.textContent }); }
+  catch { /* A complete invitation is available only after creating or joining a room. */ }
+  if ($('#invite-text').value !== invite) $('#invite-text').value = invite;
   experience.sync({ stage: ui.app.dataset.stage, roomName: $('#room-heading-title').textContent, memberCount: client.room?.members?.length || 0,
     roomId: client.room?.roomId || '',
     presenterPeerId: client.room?.presenterPeerId || '', presenterName: memberNames().find(member => member.peerId === client.room?.presenterPeerId)?.displayName,
@@ -214,7 +219,7 @@ function handleMediaState(state) {
   else if (state.state === 'capture_quality_unsupported') showError(state.message);
   else if (state.state === 'quality_unsupported' || state.state === 'quality_preference_unsupported' || state.state === 'autoplay_blocked' || state.state === 'ICE_FAILED' || state.state === 'DISPLAY_NOT_MONITOR' || state.state === 'missing_audio') showError(state.message);
   else if (state.state === 'peer_closed') document.querySelectorAll('.audio-source').forEach((row) => { if (row.dataset.peerId === state.peerId) row.remove(); });
-  else if (state.state === 'closed') { $('#toggle-mic').textContent = '开启麦克风'; $('#toggle-mic').dataset.enabled = 'false'; clearAudioControls(); ui.isolation.textContent = state.isolation.label; ui.isolation.dataset.state = state.isolation.state; document.querySelector('.screen-stage')?.classList.remove('has-video'); ui.preview.srcObject = null; setPreviewStream(ui.remoteScreen, null); ui.shareMode.value = 'limited'; resetShareControls({ start: $('#start-share'), stop: $('#stop-share'), verify: $('#manual-verify-start'), checklist: $('#manual-checklist'), manualCheck: ui.manualCheck }); updateSystemAudioUI(); }
+  else if (state.state === 'closed') { $('#toggle-mic').textContent = '开启麦克风'; $('#toggle-mic').dataset.enabled = 'false'; clearAudioControls(); ui.isolation.textContent = state.isolation.label; ui.isolation.dataset.state = state.isolation.state; document.querySelector('.screen-stage')?.classList.remove('has-video'); ui.preview.srcObject = null; setPreviewStream(ui.remoteScreen, null); ui.shareMode.value = 'combined'; resetShareControls({ start: $('#start-share'), stop: $('#stop-share'), verify: $('#manual-verify-start'), checklist: $('#manual-checklist'), manualCheck: ui.manualCheck }); updateSystemAudioUI(); }
   else if (state.state === 'connected') setStatus('媒体已连接', 'connected');
   syncPresentationStage();
 }
@@ -241,7 +246,9 @@ function updateSystemAudioUI() {
     ? media.isolation.state === 'browser_reported' || media.isolation.state === 'manual_pass'
       ? '系统声音正在共享；隔离状态见下方，听感检查为可选。'
       : '系统声音正在共享；隔离未确认，可能包含房间语音。需要时可单独停止系统声音。'
-    : '当前未共享系统声音；选择含系统声音的模式后，可以直接开始共享。';
+    : ui.shareMode.value === 'combined'
+      ? '共享时将包含系统声音；请在浏览器选择显示器并允许共享系统音频。'
+      : '当前选择不共享系统声音；画面与房间语音仍可正常共享。';
 }
 
 function showPendingAudioChoice() {
@@ -310,15 +317,47 @@ $('#create-room').addEventListener('click', async event => {
 });
 
 $('#copy-invite').addEventListener('click', async () => {
-  const invite = `${ui.hostAddress.value}:${ui.hostPort.value}  房间码 ${ui.roomCode.textContent}`;
-  try { await navigator.clipboard.writeText(invite); $('#copy-invite').textContent = '已复制'; setTimeout(() => { $('#copy-invite').textContent = '复制加入信息'; }, 1500); }
-  catch { showError('无法自动复制，请手动复制房主地址、端口和房间码。'); }
+  try {
+    await navigator.clipboard.writeText($('#invite-text').value);
+    $('#copy-invite').textContent = '已复制'; setTimeout(() => { $('#copy-invite').textContent = '复制邀请信息'; }, 1500);
+  } catch {
+    $('#invite-text').focus(); $('#invite-text').select();
+    showError('无法自动复制，已选中完整邀请信息，请按 Ctrl+C 复制。');
+  }
 });
 
+function setJoinInvite(details) {
+  const invite = formatRoomInvite(details);
+  const normalized = parseRoomInvite(invite);
+  $('#join-invite').value = invite;
+  $('#join-address').value = normalized.hostIPv4;
+  $('#join-port').value = String(normalized.hostPort);
+  $('#join-code').value = normalized.roomCode;
+  for (const id of ['join-invite', 'join-address', 'join-port', 'join-code']) $(`#${id}`).removeAttribute('aria-invalid');
+}
+$('#join-invite').addEventListener('input', () => { $('#join-invite').removeAttribute('aria-invalid'); });
+for (const id of ['join-address', 'join-port', 'join-code']) {
+  $(`#${id}`).addEventListener('input', () => {
+    $('#join-invite').value = ''; $('#join-invite').removeAttribute('aria-invalid');
+    $(`#${id}`).removeAttribute('aria-invalid');
+  });
+}
 $('#viewer-panel').addEventListener('submit', event => event.preventDefault());
 $('#join-room').addEventListener('click', async event => {
   event.preventDefault();
-  if (!ui.viewerPanel.reportValidity()) return;
+  const pasted = $('#join-invite').value.trim();
+  const manual = !pasted && $('#join-manual-fields').open;
+  if (manual && !ui.viewerPanel.reportValidity()) return;
+  try {
+    setJoinInvite(manual
+      ? { hostIPv4: $('#join-address').value, hostPort: $('#join-port').value, roomCode: $('#join-code').value }
+      : parseRoomInvite(pasted));
+  } catch (error) {
+    showError(error.message);
+    const field = manual ? $('#join-address') : $('#join-invite');
+    field.setAttribute('aria-invalid', 'true'); field.focus();
+    return;
+  }
   try { await joinRoomFromInputs(); } catch { /* The shared action already shows the error. */ }
 });
 async function joinRoomFromInputs() {
@@ -401,6 +440,7 @@ $('#stop-share').addEventListener('click', async () => {
 });
 
 $('#share-mode').addEventListener('change', () => {
+  updateSystemAudioUI();
   if (!media.pendingScreenStream) return;
   $('#start-share').textContent = ui.shareMode.value === 'limited' ? '仅共享画面与语音' : '选择无游戏声音模式后继续';
 });
@@ -467,8 +507,7 @@ async function finishManualCheck(result) {
 $('#leave-room').addEventListener('click', async () => {
   setPreviewStream(ui.remoteScreen, null);
   client.reconnectWanted = false;
-  if (reconnectTimer) clearTimeout(reconnectTimer);
-  reconnectTimer = null;
+  connectionLifecycle.cancel();
   showError(''); setStatus('正在离开房间…', 'connecting');
   try { await client.leaveRoom(); }
   catch (error) {
@@ -482,13 +521,19 @@ $('#leave-room').addEventListener('click', async () => {
 
 $('#end-room').addEventListener('click', async () => {
   if (!await experience.confirm({title:'结束这个房间？', description:'所有成员的语音、画面和文字连接都会断开。朋友需要新的邀请才能再次加入。', action:'结束房间'}, $('#end-room'))) return;
+  connectionLifecycle.cancel();
   setPreviewStream(ui.remoteScreen, null);
   showError(''); setStatus('正在结束房间…', 'connecting');
   try {
     await client.endRoom(); await media.closeAll();
     showRoomList();
     setStatus('房间已结束', 'neutral');
-  } catch (error) { showError(error.message); }
+  } catch {
+    client.cancelRecovery(); client.close(); client.room = null; client.peerId = '';
+    await media.closeAll(); showRoomList(); updateMembers(null);
+    setStatus('已退出本机房间', 'neutral');
+    showError('未能向其他成员确认结束。本机已停止采集并退出；如果房主连接没有恢复，房间将在保留期后关闭。');
+  }
 });
 
 $('#exit-program').addEventListener('click', async () => {
@@ -498,8 +543,7 @@ $('#exit-program').addEventListener('click', async () => {
   await localControlReady;
   client.reconnectWanted = false;
   client.explicitlyLeaving = true;
-  if (reconnectTimer) clearTimeout(reconnectTimer);
-  reconnectTimer = null;
+  connectionLifecycle.cancel();
   try {
     if (client.room && client.role === 'viewer') await client.leaveRoom();
     else if (client.room && client.role === 'host') await client.endRoom();
@@ -518,6 +562,24 @@ $('#exit-program').addEventListener('click', async () => {
 
 client.addEventListener('message', (event) => {
   const message = event.detail;
+  if (message.recovered) {
+    activeRole = client.role; currentRoomName = client.room?.name || '';
+    showRoom(); ui.hostPanel.hidden = true; ui.viewerPanel.hidden = true; ui.sharePanel.hidden = false;
+    media.setIdentity(client.peerId, client.role);
+    for (const peerId of [...media.peers.keys()]) void media.closePeer(peerId);
+    awaitingRecoveredPeers = true;
+    const invite = client.role === 'host'
+      ? {hostIPv4:client.bootstrap?.lanIPv4, hostPort:client.bootstrap?.signalPort, roomCode:client.room?.roomCode}
+      : client.joinDetails;
+    if (invite) {
+      ui.hostAddress.value = invite.hostIPv4 || ''; ui.hostPort.value = invite.hostPort || ''; ui.roomCode.textContent = invite.roomCode || '';
+      const card = ui.hostAddress.closest('.invite-card'); if (card) card.hidden = !ui.hostAddress.value;
+    }
+    if (client.room?.presenterPeerId === client.peerId) {
+      if (!media.screenVideoTrack) void client.releasePresentation().catch(() => {});
+      else media.publishMediaState();
+    }
+  }
   if (message.type === 'room.created') {
     $('#room-name').disabled = true; $('#room-discoverable').disabled = true;
     const peerId = message.peerId;
@@ -529,7 +591,7 @@ client.addEventListener('message', (event) => {
   } else if (message.type === 'room.joined') {
     const snapshot = { members: message.payload?.members ?? [] };
     updateMembers(snapshot); media.setIdentity(client.peerId, 'viewer');
-    for (const member of snapshot.members) if (member.peerId !== client.peerId) media.addPeer(member.peerId, member.role);
+    if (!awaitingRecoveredPeers) for (const member of snapshot.members) if (member.peerId !== client.peerId) media.addPeer(member.peerId, member.role);
     if (client.room?.presenterPeerId === client.peerId) {
       if (!media.screenVideoTrack && !media.captureAttempt) void client.releasePresentation().catch(() => {});
       else media.publishMediaState();
@@ -549,13 +611,18 @@ client.addEventListener('message', (event) => {
     }
     updateMembers();
   } else if (message.type === 'room.state') {
+    if (!message.payload?.resumed) awaitingRecoveredPeers = false;
     updateMembers();
-    for (const member of message.payload?.members ?? []) if (member.peerId !== client.peerId) media.addPeer(member.peerId, member.role);
+    if (!awaitingRecoveredPeers) for (const member of message.payload?.members ?? []) if (member.peerId !== client.peerId) media.addPeer(member.peerId, member.role);
+  } else if (message.type === 'peer.state' && message.payload?.restartMedia && message.peerId !== client.peerId) {
+    void media.closePeer(message.peerId);
+    const member = client.room?.members?.find(member => member.peerId === message.peerId);
+    if (member) media.addPeer(member.peerId, member.role);
   } else if (message.type === 'room.ended') {
     setPreviewStream(ui.remoteScreen, null);
     void media.closeAll(); showRoomList();
     $('#create-room').disabled = false;
-    setStatus('房间已结束，可以加入其他房间', 'neutral'); showError('');
+    setStatus(message.payload?.reason === 'session_replaced' ? '房间已在另一个页面恢复，本页已退出' : '房间已结束，可以加入其他房间', 'neutral'); showError('');
   } else if (message.type === 'rtc.description' || message.type === 'rtc.candidate') {
     media.handleSignal(message.type, message.payload ?? {}).catch(() => showError('媒体协商失败，请重新加入房间。'));
   }
@@ -592,28 +659,9 @@ function updatePresentation() {
 client.addEventListener('errorMessage', (event) => {
   const error = event.detail;
   showError(error.text);
-  if (error.code === 'SIGNAL_CONNECTION_LOST' && error.retryable && client.role === 'viewer' && client.reconnectWanted) scheduleReconnect();
   if (error.code === 'MIC_PERMISSION_DENIED') $('#toggle-mic').textContent = '重试麦克风';
 });
 client.addEventListener('connected', () => setStatus('本机信令已连接', 'connected'));
-
-function scheduleReconnect(attempt = 0, startedAt = Date.now()) {
-  if (reconnectTimer) return;
-  if (!client.reconnectWanted || client.explicitlyLeaving || attempt >= 5 || Date.now() - startedAt >= 20_000) {
-    setStatus('自动恢复未成功，请手动重新加入', 'error'); return;
-  }
-  setStatus(`信令中断，正在恢复（${attempt + 1}/5）…`, 'connecting');
-  reconnectTimer = setTimeout(async () => {
-    reconnectTimer = null;
-    try {
-      await client.retryJoin(); setStatus('房间信令已恢复', 'connected'); showError('');
-    } catch (error) {
-      if (!client.reconnectWanted) return;
-      if (error.code !== 'SIGNAL_CONNECTION_LOST' || !error.retryable) { showError(error.message); setStatus('自动恢复已停止，请重新加入', 'error'); return; }
-      scheduleReconnect(attempt + 1, startedAt);
-    }
-  }, Math.min(1000 * (2 ** attempt), 5000));
-}
 
 async function sampleStats() {
   if (statsInFlight) return;

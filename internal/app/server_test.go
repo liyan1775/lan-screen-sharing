@@ -367,7 +367,9 @@ func TestLocalWebSocketRoleIsolationAndBridgeSeats(t *testing.T) {
 	if fromHost.PeerID != member1.PeerID {
 		t.Fatalf("host signal target mismatch: %#v", fromHost)
 	}
-	_ = v1.Close(websocket.StatusNormalClosure, "simulate local browser reconnect")
+	writeEnvelope(t, v1, protocol.Envelope{V: 1, Type: "viewer.leave", RequestID: "explicit-leave-v1", RoomID: invite.RoomID, Payload: rawPayload(map[string]any{})})
+	readUntilType(t, v1, "peer.left")
+	_ = v1.Close(websocket.StatusNormalClosure, "explicitly left local browser")
 	deadline := time.Now().Add(time.Second)
 	for {
 		snapshot, ok := s.rooms.Get(invite.RoomID)

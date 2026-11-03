@@ -26,13 +26,13 @@ jobs:
       - run: npm run experience:test
       - name: Build Windows executable
         shell: pwsh
-        run: ./scripts/build.ps1 -BuildVersion 0.3.0 -OutputPath ./dist/lan-screen-sharing-0.3.0.exe
+        run: ./scripts/build.ps1 -BuildVersion 0.4.0 -OutputPath ./dist/lan-screen-sharing-0.4.0.exe
       - name: Install isolated Chromium test runtime
         run: node node_modules/playwright-core/cli.js install chromium
       - name: Frontend and synthetic media browser regression
         shell: pwsh
         run: |
-          $env:LANSW_EXE = (Resolve-Path './dist/lan-screen-sharing-0.3.0.exe').Path
+          $env:LANSW_EXE = (Resolve-Path './dist/lan-screen-sharing-0.4.0.exe').Path
           $env:LANSW_BROWSER_PATH = (& node --input-type=module -e "import { chromium } from 'playwright-core'; process.stdout.write(chromium.executablePath());").Trim()
           node --test tests/e2e/frontend-hig.spec.js
           if ($LASTEXITCODE -ne 0) { throw 'Frontend browser checks failed.' }

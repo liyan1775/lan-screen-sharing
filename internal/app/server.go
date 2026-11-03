@@ -92,7 +92,7 @@ func New(config Config) *Server {
 		config.PageLeaseTTL = 10 * time.Second
 	}
 	if config.PageLeaseShutdownGrace <= 0 {
-		config.PageLeaseShutdownGrace = 3 * time.Second
+		config.PageLeaseShutdownGrace = 30 * time.Second
 	}
 	if config.PageStartupGrace <= 0 {
 		config.PageStartupGrace = 30 * time.Second

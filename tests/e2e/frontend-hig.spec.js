@@ -19,7 +19,7 @@ test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearan
   t.after(async()=>{
     await Promise.allSettled(contexts.map(context=>context.close()));await browser.close();await shutdownOwnedServices(services);
     evidence.errors=errors;evidence.externalRequestCount=external.length;
-    for(const file of ['index.html','styles.css','app.js','client.js','room-browser.js','room-experience.js','room-text.js','room-text-ui.js','media.js','fullscreen.js','preview-playback.js']) evidence.sourceHashes[file]=createHash('sha256').update(await readFile('internal/web/assets/'+file)).digest('hex');
+    for(const file of ['index.html','styles.css','app.js','client.js','connection-lifecycle.js','page-lease.js','room-browser.js','room-invite.js','room-experience.js','room-text.js','room-text-ui.js','media.js','fullscreen.js','preview-playback.js']) evidence.sourceHashes[file]=createHash('sha256').update(await readFile('internal/web/assets/'+file)).digest('hex');
     evidence.buildSHA256=createHash('sha256').update(await readFile(process.env.LANSW_EXE)).digest('hex');
     await writeFile(path.join(output,'evidence.json'),JSON.stringify(evidence,null,2));
   });
@@ -29,11 +29,14 @@ test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearan
     const context=await browser.newContext({viewport:{width:1440,height:1000},colorScheme:'dark'});contexts.push(context);
     await context.addInitScript(installSyntheticMedia,{participantAlias:i?'viewer-'+i:'host'});
     context.on('request',request=>{if(!['localhost','127.0.0.1'].includes(new URL(request.url()).hostname))external.push('external');});
-    const page=await context.newPage();pages.push(page);page.on('pageerror',error=>errors.push(error.message));await page.goto(service.baseURL);
+    const page=await context.newPage();pages.push(page);page.on('pageerror',error=>errors.push(error.message));
+    // Keep the initial live-announcement check independent of rooms appearing on the real LAN.
+    if(i===0)await page.route('**/api/v1/rooms',route=>route.fulfill({json:{available:true,rooms:[]}}));
+    await page.goto(service.baseURL);
   }
   const [host,viewer,other]=pages;
   evidence.servedHashes={};
-  for(const file of ['index.html','styles.css','app.js','client.js','room-browser.js','room-experience.js','room-text.js','room-text-ui.js','media.js','fullscreen.js','preview-playback.js']) {
+  for(const file of ['index.html','styles.css','app.js','client.js','connection-lifecycle.js','page-lease.js','room-browser.js','room-invite.js','room-experience.js','room-text.js','room-text-ui.js','media.js','fullscreen.js','preview-playback.js']) {
     const response=await fetch(services[0].baseURL+(file==='index.html'?'/':'/assets/'+file));assert.equal(response.ok,true);
     const actual=createHash('sha256').update(Buffer.from(await response.arrayBuffer())).digest('hex');const expected=createHash('sha256').update(await readFile('internal/web/assets/'+file)).digest('hex');assert.equal(actual,expected,'embedded '+file+' matches reviewed source');evidence.servedHashes[file]=actual;
   }
@@ -65,22 +68,32 @@ test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearan
   let fixtureRooms=[{id:'fixture-active',name:'测试 · 周末游戏',members:1,capacity:3,screenSharing:true,hostIPv4:lanIP,hostPort:Number(services[0].signalPort),roomCode:'ABCD2345'},{id:'fixture-full',name:'测试 · 已满房间',members:3,capacity:3,hostIPv4:lanIP,hostPort:Number(services[0].signalPort),roomCode:'BCDE2345'},{id:'fixture-idle',name:'测试 · 聊会儿',members:2,capacity:3,hostIPv4:lanIP,hostPort:Number(services[0].signalPort),roomCode:'CDEF2345'}];
   await host.route('**/api/v1/rooms',route=>route.fulfill({json:{available:true,rooms:fixtureRooms}}));await host.locator('#refresh-rooms').click();await host.locator('.discovered-room').nth(2).waitFor();
   assert.equal(await host.locator('[data-room-id="fixture-full"] button').isDisabled(),true);await capture(host,'15-rooms-fixture');await axe(host,'discovery populated fixture');
+  await host.emulateMedia({colorScheme:'light'});await capture(host,'15b-rooms-fixture-light');await axe(host,'discovery populated light');await host.emulateMedia({colorScheme:'dark'});
   await host.setViewportSize({width:390,height:844});await noOverflow(host,'room cards 390');await capture(host,'16-rooms-fixture-390');await host.setViewportSize({width:1440,height:1000});
   let releaseBootstrap;const heldBootstrap=new Promise(resolve=>releaseBootstrap=resolve);await host.route('**/api/v1/bootstrap',async route=>{await heldBootstrap;await route.continue();});
   await host.locator('[data-room-id="fixture-active"] button').click();await host.locator('[data-room-id="fixture-active"][aria-busy="true"]').waitFor();assert.equal(await host.locator('[data-room-id="fixture-active"] button').isDisabled(),true);await capture(host,'20-joining-fixture');releaseBootstrap();await host.unroute('**/api/v1/bootstrap');
   await host.locator('#error-message').waitFor({state:'visible'});await capture(host,'17-stale-room');await axe(host,'stale room failure');await ax(host,'stale room alert');
   fixtureRooms=[];await host.unroute('**/api/v1/rooms');await host.locator('#refresh-rooms').click();
-  await host.locator('#quick-manual-join').click();await host.locator('#join-address').fill('invalid');await host.locator('#join-port').fill('0');await host.locator('#join-code').fill('');await host.locator('#join-room').click();assert.equal(await host.locator('#join-address').evaluate(n=>n.validity.valid),false);assert.equal(await host.locator('#join-address').evaluate(n=>n===document.activeElement),true);await capture(host,'18-invalid-join');await host.locator('#browse-rooms').click();
+  await host.locator('#quick-manual-join').click();
+  assert.equal(await host.locator('#join-manual-fields').getAttribute('open'),null,'individual connection fields start collapsed');
+  await capture(host,'22-paste-invite-dark');await axe(host,'single invitation dark');
+  await host.emulateMedia({colorScheme:'light'});await capture(host,'23-paste-invite-light');await axe(host,'single invitation light');
+  await host.setViewportSize({width:390,height:844});await noOverflow(host,'single invitation 390');await capture(host,'24-paste-invite-390');await host.setViewportSize({width:1440,height:1000});await host.emulateMedia({colorScheme:'dark'});
+  await host.locator('#join-invite').fill('ABCD2345');await host.locator('#join-room').click();assert.equal(await host.locator('#join-invite').getAttribute('aria-invalid'),'true');assert.equal(await host.locator('#join-invite').evaluate(n=>n===document.activeElement),true);await capture(host,'18-invalid-join');
+  await host.locator('#join-invite').fill('');await host.locator('#join-manual-fields > summary').click();await host.locator('#join-address').fill('invalid');await host.locator('#join-port').fill('0');await host.locator('#join-code').fill('');await host.locator('#join-room').click();assert.equal(await host.locator('#join-address').evaluate(n=>n.validity.valid),false);assert.equal(await host.locator('#join-address').evaluate(n=>n===document.activeElement),true);await host.locator('#browse-rooms').click();
   await host.locator('#quick-create-room').click();await host.locator('#room-name').fill('周二游戏夜');await host.locator('#room-discoverable').uncheck();await capture(host,'03-create');await axe(host,'create');
   await host.locator('#create-room').click();await host.locator('body[data-stage="voice"]').waitFor();
   await host.locator('#invite-room').click();
-  const invite=await host.evaluate(()=>({address:document.querySelector('#host-address').value,port:document.querySelector('#host-port').value,code:document.querySelector('#room-code').textContent}));
+  const invite=await host.evaluate(()=>({address:document.querySelector('#host-address').value,port:document.querySelector('#host-port').value,code:document.querySelector('#room-code').textContent,text:document.querySelector('#invite-text').value}));
+  assert.equal(invite.text,`${invite.address}:${invite.port}  房间码 ${invite.code}`);await capture(host,'25-copy-invitation-dark');await axe(host,'copy invitation dark');
+  await host.emulateMedia({colorScheme:'light'});await capture(host,'26-copy-invitation-light');await axe(host,'copy invitation light');await host.emulateMedia({colorScheme:'dark'});
+  await host.setViewportSize({width:390,height:844});await noOverflow(host,'copy invitation 390');await capture(host,'27-copy-invitation-390');await host.setViewportSize({width:1440,height:1000});
   await trap(host,'invite-dialog');await ax(host,'invite dialog');
   await host.locator('#invite-dialog [data-close-dialog]').click();
   for(const page of [viewer,other]){
     await page.locator('#quick-manual-join').click();
-    await page.locator('#join-address').fill(invite.address);await page.locator('#join-port').fill(invite.port);await page.locator('#join-code').fill(invite.code);
-    await page.locator('#join-code').press('Enter');await page.locator('body[data-stage="voice"]').waitFor();
+    await page.locator('#join-invite').fill(invite.text);
+    await page.locator('#join-invite').press('Enter');await page.locator('body[data-stage="voice"]').waitFor();
     assert.equal(await page.locator('#topbar-room-name').textContent(),'周二游戏夜','manual join preserves actual room context');
   }
   await host.waitForFunction(()=>document.querySelectorAll('.member-seat[data-empty="false"]').length===3);
@@ -90,7 +103,9 @@ test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearan
   await host.locator('#room-text').click();await host.waitForFunction(()=>!document.querySelector('#send-text').disabled);
   await host.locator('#text-input').fill('不开麦也可以一起聊。');await host.locator('#text-input').press('Enter');
   await Promise.all([viewer,other].map(page=>page.waitForFunction(()=>document.querySelector('#text-log').textContent.includes('不开麦也可以一起聊。'))));
-  await viewer.locator('#room-text').click();await viewer.locator('#text-input').fill('<img src=x onerror=alert(1)>');await viewer.locator('#send-text').click();
+  await viewer.locator('#room-text').click();await viewer.locator('#text-input').fill('我看到了，一起开始吧。');await viewer.locator('#send-text').click();
+  await host.waitForFunction(()=>document.querySelector('#text-log').textContent.includes('我看到了，一起开始吧。'));await capture(host,'05a-text-conversation');
+  await viewer.locator('#text-input').fill('<img src=x onerror=alert(1)>');await viewer.locator('#send-text').click();
   await host.waitForFunction(()=>document.querySelector('#text-log').textContent.includes('<img'));
   assert.equal(await host.locator('#text-log img').count(),0,'text messages are plain text');
   await capture(host,'05-text');await axe(host,'text');
@@ -108,7 +123,7 @@ test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearan
   await host.waitForFunction(()=>document.activeElement===document.querySelector('#exit-program'),null,{timeout:3000});
   assert.equal(await host.locator('#exit-program').evaluate(n=>document.activeElement===n),true);await closeSettings(host);
   await host.locator('#end-room').click();await host.locator('#confirm-dialog').waitFor({state:'visible'});await host.locator('#confirm-cancel').press('Escape');assert.equal(await host.locator('body').getAttribute('data-stage'),'voice');
-  await settings(host);await host.locator('#share-mode').selectOption('combined');await closeSettings(host);
+  await settings(host);assert.equal(await host.locator('#share-mode').inputValue(),'combined','system audio is enabled by default');await closeSettings(host);
   await settings(viewer);await viewer.locator('#quality-target').focus();await host.locator('#start-share').click();await viewer.locator('body[data-stage="watch"]').waitFor();assert.equal(await viewer.locator('#settings-dialog').isVisible(),true,'remote sharing preserves the current settings task');assert.equal(await viewer.locator('#quality-target').evaluate(n=>document.activeElement===n),true);await closeSettings(viewer);
   await viewer.locator('body[data-stage="watch"]').waitFor();await viewer.waitForFunction(()=>document.querySelector('#remote-screen').videoWidth>0);await capture(viewer,'08-watch');await axe(viewer,'watch');
   const video=await viewer.locator('#remote-screen').evaluateHandle(n=>n);
@@ -116,7 +131,7 @@ test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearan
   const slider=viewer.locator('#sound-dialog .audio-source[data-role="microphone"] input').first();await slider.focus();await slider.press('ArrowLeft');const volume=await slider.inputValue();
   await settings(host);await host.locator('#quality-target').selectOption('720p30');await closeSettings(host);
   await other.locator('#leave-room').click();await viewer.waitForFunction(()=>document.querySelector('#topbar-room-count').textContent==='2 人');
-  await other.locator('#quick-manual-join').click();await other.locator('#join-address').fill(invite.address);await other.locator('#join-port').fill(invite.port);await other.locator('#join-code').fill(invite.code);await other.locator('#join-room').click();await viewer.waitForFunction(()=>document.querySelector('#topbar-room-count').textContent==='3 人');
+  await other.locator('#quick-manual-join').click();await other.locator('#join-invite').fill(invite.text);await other.locator('#join-room').click();await viewer.waitForFunction(()=>document.querySelector('#topbar-room-count').textContent==='3 人');
   assert.equal(await slider.evaluate(n=>document.activeElement===n),true);assert.equal(await slider.inputValue(),volume);await viewer.locator('#sound-dialog [data-close-dialog]').click();
   assert.equal(await viewer.locator('#watch-sound').evaluate(n=>document.activeElement===n),true);
   await viewer.locator('#fullscreen-screen').click();assert.equal(await viewer.evaluate(()=>document.fullscreenElement?.id),'share-panel');
@@ -128,9 +143,11 @@ test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearan
   await viewer.setViewportSize({width:720,height:500});await viewer.addStyleTag({content:':root{font-size:200% !important}'});await noOverflow(viewer,'voice 200 percent text');await capture(viewer,'13-voice-text-200');await axe(viewer,'voice 200 percent text');
   await settings(viewer);await noOverflow(viewer,'settings 200 percent text');await trap(viewer,'settings-dialog');await viewer.locator('#exit-program').focus();assert.equal(await viewer.locator('#exit-program').evaluate(node=>{const rect=node.getBoundingClientRect();return rect.top>=0&&rect.bottom<=innerHeight;}),true);await viewer.locator('#settings-dialog [data-close-dialog]').focus();await capture(viewer,'14-settings-text-200');await axe(viewer,'settings 200 percent text');await closeSettings(viewer);
   await viewer.locator('#room-text').click();await noOverflow(viewer,'text 200 percent');await viewer.waitForFunction(()=>!document.querySelector('#send-text').disabled);await viewer.locator('#send-text').focus();assert.equal(await viewer.locator('#send-text').evaluate(node=>{const r=node.getBoundingClientRect(),p=document.querySelector('#text-panel').getBoundingClientRect();return document.activeElement===node&&r.top>=p.top&&r.bottom<=Math.min(p.bottom,innerHeight);}),true,'text send remains reachable at 200 percent');await capture(viewer,'22-text-200');await axe(viewer,'text 200 percent');await viewer.locator('#close-text').click();
-  await other.evaluate(()=>window.__lanScreenTest.sockets.findLast(socket=>new URL(socket.url).pathname==='/ws/v1'&&socket.readyState===WebSocket.OPEN).close());await other.locator('body[data-stage="entry"]').waitFor();await other.locator('#error-message').waitFor({state:'visible'});await capture(other,'23-local-disconnect');await ax(other,'local disconnect alert');await axe(other,'local disconnect');
-  await host.waitForFunction(()=>document.querySelector('#topbar-room-count').textContent==='2 人',null,{timeout:25000});
-  await other.locator('#quick-manual-join').click();await other.locator('#join-address').fill(invite.address);await other.locator('#join-port').fill(invite.port);await other.locator('#join-code').fill(invite.code);await other.locator('#join-room').click();await other.locator('body[data-stage="watch"]').waitFor();assert.equal(await other.locator('#toggle-mic').getAttribute('aria-pressed'),'false','recovery does not silently recapture microphone');evidence.checks.push({check:'actual local socket loss, seat timeout and manual recovery',passed:true});
+  const beforeRecovery=await other.evaluate(()=>window.__lanScreenTest.incoming.filter(message=>message.type==='room.joined').length);
+  await other.evaluate(()=>window.__lanScreenTest.sockets.findLast(socket=>new URL(socket.url).pathname==='/ws/v1'&&socket.readyState===WebSocket.OPEN).close());
+  await other.waitForFunction(count=>window.__lanScreenTest.incoming.filter(message=>message.type==='room.joined').length>count,beforeRecovery);
+  await other.locator('#connection-status').filter({hasText:'房间已恢复'}).waitFor();await capture(other,'23-local-recovered');await ax(other,'local connection recovered');await axe(other,'local connection recovered');
+  assert.equal(await host.locator('#topbar-room-count').textContent(),'3 人');assert.equal(await other.locator('#toggle-mic').getAttribute('aria-pressed'),'false');evidence.checks.push({check:'actual local socket loss automatically resumes the original seat without recapture',passed:true});
   await viewer.locator('#leave-room').click();await viewer.locator('body[data-stage="entry"]').waitFor();assert.equal(await viewer.locator('#text-log').textContent(),'','leaving clears local message history');
   assert.deepEqual(errors,[]);assert.deepEqual(external,[]);
   evidence.checks.push({check:'all core paths above',passed:true,realHardwareCapture:false});

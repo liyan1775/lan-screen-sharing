@@ -14,7 +14,7 @@ import (
 	"unicode/utf8"
 )
 
-const reconnectWindow = 20 * time.Second
+const ReconnectWindow = 30 * time.Second
 const roomCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 type Manager struct {
@@ -194,13 +194,13 @@ func (m *Manager) Join(roomCode, resumeToken string) (PeerSession, RoomSnapshot,
 	if resumeToken != "" {
 		h := sha256.Sum256([]byte(resumeToken))
 		for _, p := range r.peers {
-			if p.role == "viewer" && !p.connected && p.resumeHash == h && m.now().Before(p.reconnectUntil) {
-				p.connected = true
-				p.reconnectUntil = time.Time{}
+			if p.role == "viewer" && p.resumeHash == h && (p.connected || m.now().Before(p.reconnectUntil)) {
 				token, err := randomToken(32)
 				if err != nil {
 					return PeerSession{}, RoomSnapshot{}, err
 				}
+				p.connected = true
+				p.reconnectUntil = time.Time{}
 				p.resumeHash = sha256.Sum256([]byte(token))
 				return PeerSession{PeerID: p.id, ResumeToken: token}, snapshot(r), nil
 			}
@@ -277,7 +277,35 @@ func (m *Manager) Disconnect(roomID, peerID string) {
 		return
 	}
 	p.connected = false
-	p.reconnectUntil = m.now().Add(reconnectWindow)
+	p.reconnectUntil = m.now().Add(ReconnectWindow)
+}
+
+// ResumeHost is called only after the local host control token has been authenticated.
+func (m *Manager) ResumeHost(roomID string) (RoomSnapshot, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r := m.rooms[roomID]
+	if r == nil || r.ended || !m.now().Before(r.expires) {
+		return RoomSnapshot{}, errors.New("ROOM_NOT_FOUND")
+	}
+	p := r.peers[r.hostID]
+	if p == nil || (!p.connected && !m.now().Before(p.reconnectUntil)) {
+		return RoomSnapshot{}, errors.New("ROOM_NOT_FOUND")
+	}
+	p.connected = true
+	p.reconnectUntil = time.Time{}
+	return snapshot(r), nil
+}
+
+func (m *Manager) DisconnectedExpired(roomID, peerID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r := m.rooms[roomID]
+	if r == nil || r.ended {
+		return false
+	}
+	p := r.peers[peerID]
+	return p != nil && !p.connected && !m.now().Before(p.reconnectUntil)
 }
 
 func (m *Manager) ExpireDisconnected(roomID, peerID string) {

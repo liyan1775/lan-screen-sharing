@@ -64,15 +64,17 @@ type SignalCandidatePayload struct {
 }
 
 type JoinPayload struct {
-	HostIPv4    string `json:"hostIPv4"`
-	HostPort    int    `json:"hostPort"`
-	RoomCode    string `json:"roomCode"`
-	ResumeToken string `json:"resumeToken,omitempty"`
+	HostIPv4     string `json:"hostIPv4"`
+	HostPort     int    `json:"hostPort"`
+	RoomCode     string `json:"roomCode"`
+	ResumeToken  string `json:"resumeToken,omitempty"`
+	RestartMedia bool   `json:"restartMedia,omitempty"`
 }
 
 type AuthHelloPayload struct {
 	Role      Role   `json:"role"`
 	HostToken string `json:"hostToken,omitempty"`
+	RoomID    string `json:"roomId,omitempty"`
 }
 
 var knownTypes = map[string]bool{
@@ -230,8 +232,9 @@ func validatePayload(e Envelope) error {
 		return decodePayload(e.Payload, &p)
 	case "signal.join":
 		var p struct {
-			RoomCode    string `json:"roomCode"`
-			ResumeToken string `json:"resumeToken,omitempty"`
+			RoomCode     string `json:"roomCode"`
+			ResumeToken  string `json:"resumeToken,omitempty"`
+			RestartMedia bool   `json:"restartMedia,omitempty"`
 		}
 		if err := decodePayload(e.Payload, &p); err != nil {
 			return err
@@ -292,8 +295,10 @@ func validatePayload(e Envelope) error {
 		return decodePayload(e.Payload, &p)
 	case "room.state":
 		var p struct {
-			Name    string `json:"name,omitempty"`
-			Members []struct {
+			Name     string `json:"name,omitempty"`
+			RoomCode string `json:"roomCode,omitempty"`
+			Resumed  bool   `json:"resumed,omitempty"`
+			Members  []struct {
 				PeerID string `json:"peerId"`
 				Role   string `json:"role"`
 				State  string `json:"state"`
@@ -319,8 +324,9 @@ func validatePayload(e Envelope) error {
 		return decodePayload(e.Payload, &p)
 	case "peer.state":
 		var p struct {
-			PeerID string `json:"peerId"`
-			State  string `json:"state"`
+			PeerID       string `json:"peerId"`
+			State        string `json:"state"`
+			RestartMedia bool   `json:"restartMedia,omitempty"`
 		}
 		return decodePayload(e.Payload, &p)
 	case "room.ended":
