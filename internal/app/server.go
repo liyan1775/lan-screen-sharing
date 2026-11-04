@@ -27,7 +27,7 @@ import (
 type Config struct {
 	LANIPv4                  string
 	SignalPort               int
-	RoomTTL                  time.Duration
+	RoomTTL                  time.Duration // Optional hard lifetime; zero keeps rooms until explicit end or host recovery expires.
 	PageLeaseTTL             time.Duration
 	PageLeaseShutdownGrace   time.Duration
 	PageStartupGrace         time.Duration

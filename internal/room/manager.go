@@ -37,6 +37,9 @@ func WithClock(now func() time.Time) Option {
 		}
 	}
 }
+
+// WithRoomTTL opts into a fixed room lifetime. By default, rooms remain usable
+// until explicitly ended or the host fails to recover its connection.
 func WithRoomTTL(ttl time.Duration) Option {
 	return func(m *Manager) {
 		if ttl > 0 {
@@ -46,7 +49,7 @@ func WithRoomTTL(ttl time.Duration) Option {
 }
 
 func NewManager(options ...Option) *Manager {
-	m := &Manager{rooms: map[string]*room{}, byCode: map[string]string{}, hostTokens: map[[32]byte]string{}, now: time.Now, roomTTL: 2 * time.Hour}
+	m := &Manager{rooms: map[string]*room{}, byCode: map[string]string{}, hostTokens: map[[32]byte]string{}, now: time.Now}
 	for _, option := range options {
 		option(m)
 	}
@@ -89,6 +92,10 @@ type peer struct {
 	reconnectUntil time.Time
 }
 
+func (r *room) expired(now time.Time) bool {
+	return !r.expires.IsZero() && !now.Before(r.expires)
+}
+
 type PeerSnapshot struct {
 	PeerID string `json:"peerId"`
 	Role   string `json:"role"`
@@ -97,7 +104,7 @@ type PeerSnapshot struct {
 type RoomSnapshot struct {
 	ID                   string         `json:"roomId"`
 	Code                 string         `json:"roomCode"`
-	ExpiresAt            time.Time      `json:"expiresAt"`
+	ExpiresAt            time.Time      `json:"expiresAt,omitzero"`
 	Members              []PeerSnapshot `json:"members"`
 	PresenterPeerID      string         `json:"presenterPeerId"`
 	ScreenSharing        bool           `json:"screenSharing"`
@@ -153,7 +160,7 @@ func (m *Manager) CreateHostWithOptions(name string, discoverable bool) (RoomSna
 		return RoomSnapshot{}, HostCredential{}, err
 	}
 	h := sha256.Sum256([]byte(token))
-	r := &room{id: id, code: code, expires: m.now().Add(m.roomTTL), hostID: hostID, peers: map[string]*peer{hostID: {id: hostID, role: "host", connected: true}}}
+	r := &room{id: id, code: code, hostID: hostID, peers: map[string]*peer{hostID: {id: hostID, role: "host", connected: true}}}
 	if name == "" {
 		name = "朋友的房间 " + id[:4]
 	}
@@ -162,13 +169,16 @@ func (m *Manager) CreateHostWithOptions(name string, discoverable bool) (RoomSna
 	m.rooms[id] = r
 	m.byCode[code] = id
 	m.hostTokens[h] = id
-	r.timer = time.AfterFunc(m.roomTTL, func() {
-		m.mu.Lock()
-		defer m.mu.Unlock()
-		if m.rooms[id] == r && !r.ended {
-			m.expireLocked(r)
-		}
-	})
+	if m.roomTTL > 0 {
+		r.expires = m.now().Add(m.roomTTL)
+		r.timer = time.AfterFunc(m.roomTTL, func() {
+			m.mu.Lock()
+			defer m.mu.Unlock()
+			if m.rooms[id] == r && !r.ended {
+				m.expireLocked(r)
+			}
+		})
+	}
 	return snapshot(r), HostCredential{Token: token}, nil
 }
 
@@ -186,7 +196,7 @@ func (m *Manager) Join(roomCode, resumeToken string) (PeerSession, RoomSnapshot,
 	if r == nil || r.ended {
 		return PeerSession{}, RoomSnapshot{}, errors.New("ROOM_NOT_FOUND")
 	}
-	if !m.now().Before(r.expires) {
+	if r.expired(m.now()) {
 		m.expireLocked(r)
 		return PeerSession{}, RoomSnapshot{}, errors.New("ROOM_EXPIRED")
 	}
@@ -285,7 +295,7 @@ func (m *Manager) ResumeHost(roomID string) (RoomSnapshot, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	r := m.rooms[roomID]
-	if r == nil || r.ended || !m.now().Before(r.expires) {
+	if r == nil || r.ended || r.expired(m.now()) {
 		return RoomSnapshot{}, errors.New("ROOM_NOT_FOUND")
 	}
 	p := r.peers[r.hostID]
@@ -336,7 +346,7 @@ func (m *Manager) AuthenticateHost(token string) bool {
 		return false
 	}
 	r := m.rooms[id]
-	return r != nil && !r.ended && m.now().Before(r.expires)
+	return r != nil && !r.ended && !r.expired(m.now())
 }
 
 func (m *Manager) Route(roomID, fromPeerID, toPeerID string, msg SignalMessage) error {
@@ -372,7 +382,7 @@ func (m *Manager) DiscoverableRooms() []RoomSnapshot {
 	defer m.mu.Unlock()
 	result := []RoomSnapshot{}
 	for _, r := range m.rooms {
-		if !r.ended && r.discoverable && m.now().Before(r.expires) {
+		if !r.ended && r.discoverable && !r.expired(m.now()) {
 			m.pruneDisconnected(r)
 			result = append(result, snapshot(r))
 		}
@@ -388,7 +398,7 @@ func (m *Manager) presentationMember(roomID, peerID string) (*room, error) {
 	if r == nil || r.ended {
 		return nil, errors.New("ROOM_NOT_FOUND")
 	}
-	if !m.now().Before(r.expires) {
+	if r.expired(m.now()) {
 		m.expireLocked(r)
 		return nil, errors.New("ROOM_EXPIRED")
 	}

@@ -4,6 +4,8 @@
 
 房间最多三名成员，房主维持房间；共享席位同一时间只属于一名已加入成员。停止屏幕共享会保留房间和语音，房主结束房间会通知成员。程序不提供跨网络中继，不改变系统防火墙。
 
+正式程序默认不设置房间时长上限，房间和邀请信息持续有效，直到房主主动结束、退出程序或断线超过恢复保留期。`room.WithRoomTTL` / `app.Config.RoomTTL` 只在调用方明确指定正数时启用固定过期时间；未启用时不创建过期定时器，也不在创建事件中发送 `expiresAt`。
+
 - `cmd/lan-screen-sharing`：程序入口和启动参数。
 - `internal/app`、`internal/signal`、`internal/room`、`internal/discovery`、`internal/protocol`：本机服务、信令、房间、发现和消息校验。
 - `internal/web/assets`：嵌入 EXE 的正式浏览器界面及媒体逻辑。

@@ -6,7 +6,7 @@ import (
 )
 
 func TestOnlyExplicitlyDiscoverableLiveRoomsAreListed(t *testing.T) {
-	m := NewManager()
+	m := NewManager(WithRoomTTL(2 * time.Hour))
 	defer m.EndAll()
 	public, _, err := m.CreateHostWithOptions("一起玩", true)
 	if err != nil {

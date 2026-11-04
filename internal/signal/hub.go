@@ -572,7 +572,11 @@ func (h *Hub) ServeLocal(ctx context.Context, conn *Connection, hostToken string
 			s.peerID = hostPeer(snap)
 			h.register(s)
 			h.lifecycleMu.Unlock()
-			_ = h.writeEnvelope(ctx, conn, event("room.created", msg.RequestID, snap.ID, s.peerID, map[string]any{"roomId": snap.ID, "hostPeerId": s.peerID, "roomCode": snap.Code, "expiresAt": snap.ExpiresAt, "name": snap.Name, "discoverable": snap.Discoverable}))
+			created := map[string]any{"roomId": snap.ID, "hostPeerId": s.peerID, "roomCode": snap.Code, "name": snap.Name, "discoverable": snap.Discoverable}
+			if !snap.ExpiresAt.IsZero() {
+				created["expiresAt"] = snap.ExpiresAt
+			}
+			_ = h.writeEnvelope(ctx, conn, event("room.created", msg.RequestID, snap.ID, s.peerID, created))
 			h.sendRoomState(snap, msg.RequestID)
 		case "host.endRoom":
 			if s.role != protocol.RoleHost {
@@ -916,7 +920,12 @@ func (h *Hub) bestEffortRemoteLeave(ctx context.Context, s *session, requestID, 
 		return
 	}
 	leave := protocol.Envelope{V: 1, Type: "signal.leave", RequestID: requestID, RoomID: roomID, Payload: raw(map[string]any{})}
-	_ = bridge.Write(attemptCtx, mustJSON(leave))
+	if err = bridge.Write(attemptCtx, mustJSON(leave)); err != nil {
+		return
+	}
+	// Complete the close handshake before reporting the local leave. An
+	// immediate CloseNow can discard signal.leave and strand the resumed seat.
+	closeWithin(attemptCtx, bridge)
 }
 
 func (h *Hub) RouteFrom(roomID, fromPeerID string, msg protocol.Envelope) (protocol.Envelope, error) {
