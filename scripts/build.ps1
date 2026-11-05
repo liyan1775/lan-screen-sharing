@@ -1,7 +1,7 @@
 ﻿param(
   [string]$GoExe = '',
   [string]$GoProxy = '',
-  [string]$BuildVersion = '0.4.1',
+  [string]$BuildVersion = '0.5.0',
   [string]$OutputPath = ''
 )
 $ErrorActionPreference = 'Stop'
@@ -24,6 +24,7 @@ try {
   if ($LASTEXITCODE -ne 0) { throw "Go build failed with exit code $LASTEXITCODE" }
 } finally { Pop-Location }
 if (-not (Test-Path -LiteralPath $OutputPath -PathType Leaf)) { throw 'Build reported success but output file is missing.' }
+& (Join-Path $PSScriptRoot 'write-third-party-notices.ps1') -GoExe $GoExe -OutputPath ([IO.Path]::ChangeExtension($OutputPath, '.licenses.txt'))
 Write-Output "Built candidate artifact: $OutputPath"
 Write-Output "Build version: $BuildVersion"
 Write-Output "Toolchain: $GoVersion"

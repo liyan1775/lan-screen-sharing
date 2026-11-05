@@ -19,7 +19,7 @@ test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearan
   t.after(async()=>{
     await Promise.allSettled(contexts.map(context=>context.close()));await browser.close();await shutdownOwnedServices(services);
     evidence.errors=errors;evidence.externalRequestCount=external.length;
-    for(const file of ['index.html','styles.css','app.js','client.js','connection-lifecycle.js','page-lease.js','room-browser.js','room-invite.js','room-experience.js','room-text.js','room-text-ui.js','media.js','fullscreen.js','preview-playback.js']) evidence.sourceHashes[file]=createHash('sha256').update(await readFile('internal/web/assets/'+file)).digest('hex');
+    for(const file of ['index.html','styles.css','app.js','client.js','connection-lifecycle.js','page-lease.js','room-browser.js','room-invite.js','room-experience.js','room-text.js','room-text-ui.js','media.js','screen-relay.js','media-stats-poller.js','media-stats.js','fullscreen.js','preview-playback.js']) evidence.sourceHashes[file]=createHash('sha256').update(await readFile('internal/web/assets/'+file)).digest('hex');
     evidence.buildSHA256=createHash('sha256').update(await readFile(process.env.LANSW_EXE)).digest('hex');
     await writeFile(path.join(output,'evidence.json'),JSON.stringify(evidence,null,2));
   });
@@ -36,7 +36,7 @@ test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearan
   }
   const [host,viewer,other]=pages;
   evidence.servedHashes={};
-  for(const file of ['index.html','styles.css','app.js','client.js','connection-lifecycle.js','page-lease.js','room-browser.js','room-invite.js','room-experience.js','room-text.js','room-text-ui.js','media.js','fullscreen.js','preview-playback.js']) {
+  for(const file of ['index.html','styles.css','app.js','client.js','connection-lifecycle.js','page-lease.js','room-browser.js','room-invite.js','room-experience.js','room-text.js','room-text-ui.js','media.js','screen-relay.js','media-stats-poller.js','media-stats.js','fullscreen.js','preview-playback.js']) {
     const response=await fetch(services[0].baseURL+(file==='index.html'?'/':'/assets/'+file));assert.equal(response.ok,true);
     const actual=createHash('sha256').update(Buffer.from(await response.arrayBuffer())).digest('hex');const expected=createHash('sha256').update(await readFile('internal/web/assets/'+file)).digest('hex');assert.equal(actual,expected,'embedded '+file+' matches reviewed source');evidence.servedHashes[file]=actual;
   }

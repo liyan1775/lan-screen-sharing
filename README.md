@@ -1,12 +1,14 @@
 # LAN / 分享 · 局域网屏幕共享
 
-> 0.4.1 修复房间创建满两小时后自动结束共享、刷新无法恢复的问题，默认房间没有固定时长上限。详见[本版说明](docs/releases/v0.4.1.md)和[验证说明](docs/verification.md)。
+> 0.5.0 将两位观众的重复编码合为一次，保持所选画质，并减少后台预览和轮询开销。详见[本版说明](docs/releases/v0.5.0.md)和[验证说明](docs/verification.md)。
 
-在互通的私有局域网中，最多三个人共享显示器画面，使用语音或文字交流。每个人运行自己的 Windows x64 单 EXE，在桌面版 Edge 或 Chrome 中使用；媒体和文字通过浏览器点对点传输，本机程序负责房间、发现和信令。
+在互通的私有局域网中，最多三个人共享显示器画面，使用语音或文字交流。每个人运行自己的 Windows x64 EXE，在桌面版 Edge 或 Chrome 中使用。共享画面和系统声音在浏览器中编码一次，再由分享者本机程序把相同的编码数据直接发送给两位观众；语音和文字继续通过浏览器点对点传输。
+
+所有成员请统一使用 0.5.0；新共享通路与 0.4.x 不兼容。画质、帧率、CPU 测量及验收范围见[性能记录](docs/performance/2026-11-06-single-encode.md)。
 
 ![0.4.0 的三人语音房间，测试房间与合成媒体](docs/design-research/release-0.4.0-qa/04-voice-three.png)
 
-[下载 0.4.1 Windows x64 测试包](https://github.com/liyan1775/lan-screen-sharing/releases/download/v0.4.1/lan-screen-sharing-0.4.1-windows-x64.zip) · [发行页面](https://github.com/liyan1775/lan-screen-sharing/releases/tag/v0.4.1) · [版本说明](docs/releases/v0.4.1.md)
+[产品介绍](https://liyan1775.github.io/lan-screen-sharing/) · [下载 0.5.0 Windows x64 测试包](https://github.com/liyan1775/lan-screen-sharing/releases/download/v0.5.0/lan-screen-sharing-0.5.0-windows-x64.zip) · [发行页面](https://github.com/liyan1775/lan-screen-sharing/releases/tag/v0.5.0) · [版本说明](docs/releases/v0.5.0.md)
 
 ## 可以做什么
 
@@ -20,7 +22,7 @@
 
 ## 六步开始
 
-1. 所有参与者下载同一个 0.4.1 测试包并完整解压，在各自 Windows x64 电脑上运行“局域网屏幕共享.exe”，用桌面版 Edge 或 Chrome 打开程序页面。
+1. 所有参与者下载同一个 0.5.0 测试包并完整解压，在各自 Windows x64 电脑上运行“局域网屏幕共享.exe”，用桌面版 Edge 或 Chrome 打开程序页面。
 2. 一人选择“创建房间”，填写房间名并按需要选择是否允许同网发现，然后创建房间。房主离开会结束整个房间。
 3. 其他人在“附近的房间”加入；若无法发现，房主点“邀请朋友 → 复制邀请信息”，朋友在首页“手动加入”中整段粘贴并加入，无需拆开填写三项。
 4. 需要说话时点“开启麦克风”并在浏览器授权；如浏览器阻止播放，按提示点“启用声音”。也可以打开“文字”，用 Enter 发送、Shift+Enter 换行。
@@ -37,7 +39,7 @@
 
 房间默认没有固定时长上限，长时间共享、语音或暂时停止共享均可继续使用原房间和邀请信息。意外断线时保留房间和席位 30 秒，页面显示恢复状态并自动重试；房主刷新不会立即结束其他成员的房间。主动离开、结束房间和退出程序会取消自动恢复。关闭最后一个页面后，程序约等待 30 秒再退出，方便刷新重新接入。恢复信息仅保存在当前标签页的 sessionStorage，并绑定本机程序实例；程序重启或超过保留期后需要重新加入。浏览器禁用存储时，页面仍可使用，但刷新自动恢复不可用。
 
-0.4.1 是**公开测试版**。真实屏幕/麦克风采集、三台设备、系统声音隔离、后台帧率，以及不同分辨率下的鼠标捕获尚未完成本版验收；实际帧率和兼容性不作保证。EXE 尚未数字签名。已完成的检查及其范围见[验证说明](docs/verification.md)。
+0.5.0 是**公开测试版**。本轮按原生 WebRTC 与合成媒体完成非真实游戏验收。真实屏幕/麦克风、三台设备、系统声音隔离、游戏帧时间与不同分辨率鼠标捕获仍需实际设备反馈。EXE 尚未数字签名。已完成的检查及其范围见[验证说明](docs/verification.md)。
 
 ## 开发
 
@@ -51,11 +53,11 @@ npm run lab:test
 npm run experience:build
 npm run experience:test
 npm run lab:preview
-powershell -NoProfile -File scripts/build.ps1 -BuildVersion 0.4.1
+powershell -NoProfile -File scripts/build.ps1 -BuildVersion 0.5.0
 ```
 
-构建默认输出 `dist/局域网屏幕共享-0.4.1.exe`，优先使用 PATH 中的 Go；可用 `-GoExe`、`-GoProxy` 和 `-OutputPath` 显式指定。`npm run lab:preview` 启动本机演示服务；实验室本身不访问真实媒体设备。完整 Go 测试为 `go test ./... -count=1`。更多架构和验证细节见[架构](docs/architecture.md)、[验证](docs/verification.md)。
+构建默认输出 `dist/局域网屏幕共享-0.5.0.exe`，优先使用 PATH 中的 Go；可用 `-GoExe`、`-GoProxy` 和 `-OutputPath` 显式指定。`npm run lab:preview` 启动本机演示服务；实验室本身不访问真实媒体设备。完整 Go 测试为 `go test ./... -count=1`。更多架构和验证细节见[架构](docs/architecture.md)、[验证](docs/verification.md)。
 
 ## 许可与素材
 
-**项目尚未指定整体开源许可证。** 第三方组件的原有许可证不因此改变；程序发行包保留 [WebSocket、Go 与图标许可](docs/public-test/0.4.1/开源组件许可.txt)，素材来源见[素材与组件](docs/assets.md)。
+**项目尚未指定整体开源许可证。** 第三方组件的原有许可证不因此改变；构建旁的 `.licenses.txt` 保留 [WebSocket、Pion、Go 与图标等组件许可](docs/third-party-notices.txt)，素材来源见[素材与组件](docs/assets.md)。

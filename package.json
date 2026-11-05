@@ -13,6 +13,7 @@
     "experience:build": "node demos/experience-lab/build.mjs",
     "experience:test": "node demos/experience-lab/tests.mjs && node demos/experience-lab/tests.mjs --bundle",
     "experience:preview": "node scripts/preview-frontend.mjs --experience",
-    "test": "node --test tests/js/*.test.js tests/e2e/fixtures/synthetic-media.test.js tests/e2e/visible-harness/*.test.js"
+    "test": "node --test tests/js/*.test.js tests/e2e/fixtures/synthetic-media.test.js tests/e2e/visible-harness/*.test.js",
+    "test:encoding-performance": "node scripts/check-encoding-performance.mjs"
   }
 }

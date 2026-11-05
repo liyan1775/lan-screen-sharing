@@ -1,0 +1,69 @@
+{
+  "date": "2026-11-06",
+  "builds": [
+    {
+      "path": "dist/局域网屏幕共享-single-encode.exe",
+      "sha256": "98efe8529433f90a500ca6540331a77a6ea7a555a71a3f70e1d883724706e221",
+      "bytes": 19150336
+    },
+    {
+      "path": "dist/局域网屏幕共享-0.5.0.exe",
+      "sha256": "3db42c3fc3d1e1e9f2795256fb5c5164dbb088518d2f31b07457650639f3b479",
+      "bytes": 19150336
+    }
+  ],
+  "nodeBehaviorTests": 164,
+  "goPackagesPassed": true,
+  "meshBrowserCases": 11,
+  "strict1080p60WithThreeMicrophones": {
+    "buildSHA256": "3db42c3fc3d1e1e9f2795256fb5c5164dbb088518d2f31b07457650639f3b479",
+    "encodeFPS": 59.933392973629076,
+    "receiverDecodeFPS": [
+      59.85617883931714,
+      59.75319789155347
+    ],
+    "width": 1920,
+    "height": 1080,
+    "maxBitrate": 8000000
+  },
+  "frontend": {
+    "buildSHA256": "3db42c3fc3d1e1e9f2795256fb5c5164dbb088518d2f31b07457650639f3b479",
+    "completed": true,
+    "screenshots": 30,
+    "axeStates": 21,
+    "axeViolations": 0,
+    "pageErrors": 0,
+    "externalRequests": 0,
+    "embeddedAssetHashes": {
+      "index.html": "c889b1f2c6f711ed214c70d193ae6344db41a4db139e87295f5056da73ff5de3",
+      "styles.css": "719a8853133b619e27288d127663640be331e2ea3254a667ab8f9a064ab8939a",
+      "app.js": "c144d452f82847de953cbb868506b2491f58e88ede0cf09214005a939942817f",
+      "client.js": "dfe80300cbc02bc2ba76934d878d4a3b1bf1572e6c67f466b08368c1a7bbe65b",
+      "connection-lifecycle.js": "ad716a0a1520f53d02d6051f0cd4fd0139fc69ba623fa929096cc8fc12fb8e65",
+      "page-lease.js": "f1f4c5db949cbbd4ec89606dd53ecbc0df413985712877cbcbf5812186a3cd30",
+      "room-browser.js": "977ac2012e6314162ae9b18fbe3374808ecbfe4b5d8e5b0dbb81344f55302e78",
+      "room-invite.js": "f4addd0f7bdf5fedfafe38789ec7a2a985461a00f1914318867a358a8c9150cc",
+      "room-experience.js": "468919a0592a490aaf8c3ed605a31f6a3881e28e2684956c05d865de9bf318df",
+      "room-text.js": "788fd2e1c33f3e17ba33435aa7b77cb8f91e0bf24fa38a0bbc5d98745ae78751",
+      "room-text-ui.js": "4ad8f820f9116121c316a55ae54bb6b4b9e623a7700ff8cc5f087e97ad0dd9c5",
+      "media.js": "8da3bd1aab16b68541e0d75958d20891b531f7b6fb779d8b83d2d215c2a7edd3",
+      "screen-relay.js": "cec396e0315c72d850e93384dccb6e819af7711a93f63ef56aa2d66b5630bb19",
+      "media-stats-poller.js": "0d74f7a73f87bce85443c42f9d87fee589d0fe68fdbff94f57363841a7ed7926",
+      "media-stats.js": "5dad2666e193ae5981a9846c831305d85cb52dabbc6423dadb89eeb1e980ef05",
+      "fullscreen.js": "3a47bd3bf0598465a6719c6c15332afe100701f931744c4b0f234f1998fddf04",
+      "preview-playback.js": "a1cb0fff96d09152009694d6473e3ad5a5746871a2b1abe87ccf2bdb81a8e44a"
+    }
+  },
+  "introduction": {
+    "completed": true,
+    "viewports": [
+      1440,
+      768,
+      390,
+      320
+    ],
+    "axeViolations": 0,
+    "pageErrors": 0,
+    "externalRequests": 0
+  }
+}

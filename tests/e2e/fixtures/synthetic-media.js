@@ -10,7 +10,7 @@ export function syntheticToneFrequency(label, participantAlias) {
   return MICROPHONE_TONES[participantAlias] ?? 0;
 }
 
-export function installSyntheticMedia({ denyMicrophone = false, participantAlias = 'viewer-1' } = {}) {
+export function installSyntheticMedia({ denyMicrophone = false, participantAlias = 'viewer-1', captureWidth = 1280, captureHeight = 720, captureFps = 30 } = {}) {
   // Playwright serializes this function without the module scope. Keep its
   // capture frequency lookup local as well as the exported test helper.
   const syntheticToneFrequency = (label, alias) => label === 'systemAudio' ? 440 : ({ host:523, 'viewer-1':617, 'viewer-2':733, 'viewer-extra':811 }[alias] ?? 0);
@@ -144,8 +144,8 @@ export function installSyntheticMedia({ denyMicrophone = false, participantAlias
 
   function screenStream() {
     const canvas = document.createElement('canvas');
-    canvas.width = 1280;
-    canvas.height = 720;
+    canvas.width = captureWidth;
+    canvas.height = captureHeight;
     const context = canvas.getContext('2d');
     let frame = 0;
     const draw = () => {
@@ -158,10 +158,9 @@ export function installSyntheticMedia({ denyMicrophone = false, participantAlias
       if (frame < 100000) requestAnimationFrame(draw);
     };
     draw();
-    const video = canvas.captureStream(30).getVideoTracks()[0];
+    const video = canvas.captureStream(captureFps).getVideoTracks()[0];
     const audio = oscillatorTrack('systemAudio');
-    const nativeSettings = originalTrackSettings.call(video);
-    video.getSettings = () => ({ ...nativeSettings, displaySurface: 'monitor' });
+    video.getSettings = () => ({ ...originalTrackSettings.call(video), displaySurface: 'monitor' });
     const audioNativeSettings = originalTrackSettings.call(audio);
     audio.getSettings = () => ({ ...audioNativeSettings, restrictOwnAudio: true });
     state.syntheticReportedIsolation = true;

@@ -1,0 +1,271 @@
+{
+  "date": "2026-11-05",
+  "environment": "Windows; Edge 155.0.4283.45; Node.js 24.12.0; Go 1.27.3; three isolated pages, synthetic capture, native WebRTC",
+  "baselineBuildSHA256": "1bffab95109503446b3cf14311e48d88b667dd29116963a7b68fe8761d9cd21a",
+  "optimizedBuildSHA256": "b3af1b939021906782af4fd15f9d64d8b5542f80f04891c8eb38a47c4c673399",
+  "pageOrder": [
+    "host",
+    "viewer-1",
+    "viewer-2"
+  ],
+  "metrics": {
+    "stats": "Product RTCPeerConnection.getStats calls",
+    "roomRequests": "Product HTTP requests to /api/v1/rooms",
+    "diagnosticsMutations": "Child/text mutation records in actual-stats, capture-stats, performance-hint",
+    "activePlayers": "Video elements with srcObject and paused=false"
+  },
+  "baseline": {
+    "idle": {
+      "milliseconds": 6500,
+      "pages": [
+        {
+          "stats": 0,
+          "roomRequests": 2,
+          "diagnosticsMutations": 4
+        },
+        {
+          "stats": 0,
+          "roomRequests": 2,
+          "diagnosticsMutations": 3
+        },
+        {
+          "stats": 0,
+          "roomRequests": 2,
+          "diagnosticsMutations": 3
+        }
+      ]
+    },
+    "voice": {
+      "milliseconds": 6500,
+      "pages": [
+        {
+          "stats": 6,
+          "roomRequests": 2,
+          "diagnosticsMutations": 3
+        },
+        {
+          "stats": 6,
+          "roomRequests": 2,
+          "diagnosticsMutations": 3
+        },
+        {
+          "stats": 6,
+          "roomRequests": 2,
+          "diagnosticsMutations": 3
+        }
+      ]
+    },
+    "activePlayers": [
+      2,
+      1,
+      1
+    ],
+    "sharingDiagnosticsClosed": {
+      "milliseconds": 11000,
+      "pages": [
+        {
+          "stats": 12,
+          "roomRequests": 4,
+          "diagnosticsMutations": 24
+        },
+        {
+          "stats": 12,
+          "roomRequests": 4,
+          "diagnosticsMutations": 6
+        },
+        {
+          "stats": 10,
+          "roomRequests": 4,
+          "diagnosticsMutations": 5
+        }
+      ]
+    },
+    "sharingDiagnosticsOpen": {
+      "milliseconds": 6500,
+      "pages": [
+        {
+          "stats": 6,
+          "roomRequests": 2,
+          "diagnosticsMutations": 12
+        },
+        {
+          "stats": 6,
+          "roomRequests": 2,
+          "diagnosticsMutations": 3
+        },
+        {
+          "stats": 6,
+          "roomRequests": 2,
+          "diagnosticsMutations": 3
+        }
+      ]
+    },
+    "screenStopped": {
+      "milliseconds": 6500,
+      "pages": [
+        {
+          "stats": 8,
+          "roomRequests": 3,
+          "diagnosticsMutations": 5
+        },
+        {
+          "stats": 6,
+          "roomRequests": 2,
+          "diagnosticsMutations": 3
+        },
+        {
+          "stats": 6,
+          "roomRequests": 2,
+          "diagnosticsMutations": 3
+        }
+      ]
+    },
+    "returnedToRooms": {
+      "milliseconds": 3500,
+      "pages": [
+        {
+          "stats": 1,
+          "roomRequests": 1,
+          "diagnosticsMutations": 1
+        },
+        {
+          "stats": 0,
+          "roomRequests": 1,
+          "diagnosticsMutations": 2
+        },
+        {
+          "stats": 2,
+          "roomRequests": 1,
+          "diagnosticsMutations": 2
+        }
+      ]
+    }
+  },
+  "optimized": {
+    "idle": {
+      "milliseconds": 6500,
+      "pages": [
+        {
+          "stats": 0,
+          "roomRequests": 2,
+          "diagnosticsMutations": 0
+        },
+        {
+          "stats": 0,
+          "roomRequests": 2,
+          "diagnosticsMutations": 0
+        },
+        {
+          "stats": 0,
+          "roomRequests": 2,
+          "diagnosticsMutations": 0
+        }
+      ]
+    },
+    "voice": {
+      "milliseconds": 6500,
+      "pages": [
+        {
+          "stats": 0,
+          "roomRequests": 0,
+          "diagnosticsMutations": 0
+        },
+        {
+          "stats": 0,
+          "roomRequests": 0,
+          "diagnosticsMutations": 0
+        },
+        {
+          "stats": 0,
+          "roomRequests": 0,
+          "diagnosticsMutations": 0
+        }
+      ]
+    },
+    "activePlayers": [
+      1,
+      1,
+      1
+    ],
+    "sharingDiagnosticsClosed": {
+      "milliseconds": 11000,
+      "pages": [
+        {
+          "stats": 2,
+          "roomRequests": 0,
+          "diagnosticsMutations": 0
+        },
+        {
+          "stats": 1,
+          "roomRequests": 0,
+          "diagnosticsMutations": 0
+        },
+        {
+          "stats": 1,
+          "roomRequests": 0,
+          "diagnosticsMutations": 0
+        }
+      ]
+    },
+    "sharingDiagnosticsOpen": {
+      "milliseconds": 6500,
+      "pages": [
+        {
+          "stats": 6,
+          "roomRequests": 0,
+          "diagnosticsMutations": 5
+        },
+        {
+          "stats": 3,
+          "roomRequests": 0,
+          "diagnosticsMutations": 3
+        },
+        {
+          "stats": 3,
+          "roomRequests": 0,
+          "diagnosticsMutations": 2
+        }
+      ]
+    },
+    "screenStopped": {
+      "milliseconds": 6500,
+      "pages": [
+        {
+          "stats": 0,
+          "roomRequests": 0,
+          "diagnosticsMutations": 0
+        },
+        {
+          "stats": 0,
+          "roomRequests": 0,
+          "diagnosticsMutations": 0
+        },
+        {
+          "stats": 0,
+          "roomRequests": 0,
+          "diagnosticsMutations": 0
+        }
+      ]
+    },
+    "returnedToRooms": {
+      "milliseconds": 3500,
+      "pages": [
+        {
+          "stats": 0,
+          "roomRequests": 0,
+          "diagnosticsMutations": 0
+        },
+        {
+          "stats": 0,
+          "roomRequests": 1,
+          "diagnosticsMutations": 0
+        },
+        {
+          "stats": 0,
+          "roomRequests": 0,
+          "diagnosticsMutations": 0
+        }
+      ]
+    }
+  }
+}

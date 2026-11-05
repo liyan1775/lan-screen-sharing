@@ -66,6 +66,23 @@ test('a sender failure closes captured tracks and releases the share slot while 
   assert.equal(video.stopped,true); assert.equal(media.screenStream,null); assert.equal(released,1); assert.equal(mic.stopped,false);
 });
 
+test('a late relay response after leaving cannot publish sharing or stop capture in a new room', async () => {
+  const states=[],messages=[];
+  let finishRelay;
+  const media=new MeshMedia({bootstrap:{screenRelay:true},async claimPresentation(){},sendUnacknowledged(type,payload){messages.push({type,payload});}}, {onState:state=>states.push(state.state)});
+  media.peers.set('old-peer',{pc:{close(){}}});
+  media.relay.start=()=>new Promise(resolve=>{finishRelay=resolve;});
+  media.relay.close=async()=>{};
+  const oldVideo=track('video'), sharing=media.setScreenStream(stream(oldVideo));
+  while(!finishRelay)await new Promise(resolve=>setImmediate(resolve));
+  await media.closeAll();
+  const newVideo=track('video');media.screenStream=stream(newVideo);media.screenVideoTrack=newVideo;
+  const before=messages.length;finishRelay();await sharing;
+  assert.equal(media.screenVideoTrack,newVideo);assert.equal(newVideo.stopped,false);
+  assert.equal(messages.length,before,'a stale startup cannot publish media state for a different room');
+  assert.equal(states.includes('screen_started'),false);
+});
+
 test('voice-only mutes game audio and video but retains participant voices and user mute preferences', () => {
   const media=new MeshMedia({sendUnacknowledged(){}});
   const game={dataset:{trackRole:'systemAudio',sourcePeerId:'presenter'},muted:false,userMuted:false};

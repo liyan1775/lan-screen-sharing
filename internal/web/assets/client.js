@@ -266,6 +266,17 @@ export class RoomClient extends EventTarget {
     return this.request('share.claim', {}, { roomId: this.room.roomId, expected: 'room.state' });
   }
 
+  async requestScreenRelay(payload, { signal } = {}) {
+    const token = this.bootstrap?.localControlToken;
+    if (!token) throw new Error('本机程序尚未连接。');
+    const response = await this.fetchImpl(new URL('/api/v1/screen-relay',location.href), {
+      method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-Local-Control-Token':token},
+      body:JSON.stringify(payload), signal:signal ? AbortSignal.any([signal,AbortSignal.timeout(10000)]) : AbortSignal.timeout(10000),
+    });
+    if (!response.ok) throw new Error('本机媒体连接未能建立，请停止共享后重试。');
+    return response.json();
+  }
+
   releasePresentation(roomId = this.room?.roomId) {
     if (!roomId || roomId !== this.room?.roomId) return Promise.resolve();
     return this.request('share.release', {}, { roomId, expected: 'room.state' });

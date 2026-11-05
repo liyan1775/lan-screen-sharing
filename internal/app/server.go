@@ -20,6 +20,7 @@ import (
 	"github.com/coder/websocket"
 	"lan-screen-sharing/internal/discovery"
 	"lan-screen-sharing/internal/room"
+	"lan-screen-sharing/internal/screenrelay"
 	"lan-screen-sharing/internal/signal"
 	"lan-screen-sharing/internal/web"
 )
@@ -42,6 +43,7 @@ type Server struct {
 	config              Config
 	rooms               *room.Manager
 	hub                 *signal.Hub
+	screens             *screenrelay.Manager
 	serviceID           string
 	hostToken           string
 	localControlToken   string
@@ -78,6 +80,7 @@ type Server struct {
 }
 
 type Bootstrap struct {
+	ScreenRelay       bool     `json:"screenRelay"`
 	ServiceID         string   `json:"serviceId"`
 	LocalWSPath       string   `json:"localWsPath"`
 	RoleOptions       []string `json:"roleOptions"`
@@ -115,6 +118,7 @@ func New(config Config) *Server {
 	controlToken, _ := newHostToken()
 	s := &Server{config: config, rooms: room.NewManager(managerOptions...), serviceID: serviceID, hostToken: token, localControlToken: controlToken, shutdownRequested: make(chan struct{}), shutdownDone: make(chan struct{}), lanPort: config.SignalPort, pageLeases: make(map[string]time.Time), pagePresenceConns: make(map[*websocket.Conn]struct{}), pagePresenceIDs: make(map[string]int)}
 	s.hub = signal.NewHub(s.rooms)
+	s.screens = screenrelay.New(config.LANIPv4)
 	s.hub.SetHostCreatedHandler(func() error {
 		s.lifecycleMu.Lock()
 		ctx := s.runContext
@@ -140,6 +144,7 @@ func New(config Config) *Server {
 	s.localMux.HandleFunc("/api/v1/rooms", s.serveDiscoveredRooms)
 	s.localMux.HandleFunc("/api/v1/shutdown", s.serveShutdown)
 	s.localMux.HandleFunc("/api/v1/page-lease", s.servePageLease)
+	s.localMux.HandleFunc("/api/v1/screen-relay", s.serveScreenRelay)
 	s.localMux.HandleFunc("/ws/page", s.servePagePresence)
 	s.localMux.HandleFunc("/ws/v1", s.serveLocalWS)
 	s.lanHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -188,6 +193,7 @@ func (s *Server) serveBootstrap(w http.ResponseWriter, r *http.Request) {
 	b := Bootstrap{ServiceID: s.serviceID, LocalWSPath: "/ws/v1", RoleOptions: []string{"host", "viewer"}}
 	if validLocalBootstrapRequest(r) {
 		b.LocalControlToken = s.localControlToken
+		b.ScreenRelay = true
 	}
 	if role == "host" {
 		if !validLocalBootstrapRequest(r) {
@@ -709,6 +715,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 }
 
 func (s *Server) shutdown(ctx context.Context) error {
+	s.screens.Close()
 	s.discoveryMu.Lock()
 	s.discoveryStopping = true
 	discoveryService := s.discoveryService

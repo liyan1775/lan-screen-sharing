@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#fafafc">
+  <title>LAN / 分享 — 同一个画面，多一份默契。</title>
+  <meta name="description" content="LAN / 分享 0.5.0，为同一局域网中的三个人，连接画面、声音与想法。单次编码，保持所选画质。Windows x64，桌面版 Edge 与 Chrome。">
+  <meta property="og:title" content="LAN / 分享 — 同一个画面，多一份默契。">
+  <meta property="og:description" content="画面、声音和想法，一起在场。探索单次编码的 0.5.0 公开测试版。">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="https://liyan1775.github.io/lan-screen-sharing/assets/room.png">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+  <header class="site-header">
+    <nav class="nav wrap" aria-label="主导航">
+      <a class="brand" href="#top" aria-label="LAN 分享首页"><span class="brand-mark" aria-hidden="true">L</span><span>LAN <i>/</i> 分享</span></a>
+      <div class="nav-links"><a href="#experience">体验</a><a href="#performance">性能</a><a href="#start">开始使用</a><a href="https://github.com/liyan1775/lan-screen-sharing">GitHub <span aria-hidden="true">↗</span></a></div>
+      <a class="button button-small" href="#download">下载</a>
+    </nav>
+  </header>
+  <main id="main">
+    <section class="hero wrap" id="top" aria-labelledby="hero-title">
+      <p class="eyebrow hero-eyebrow">LAN / 分享 <span>0.5.0 公开测试版</span></p>
+      <h1 id="hero-title">同一个画面。<br><span class="blue-text">多一份默契。</span></h1>
+      <p class="hero-description">画面、声音和想法，一起在场。<br>为同一局域网中的三个人，留一个刚刚好的空间。</p>
+      <div class="hero-actions"><a class="button" href="https://github.com/liyan1775/lan-screen-sharing/releases/download/v0.5.0/lan-screen-sharing-0.5.0-windows-x64.zip">下载 Windows 版 <span aria-hidden="true">↓</span></a><a class="text-link" href="#experience">进一步了解 <span aria-hidden="true">›</span></a></div>
+      <p class="platform">Windows x64 · 桌面版 Edge / Chrome</p>
+      <figure class="hero-product reveal">
+        <div class="product-window"><div class="window-chrome" aria-hidden="true"><span class="traffic"><i></i><i></i><i></i></span><span>LAN / 分享</span><span class="window-status"><i></i> 一起在线</span></div><img src="assets/room.png" alt="LAN 分享的真实三人语音房间界面，成员语音与共享入口清晰呈现" width="1440" height="1000" fetchpriority="high"></div>
+        <figcaption>真实产品界面 · 测试房间与合成媒体</figcaption>
+      </figure>
+    </section>
+    <section class="facts wrap" aria-label="产品概览">
+      <div><strong>3<span> 人</span></strong><h2>刚刚好的房间。</h2><p>一人分享，彼此都在场。</p></div>
+      <div><strong>1<span> 次编码</span></strong><h2>多一个朋友，少一份负担。</h2><p>两位观众，共用同一份编码画面。</p></div>
+      <div><strong>1080p<span>60</span></strong><h2>默认目标，依然清晰流畅。</h2><p>优化开销，保留所选画质。<sup><a href="#note-1" aria-label="查看画质说明 1">1</a></sup></p></div>
+    </section>
+    <section class="experience section wrap" id="experience" aria-labelledby="experience-title">
+      <div class="section-heading reveal"><p class="eyebrow">每一种交流，都很自然。</p><h2 id="experience-title">一起看。一起说。<br><span class="muted">想法，自然接得上。</span></h2><p>共享整个显示器，按需带上系统声音。<br>不开屏的时候，语音和文字也能让对话继续。</p></div>
+      <div class="segmented" role="tablist" aria-label="查看产品界面">
+        <button id="tab-screen" role="tab" aria-selected="true" aria-controls="panel-screen" tabindex="0" data-view="screen">屏幕共享</button>
+        <button id="tab-voice" role="tab" aria-selected="false" aria-controls="panel-voice" tabindex="-1" data-view="voice">三人语音</button>
+        <button id="tab-text" role="tab" aria-selected="false" aria-controls="panel-text" tabindex="-1" data-view="text">房间文字</button>
+      </div>
+      <div class="gallery reveal">
+        <div id="panel-screen" role="tabpanel" aria-labelledby="tab-screen"><figure><img src="assets/screen.png" alt="观看共享画面时的真实界面，侧边语音成员与全屏按钮仍可使用" width="1440" height="1000" loading="lazy"><figcaption><strong>你的视角。一起的精彩。</strong><span>分享整个显示器；停止共享，房间与语音继续。</span></figcaption></figure></div>
+        <div id="panel-voice" role="tabpanel" aria-labelledby="tab-voice" hidden><figure><img src="assets/room.png" alt="三位成员分别控制自己的麦克风，调节其他成员声音" width="1440" height="1000" loading="lazy"><figcaption><strong>不必开屏，也聊得来。</strong><span>游戏声、成员声音，各有独立的本机音量控制。</span></figcaption></figure></div>
+        <div id="panel-text" role="tabpanel" aria-labelledby="tab-text" hidden><figure><img src="assets/text.png" alt="真实房间文字面板，与语音房间并排显示" width="1440" height="1000" loading="lazy"><figcaption><strong>不方便开麦，就打出来。</strong><span>文字只发给当前成员，离开或刷新后清空。</span></figcaption></figure></div>
+      </div>
+      <p class="image-note">以上为实际程序中的测试房间；共享画面与声音采用合成媒体。</p>
+    </section>
+    <section class="performance section" id="performance" aria-labelledby="performance-title">
+      <div class="wrap"><div class="section-heading reveal"><p class="eyebrow">更轻盈的分享方式。</p><h2 id="performance-title">多一个朋友。<br><span class="blue-text">不多编一次。</span></h2><p>0.5.0 把两路视频编码，合为一次。<br>相同的编码画面分别送达两位观众，<br class="desktop-break">省下重复工作，保留原有分辨率、帧率与码率目标。</p></div>
+      <div class="performance-card reveal">
+        <div class="performance-top"><h3>少做一份重复工作。</h3><div class="compare-toggle" role="group" aria-label="比较编码方式"><button data-compare="before" aria-pressed="false">升级前</button><button data-compare="after" aria-pressed="true">0.5.0</button></div></div>
+        <div class="flow" data-state="after" role="img" aria-label="0.5.0 只编码一次，将同一份编码画面发送给两位观众"><div class="flow-source"><span class="source-icon" aria-hidden="true">▱</span><strong>你的电脑</strong><span>共享画面</span></div><div class="flow-encoding"><div class="encoder primary"><span>视频编码</span><strong>1<span> 次</span></strong></div><div class="encoder duplicate" aria-hidden="true"><span>视频编码</span><strong>1<span> 次</span></strong></div><span class="encoding-caption" id="encoding-caption">同一份编码画面</span></div><div class="flow-viewers"><div><span aria-hidden="true">▱</span><strong>朋友 A</strong></div><div><span aria-hidden="true">▱</span><strong>朋友 B</strong></div></div></div>
+        <p class="compare-description" aria-live="polite">编码一次，将相同的画面分别发送给两位观众。不解码、不重新压缩。</p>
+      </div>
+      <div class="performance-details"><article><h3>你切回游戏。<br>本机预览，就歇一会儿。</h3><p>分享窗口失焦时暂停自己的预览播放，采集、声音和观众播放继续。回来时，立即恢复同一条画面。</p></article><article><h3>安静的后台。<br>只做需要的事。</h3><p>语音模式不查询视频统计。诊断收起时降低采样频率；展开后，再及时呈现实际尺寸、帧率与编码信息。</p></article></div>
+      <a class="text-link" href="https://github.com/liyan1775/lan-screen-sharing/blob/main/docs/performance/2026-11-06-single-encode.md">查看性能测量与验证范围 <span aria-hidden="true">↗</span></a></div>
+    </section>
+    <section class="connection section" aria-labelledby="connection-title"><div class="connection-art" aria-hidden="true"><img src="assets/hero-flow.png" alt="" width="1672" height="941" loading="lazy"></div><div class="wrap connection-copy reveal"><p class="eyebrow">在附近，也在一起。</p><h2 id="connection-title">这一刻。<br><span>只在你们之间。</span></h2><p>共享内容无需云端中转。<br>画面、声音与文字，在你们的局域网中直接连接。<br>没有账号注册，把注意力留给彼此。</p><div class="network-facts"><span>私有局域网</span><i aria-hidden="true"></i><span>WebRTC 传输</span><i aria-hidden="true"></i><span>最多三人</span></div></div></section>
+    <section class="start section wrap" id="start" aria-labelledby="start-title"><div class="section-heading reveal"><p class="eyebrow">从打开，到一起。</p><h2 id="start-title">三步。<span class="muted">就到你们的空间。</span></h2></div><div class="steps"><article><span>01</span><h3>各自打开。</h3><p>每个人完整解压同一版本的测试包，在自己的 Windows 电脑运行 EXE，用 Edge 或 Chrome 打开页面。</p></article><article><span>02</span><h3>在房间相见。</h3><p>一人创建房间，朋友从附近房间加入。也可以复制完整邀请信息，粘贴后加入。</p></article><article><span>03</span><h3>分享这一刻。</h3><p>选择整个显示器，按需授权系统声音与麦克风。一个人分享，其他人一起看、一起聊。</p></article></div>
+      <div class="faq"><h3>开始前，多了解一点。</h3><details><summary>需要什么设备与网络？</summary><p>每位成员都需运行 Windows x64 版本，使用桌面版 Edge 或 Chrome。电脑须处于能够互相访问的私有 IPv4 局域网；不提供互联网中继。</p></details><details><summary>升级时，朋友也需要更新吗？</summary><p>需要。0.5.0 使用新的共享通路，所有成员请统一更新后重新创建房间。0.4.x 与本版的画面共享协商不兼容。</p></details><details><summary>停止共享或短暂断线，会怎样？</summary><p>停止共享会保留房间和语音，其他成员可以接着分享。短暂断线在 30 秒保留期内尝试恢复；刷新后，麦克风和屏幕需重新点击开启。房主退出或超过保留期会结束房间。</p></details><details><summary>画质和性能，已经验证到哪里？</summary><p>已用原生 WebRTC 和合成媒体检查三人传输、实际 1080p 编解码帧率、停止共享、刷新恢复和 CPU 开销。实际体验仍取决于硬件、浏览器与网络。本轮按非真实游戏场景验收，未提供游戏 low 帧实测结论。</p><a href="https://github.com/liyan1775/lan-screen-sharing/blob/main/docs/releases/v0.5.0.md">阅读完整验证范围 ↗</a></details></div>
+    </section>
+    <section class="download section" id="download" aria-labelledby="download-title"><div class="wrap reveal"><span class="download-icon" aria-hidden="true">L</span><p class="eyebrow">LAN / 分享</p><h2 id="download-title">下一份精彩。<br><span class="blue-text">从一起看开始。</span></h2><p>Windows x64 · 0.5.0 公开测试版</p><a class="button" href="https://github.com/liyan1775/lan-screen-sharing/releases/download/v0.5.0/lan-screen-sharing-0.5.0-windows-x64.zip">下载 Windows 版 <span aria-hidden="true">↓</span></a><a class="text-link" href="https://github.com/liyan1775/lan-screen-sharing/releases/tag/v0.5.0">版本说明与其他附件 <span aria-hidden="true">›</span></a><p class="download-note">完整解压后打开“先看这里.html”。每位成员都需使用同一版本。</p></div></section>
+  </main>
+  <footer><div class="wrap"><p id="note-1">1. 1080p60 为默认画质目标，码率上限 8 Mbps。合成测试核对实际编解码尺寸和帧率；不代表所有设备或游戏负载的结果。共享内容和媒体授权由使用者选择。</p><p>截图来自真实产品界面，内容为测试房间与合成媒体。网页仅介绍产品，不会在此采集屏幕或麦克风。公开测试版 EXE 尚未数字签名。</p><div class="footer-bottom"><a class="brand" href="#top">LAN <i>/</i> 分享</a><span>身边的连接，多一份默契。</span><a href="https://github.com/liyan1775/lan-screen-sharing">GitHub ↗</a></div><p class="legal">项目尚未指定整体开源许可证。第三方组件保留各自许可。</p></div></footer>
+</body>
+</html>

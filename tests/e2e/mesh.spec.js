@@ -16,13 +16,13 @@ function auditLocalRequests(context, externalRequests) {
   context.on('websocket', (socket) => checkURL(socket.url()));
 }
 
-async function createScenario({ denyViewerMic = false } = {}) {
+async function createScenario({ denyViewerMic = false, captureWidth = 1280, captureHeight = 720, captureFps = 30, separateSender = false } = {}) {
   if (!process.env.LANSW_EXE) throw new Error('Set LANSW_EXE to the built test executable before running BrowserE2E.');
   if (!browserPath) throw new Error('Set LANSW_BROWSER_PATH to an installed Chromium or Edge executable before running BrowserE2E.');
   const lanIP = selectedLANIPv4();
   const services = [];
   const externalRequests = [];
-  let browser;
+  let browser, senderBrowser;
   const contexts = [];
   try {
     const signalPorts = new Set();
@@ -34,14 +34,15 @@ async function createScenario({ denyViewerMic = false } = {}) {
       services.push(service);
     }
     browser = await chromium.launch({ headless: true, executablePath: browserPath, args:['--mute-audio'] });
-    const context = async (denyMicrophone = false) => {
-      const value = await browser.newContext();
+    if (separateSender) senderBrowser = await chromium.launch({ headless: true, executablePath: browserPath, args:['--mute-audio'] });
+    const context = async (denyMicrophone = false, sender = false) => {
+      const value = await (sender && senderBrowser ? senderBrowser : browser).newContext();
       contexts.push(value);
       auditLocalRequests(value, externalRequests);
-      await value.addInitScript(installSyntheticMedia, { denyMicrophone });
+      await value.addInitScript(installSyntheticMedia, { denyMicrophone, captureWidth, captureHeight, captureFps });
       return value;
     };
-    const hostContext = await context();
+    const hostContext = await context(false, true);
     const viewer1Context = await context(denyViewerMic);
     const viewer2Context = await context();
     const host = await hostContext.newPage();
@@ -79,12 +80,14 @@ async function createScenario({ denyViewerMic = false } = {}) {
       async close() {
         await Promise.allSettled(contexts.map((value) => value.close()));
         await browser.close().catch(() => {});
+        await senderBrowser?.close().catch(() => {});
         await shutdownOwnedServices(services);
       },
     };
   } catch (error) {
     await Promise.allSettled(contexts.map((value) => value.close()));
     await browser?.close().catch(() => {});
+    await senderBrowser?.close().catch(() => {});
     await shutdownOwnedServices(services);
     throw error;
   }
@@ -93,7 +96,35 @@ async function createScenario({ denyViewerMic = false } = {}) {
 async function withScenario(t, options, action) {
   const scenario = await createScenario(options);
   t.after(() => scenario.close());
-  const result = await action(scenario);
+  let result;
+  try { result = await action(scenario); }
+  catch (error) {
+    for (const [index,page] of [scenario.host,...scenario.viewers].entries()) t.diagnostic(JSON.stringify({ page:index,...await page.evaluate(() => ({
+      error:document.querySelector('#error-message').textContent,
+      stage:document.querySelector('#app').dataset.stage,
+      pcs:window.__lanScreenTest.pcs.map(pc => ({state:pc.connectionState,signaling:pc.signalingState,send:pc.getSenders().map(sender=>sender.track?.kind??null)})),
+      screenSignals:[...window.__lanScreenTest.sent,...window.__lanScreenTest.incoming].filter(message=>message.type.startsWith('screen.')).map(message=>({type:message.type,direction:message.direction})),
+      httpErrors:window.__lanScreenTest.network.httpErrors,
+    })) }));
+    t.diagnostic('Video transport details: '+JSON.stringify(await scenario.host.evaluate(async()=>{
+      const details=[];
+      for(const pc of window.__lanScreenTest.pcs){
+        const sender=pc.getSenders().find(item=>item.track?.kind==='video');
+        if(!sender)continue;
+        const reports=await pc.getStats();
+        const {encodings,degradationPreference}=sender.getParameters();
+        const {width,height,frameRate}=sender.track.getSettings();
+        details.push({encodings,degradationPreference,capture:{width,height,frameRate},
+          feedback:pc.remoteDescription?.sdp.split(/\r?\n/).filter(line=>/^a=(rtcp-fb|extmap):/.test(line)),
+          reports:[...reports.values()].filter(report=>['candidate-pair','remote-inbound-rtp','outbound-rtp'].includes(report.type)).map(report=>{
+            const fields=['type','kind','state','nominated','availableOutgoingBitrate','currentRoundTripTime','roundTripTime','fractionLost','packetsLost','packetsSent','retransmittedPacketsSent','bytesSent','framesEncoded','frameWidth','frameHeight','targetBitrate','totalEncodeTime','qualityLimitationReason','qualityLimitationDurations'];
+            return Object.fromEntries(fields.filter(field=>report[field]!==undefined).map(field=>[field,report[field]]));
+          })});
+      }
+      return details;
+    })));
+    throw error;
+  }
   assert.deepEqual(scenario.externalRequests, [], 'browser contexts must not contact external network services');
   return result;
 }
@@ -139,6 +170,8 @@ async function collectActualPCStats(page) {
           bytes: report.bytesSent ?? report.bytesReceived ?? 0,
           frames: report.framesEncoded ?? report.framesDecoded ?? report.framesSent ?? report.framesReceived ?? 0,
           width: report.frameWidth, height: report.frameHeight, fps: report.framesPerSecond,
+          timestamp:report.timestamp,
+          limit:report.qualityLimitationReason,
         });
       }
     }
@@ -280,7 +313,10 @@ test('screenStopPreservesVoice', async (t) => withScenario(t, {}, async ({ host,
   await shareSyntheticScreen(host);
   await waitForMesh([host, ...viewers]);
   await host.locator('#stop-share').click();
-  await host.waitForFunction(() => window.__lanScreenTest.pcs.every((pc) => pc.connectionState === 'connected'));
+  await host.waitForFunction(() => {
+    const voice = window.__lanScreenTest.pcs.filter(pc => pc.getTransceivers().some(tx => tx.__trackRole === 'microphone'));
+    return voice.length === 2 && voice.every(pc => pc.connectionState === 'connected');
+  });
   await new Promise((resolve) => setTimeout(resolve, 2100));
   const senders = await host.evaluate(() => window.__lanScreenTest.pcs.flatMap((pc) => pc.getSenders().map((sender) => ({ kind: sender.track?.kind ?? null }))));
   assert.ok(senders.some((sender) => sender.kind === 'audio'), 'voice sender remains attached after screen stop');
@@ -415,4 +451,75 @@ test('qualityStatsAreActualNotCSS', async (t) => withScenario(t, {}, async ({ ho
   assert.match(uiText, new RegExp(`${video.width}×${video.height}`));
   const declaration = await host.locator('#actual-stats').evaluate((element) => getComputedStyle(element).display);
   assert.notEqual(declaration, 'none', 'actual stats are read from visible product UI as well as native PC reports');
+}));
+
+test('gameFocusPausesOnlyTheLocalPreviewAndPreservesSelectedQualityAndRTP', async (t) => withScenario(t, { captureWidth: 1920, captureHeight: 1080, captureFps: 60, separateSender: true }, async ({ host, viewers }) => {
+  for (const page of [host, ...viewers]) await enableMic(page);
+  await host.locator('#start-share').click();
+  await host.evaluate(() => {
+    // Model switching to a game immediately after capture permission; keep native RTP.
+    Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => false });
+    window.dispatchEvent(new Event('blur'));
+  });
+  await waitForMesh([host, ...viewers]);
+  await host.waitForFunction(() => document.querySelector('#remote-screen').srcObject === null);
+  const requested = await host.evaluate(() => window.__lanScreenTest.captures.find(capture => capture.type === 'display-request').constraints.video);
+  assert.equal(requested.width.max, 1920); assert.equal(requested.height.max, 1080); assert.equal(requested.frameRate.max, 60);
+  await openDiagnostics(host);
+  await host.waitForFunction(() => document.querySelector('#quality-target-text').textContent.includes('目标 1080p60'));
+  await waitForActualPCStats(host, rows => rows.filter(row => row.type === 'outbound-rtp' && row.kind === 'video' && row.frames > 0 && row.width === 1920 && row.height === 1080).length === 1, 'one video encoder must supply the actual 1080p stream');
+  const codecs = await host.evaluate(async () => {
+    const result = [];
+    for (const pc of window.__lanScreenTest.pcs) for (const report of (await pc.getStats()).values()) {
+      if (report.type !== 'outbound-rtp' || report.kind !== 'video' || !report.framesEncoded) continue;
+      const stats = await pc.getStats(), codec = stats.get(report.codecId);
+      const encoding = pc.getSenders().find(sender => sender.track?.kind === 'video')?.getParameters().encodings[0];
+      result.push({ codec: codec?.mimeType, efficient: report.powerEfficientEncoder ?? null, width: report.frameWidth, height: report.frameHeight, maxFramerate: encoding?.maxFramerate, maxBitrate: encoding?.maxBitrate });
+    }
+    return result;
+  });
+  assert.equal(codecs.length, 1, 'two viewers share one browser video encoder');
+  assert.ok(codecs.every(row => row.width === 1920 && row.height === 1080 && row.maxFramerate === 60 && row.maxBitrate === 8_000_000));
+  await host.locator('#settings-dialog [data-close-dialog]').click();
+  const before = await Promise.all(viewers.map(collectActualPCStats));
+  for (const viewer of viewers) await waitForActualPCStats(viewer,rows => rows.some(row => row.type==='inbound-rtp' && row.kind==='video' && row.width===1920 && row.height===1080 && row.frames>0),'each viewer must decode actual 1080p frames');
+  await host.evaluate(() => {
+    // Simulate the focus state only; all capture tracks, encoders and RTP remain native.
+    Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => false });
+    window.dispatchEvent(new Event('blur'));
+  });
+  await host.waitForFunction(() => document.querySelector('#remote-screen').srcObject === null);
+  assert.equal(await host.evaluate(() => window.__lanScreenTest.captures.find(capture => capture.type === 'display').tracks.every(track => track.readyState === 'live')), true);
+  for (let i = 0; i < viewers.length; i++) {
+    const priorVideo = before[i].filter(row => row.type === 'inbound-rtp' && row.kind === 'video').reduce((sum, row) => sum + row.frames, 0);
+    const priorAudio = before[i].filter(row => row.type === 'inbound-rtp' && row.kind === 'audio').reduce((sum, row) => sum + row.bytes, 0);
+    await waitForActualPCStats(viewers[i], rows => rows.filter(row => row.type === 'inbound-rtp' && row.kind === 'video').reduce((sum, row) => sum + row.frames, 0) > priorVideo
+      && rows.filter(row => row.type === 'inbound-rtp' && row.kind === 'audio').reduce((sum, row) => sum + row.bytes, 0) > priorAudio, 'receivers retain video and audio with local preview detached');
+  }
+  const sampleBefore=await Promise.all([host,...viewers].map(collectActualPCStats));
+  await new Promise(resolve=>setTimeout(resolve,5000));
+  const sampleAfter=await Promise.all([host,...viewers].map(collectActualPCStats));
+  const actualFPS=sampleAfter.map((rows,index)=>{
+    const active=rows.find(row=>row.kind==='video' && row.frames>0);
+    const previous=sampleBefore[index].find(row=>row.kind==='video' && row.pc===active?.pc && row.type===active?.type);
+    assert.ok(active && previous,'every participant has a stable native video report');
+    assert.equal(active.width,1920);assert.equal(active.height,1080);
+    const fps=(active.frames-previous.frames)/((active.timestamp-previous.timestamp)/1000);
+    // The shared hosted runner also decodes both viewers on its four vCPUs.
+    // Keep functional transport checks here; the fixed-hardware command below
+    // explicitly enables the unchanged >=57 FPS acceptance gate.
+    if (process.env.LANSW_FIXED_HARDWARE_PERFORMANCE === '1') {
+      assert.ok(fps>=57,`participant ${index} must retain actual 1080p60, observed ${fps.toFixed(2)} FPS`);
+    }
+    return fps;
+  });
+  await host.evaluate(() => { delete document.hasFocus; window.dispatchEvent(new Event('focus')); });
+  await host.waitForFunction(() => document.querySelector('#remote-screen').srcObject && document.querySelector('#remote-screen').videoWidth > 0);
+  const targets = await host.evaluate(() => window.__lanScreenTest.pcs.flatMap(pc => pc.getSenders().filter(sender => sender.track?.kind === 'video').map(sender=>sender.getParameters().encodings[0])));
+  assert.equal(targets.length,1);
+  assert.ok(targets.every(target => target.maxFramerate === 60 && target.maxBitrate === 8_000_000));
+  assert.equal(await host.locator('#quality-target').inputValue(), '1080p60');
+  t.diagnostic('Native encoder evidence with selected quality preserved: ' + JSON.stringify(codecs));
+  t.diagnostic('Native encode / two receiver decode FPS with all three microphones: '+JSON.stringify(actualFPS));
+  t.diagnostic('Fixed-hardware >=57 FPS acceptance gate: '+(process.env.LANSW_FIXED_HARDWARE_PERFORMANCE === '1' ? 'enabled' : 'not requested; run npm run test:encoding-performance'));
 }));

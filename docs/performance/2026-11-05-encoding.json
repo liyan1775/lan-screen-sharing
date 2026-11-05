@@ -1,0 +1,193 @@
+{
+  "scope": "Same-machine headless Edge; synthetic 1920×1080 60 FPS source; two receivers in a separate browser process; simulated game focus. Not a real game or physical screen capture benchmark.",
+  "cpu": "AMD Ryzen 7 7735HS with Radeon Graphics        ",
+  "logicalProcessors": 16,
+  "requestedQuality": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 60,
+    "bitratePerReceiver": 8000000
+  },
+  "builds": {
+    "baseline": {
+      "path": "D:\\个人项目\\局域网屏幕共享\\dist\\局域网屏幕共享-0.4.1-performance.exe",
+      "sha256": "b3af1b939021906782af4fd15f9d64d8b5542f80f04891c8eb38a47c4c673399"
+    },
+    "candidate": {
+      "path": "D:\\个人项目\\局域网屏幕共享\\dist\\局域网屏幕共享-0.4.1-game-priority.exe",
+      "sha256": "a1bd202ee77f38d9d5b8e1c4b93afeb421b1d527fb0c4e6480b6815aa8364ca1"
+    }
+  },
+  "runs": [
+    {
+      "label": "baseline",
+      "elapsedSeconds": 15.013422800000004,
+      "cpuSeconds": 84.38781200000001,
+      "cpuByProcessType": [
+        {
+          "type": "browser",
+          "seconds": 0.13892900000000008
+        },
+        {
+          "type": "renderer",
+          "seconds": 0.00026400000000000035
+        },
+        {
+          "type": "renderer",
+          "seconds": 79.49229600000001
+        },
+        {
+          "type": "GPU",
+          "seconds": 3.570786000000001
+        },
+        {
+          "type": "network.mojom.NetworkService",
+          "seconds": 0.8421020000000001
+        },
+        {
+          "type": "storage.mojom.StorageService",
+          "seconds": 0.00004999999999999449
+        },
+        {
+          "type": "audio.mojom.AudioService",
+          "seconds": 0.34338499999999994
+        }
+      ],
+      "activeSenderPreview": true,
+      "qualityPassed": true,
+      "rows": [
+        {
+          "key": "0:OT01V1891825802",
+          "codec": "video/VP8",
+          "frames": 2139,
+          "totalEncodeTime": 17.093,
+          "width": 1920,
+          "height": 1080,
+          "qualityLimitationReason": "none",
+          "efficientEncoder": null,
+          "parameters": {
+            "active": true,
+            "adaptivePtime": false,
+            "maxBitrate": 8000000,
+            "maxFramerate": 60,
+            "networkPriority": "low",
+            "priority": "low",
+            "scaleResolutionDownBy": 1
+          },
+          "intervalFrames": 886,
+          "intervalFps": 59.0138579191948,
+          "intervalEncodeMs": 10.782167042889391
+        },
+        {
+          "key": "1:OT01V2114689057",
+          "codec": "video/VP8",
+          "frames": 2143,
+          "totalEncodeTime": 17.072,
+          "width": 1920,
+          "height": 1080,
+          "qualityLimitationReason": "none",
+          "efficientEncoder": null,
+          "parameters": {
+            "active": true,
+            "adaptivePtime": false,
+            "maxBitrate": 8000000,
+            "maxFramerate": 60,
+            "networkPriority": "low",
+            "priority": "low",
+            "scaleResolutionDownBy": 1
+          },
+          "intervalFrames": 888,
+          "intervalFps": 59.14707204542323,
+          "intervalEncodeMs": 10.712837837837835
+        }
+      ]
+    },
+    {
+      "label": "candidate",
+      "elapsedSeconds": 15.007911700000012,
+      "cpuSeconds": 82.033312,
+      "cpuByProcessType": [
+        {
+          "type": "browser",
+          "seconds": 0.12222100000000014
+        },
+        {
+          "type": "renderer",
+          "seconds": 0.0003429999999999961
+        },
+        {
+          "type": "renderer",
+          "seconds": 78.834495
+        },
+        {
+          "type": "GPU",
+          "seconds": 2.001454
+        },
+        {
+          "type": "network.mojom.NetworkService",
+          "seconds": 0.8485309999999999
+        },
+        {
+          "type": "storage.mojom.StorageService",
+          "seconds": 0.00004800000000000637
+        },
+        {
+          "type": "audio.mojom.AudioService",
+          "seconds": 0.22621999999999998
+        }
+      ],
+      "activeSenderPreview": false,
+      "qualityPassed": true,
+      "rows": [
+        {
+          "key": "0:OT01V1694424673",
+          "codec": "video/VP8",
+          "frames": 2272,
+          "totalEncodeTime": 17.261,
+          "width": 1920,
+          "height": 1080,
+          "qualityLimitationReason": "none",
+          "efficientEncoder": null,
+          "parameters": {
+            "active": true,
+            "adaptivePtime": false,
+            "maxBitrate": 8000000,
+            "maxFramerate": 60,
+            "networkPriority": "low",
+            "priority": "low",
+            "scaleResolutionDownBy": 1
+          },
+          "intervalFrames": 895,
+          "intervalFps": 59.635212272737405,
+          "intervalEncodeMs": 10.293854748603351
+        },
+        {
+          "key": "1:OT01V1555380111",
+          "codec": "video/VP8",
+          "frames": 2274,
+          "totalEncodeTime": 17.361,
+          "width": 1920,
+          "height": 1080,
+          "qualityLimitationReason": "none",
+          "efficientEncoder": null,
+          "parameters": {
+            "active": true,
+            "adaptivePtime": false,
+            "maxBitrate": 8000000,
+            "maxFramerate": 60,
+            "networkPriority": "low",
+            "priority": "low",
+            "scaleResolutionDownBy": 1
+          },
+          "intervalFrames": 894,
+          "intervalFps": 59.56858075064496,
+          "intervalEncodeMs": 10.403803131991051
+        }
+      ]
+    }
+  ],
+  "qualityGate": {
+    "passed": true,
+    "criteria": "Actual 1920×1080, unchanged 60 FPS / 8 Mbps targets, >=57 measured FPS per stream, candidate rate no more than 2% below its paired baseline. This is synthetic frame-rate tolerance, not a game low-FPS tolerance."
+  }
+}

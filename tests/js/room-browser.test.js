@@ -29,6 +29,49 @@ test('automatic refresh is bounded by one in-flight request and stop clears the 
  const f=fixture([]);f.browser.start();await new Promise(resolve=>setImmediate(resolve));assert.equal(typeof f.timer,'function');f.browser.stop();assert.equal(f.timer,null);
 });
 
+test('hidden room lists stop polling and resume immediately without duplicating timers', async () => {
+  let loads = 0, nextId = 0;
+  const timers = new Map();
+  const browser = createRoomBrowser({
+    list: new Element(), status: new Element(), refreshButton: new Element(),
+    documentRef: { createElement: () => new Element() }, onJoin: async () => {},
+    load: async () => { loads++; return { available: true, rooms: [] }; },
+    setIntervalImpl: fn => { const id = nextId++; timers.set(id, fn); return id; }, clearIntervalImpl: id => timers.delete(id),
+  });
+  browser.setActive(false); browser.start(); await Promise.resolve();
+  assert.equal(loads, 0); assert.equal(timers.size, 0);
+  browser.setActive(true); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(loads, 1); assert.equal(timers.size, 1);
+  browser.setActive(true); browser.start(); assert.equal(timers.size, 1);
+  browser.setActive(false); await browser.refresh();
+  assert.equal(loads, 1); assert.equal(timers.size, 0);
+  browser.setActive(true); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(loads, 2); assert.equal(timers.size, 1);
+  browser.stop(); browser.setActive(false); browser.setActive(true); browser.start();
+  assert.equal(timers.size, 0);
+});
+
+test('unchanged rooms reuse seat and icon nodes while joining uses the latest invitation', async () => {
+  const rooms = [room('friends')];
+  const f = fixture(rooms);
+  await f.browser.refresh();
+  const card = f.list.children[0], seats = card.children[1].children[1], mark = card.children[2].children[0];
+  rooms[0] = { ...rooms[0], roomCode: 'WXYZ6789' };
+  await f.browser.refresh();
+  assert.equal(f.list.children[0], card);
+  assert.equal(card.children[1].children[1], seats);
+  assert.equal(card.children[2].children[0], mark);
+  await card.children.at(-1).click();
+  assert.equal(f.joined[0].roomCode, 'WXYZ6789');
+  assert.equal(card.children.at(-1).textContent, '加入房间');
+  rooms[0].members = 3; rooms[0].screenSharing = true;
+  await f.browser.refresh();
+  assert.equal(card.children[1].children[0].textContent, '3 / 3 人');
+  assert.equal(card.children[2].children[1].textContent, '正在共享画面');
+  assert.ok(card.children.at(-1).disabled);
+  assert.equal(card.children[1].children[1], seats);
+});
+
 test('room list uses the same-origin protected endpoint and keeps its nonce out of the URL',async(t)=>{
  const previous=globalThis.location;globalThis.location={href:'http://localhost:59818/'};t.after(()=>{if(previous===undefined)delete globalThis.location;else globalThis.location=previous;});
  let called;
