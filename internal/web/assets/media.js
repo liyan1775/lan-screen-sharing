@@ -1,6 +1,7 @@
 import { isolationStatus } from './state.js';
 import { prepareSystemAudioIsolation } from './system-audio-isolation.js';
 import { RoomText } from './room-text.js';
+import { ScreenRelay } from './screen-relay.js';
 
 const QUALITY = Object.freeze({
   '1080p60': { width: 1920, height: 1080, fps: 60, bitrate: 8_000_000 },
@@ -10,7 +11,7 @@ const QUALITY = Object.freeze({
 
 function captureVideoConstraints(quality, shareCursor = false) {
   const target = QUALITY[quality];
-  return { width: { ideal: target.width }, height: { ideal: target.height }, frameRate: { ideal: target.fps, max: target.fps }, cursor: shareCursor ? 'always' : 'never' };
+  return { width: { ideal: target.width, max: target.width }, height: { ideal: target.height, max: target.height }, frameRate: { ideal: target.fps, max: target.fps }, cursor: shareCursor ? 'always' : 'never' };
 }
 
 export function mapRemoteTrack({ fromPeerId, mid, role, track, stream }) {
@@ -60,6 +61,7 @@ export class MeshMedia extends EventTarget {
     this.captureMode = 'limited';
     this.isolation = isolationStatus({ supported: false });
     this.quality = '1080p60';
+    this.pauseBackgroundPreview = true;
     this.audioElements = new Map();
     this.statsPrevious = new Map();
     this.captureGeneration = 0;
@@ -72,6 +74,29 @@ export class MeshMedia extends EventTarget {
     this.preparingScreenStream = null;
     this.systemAudioDiagnostics = null;
     this.shareCursor = false;
+    this.relay = new ScreenRelay(roomClient, {
+      peerIds:() => [...this.peers.keys()], presenter:() => this.presenterPeerId,
+      applyQuality:sender => this.applyVideoQuality(sender), onTrack:(id,role,track) => this.receiveTrack(id,role,track),
+      onViewClosed:id => {
+        this.remoteScreens.delete(id);
+        const audio=this.audioElements.get(`${id}:systemAudio`); audio?.pause(); audio?.remove(); this.audioElements.delete(`${id}:systemAudio`);
+        this.onState({state:'audio_source_ended',peerId:id,role:'systemAudio'});
+        this.onState({state:'remote_screen_ended',peerId:id});
+      },
+      onError:error => this.onState({state:'screen_relay_error',message:error.message}),
+    });
+  }
+
+  get usesScreenRelay() { return this.client.bootstrap?.screenRelay === true; }
+
+  receiveTrack(peerId, role, track) {
+    const mapped = mapRemoteTrack({fromPeerId:peerId,mid:'relay',role,track});
+    if (!mapped) return;
+    if (role === 'screenVideo') {
+      track.enabled = !this.voiceOnly; this.remoteScreens.set(peerId,mapped.stream);
+      track.addEventListener('ended',() => { if(this.remoteScreens.get(peerId) === mapped.stream) this.remoteScreens.delete(peerId); this.onState({state:'remote_screen_ended',peerId}); },{once:true});
+    } else this.attachAudio(peerId,role,track);
+    this.onRemoteTrack(mapped);
   }
 
   setIdentity(peerId, role) { this.selfPeerId = peerId; this.selfRole = role; }
@@ -100,8 +125,8 @@ export class MeshMedia extends EventTarget {
       peer.systemAudioSender = [...peer.localRoles].find(([, trackRole]) => trackRole === 'systemAudio')?.[0].sender ?? null;
       void peer.voiceSender.replaceTrack(this.microphoneTrack).catch(() => {});
       {
-        void peer.screenSender.replaceTrack(this.screenVideoTrack).catch(() => {});
-        void peer.systemAudioSender.replaceTrack(this.captureMode === 'combined' ? this.systemAudioTrack : null).catch(() => {});
+        void peer.screenSender.replaceTrack(this.usesScreenRelay ? null : this.screenVideoTrack).catch(() => {});
+        void peer.systemAudioSender.replaceTrack(!this.usesScreenRelay && this.captureMode === 'combined' ? this.systemAudioTrack : null).catch(() => {});
         this.applyVideoQuality(peer.screenSender);
       }
     }
@@ -111,7 +136,8 @@ export class MeshMedia extends EventTarget {
     };
     pc.ontrack = (event) => {
       const roleForTrack = peer.remoteRoles.get(event.transceiver.mid);
-      const mapped = mapRemoteTrack({ fromPeerId: peerId, mid: event.transceiver.mid, role: roleForTrack, track: event.track, stream: new MediaStream([event.track]) });
+      if (this.usesScreenRelay && roleForTrack !== 'microphone') return;
+      const mapped = mapRemoteTrack({ fromPeerId: peerId, mid: event.transceiver.mid, role: roleForTrack, track: event.track });
       if (!mapped) return;
       if (mapped.role === 'screenVideo') {
         mapped.track.enabled = !this.voiceOnly;
@@ -132,6 +158,7 @@ export class MeshMedia extends EventTarget {
 
     this.text.addPeer(peerId, pc, shouldOffer);
     if (shouldOffer) void this.negotiate(peer);
+    if (this.usesScreenRelay && this.screenVideoTrack) void this.relay.start(this.screenVideoTrack,this.systemAudioTrack).then(() => this.relay.announce(peerId)).catch(error => this.relay.onError(error));
     return peer;
   }
 
@@ -157,7 +184,7 @@ export class MeshMedia extends EventTarget {
     // Remote role metadata identifies a negotiated media slot; local role
     // decides which local track, if any, is allowed to use that sender.
     await Promise.all([...localRoles].map(([transceiver, role]) => {
-      const track = role === 'microphone' ? this.microphoneTrack
+      const track = role === 'microphone' ? this.microphoneTrack : this.usesScreenRelay ? null
         : role === 'screenVideo' ? this.screenVideoTrack
           : role === 'systemAudio' && this.captureMode === 'combined' ? this.systemAudioTrack
             : null;
@@ -171,6 +198,7 @@ export class MeshMedia extends EventTarget {
       if (peer.pc.signalingState !== 'stable') { peer.offerQueued = true; return; }
       peer.offerQueued = false;
       try {
+        if (this.peers.get(peer.peerId) !== peer) return;
         const offer = await peer.pc.createOffer();
         await peer.pc.setLocalDescription(offer);
         this.client.sendSignal('rtc.description', peer.peerId, { description: peer.pc.localDescription.toJSON(), tracks: readTrackRoleMap(peer.pc.getTransceivers()) });
@@ -182,6 +210,7 @@ export class MeshMedia extends EventTarget {
   }
 
   async handleSignal(type, payload) {
+    if (type.startsWith('screen.')) { if (this.usesScreenRelay) await this.relay.handle(type,payload); return; }
     const peerId = payload.fromPeerId;
     const peer = this.peers.get(peerId) ?? this.addPeer(peerId, 'viewer');
     if (!peer) return;
@@ -236,18 +265,27 @@ export class MeshMedia extends EventTarget {
     this.captureMode = mode;
     this.isolation = isolation;
     if (this.screenVideoTrack) await this.applyCaptureQuality();
+    if (generation !== this.captureGeneration || this.screenStream !== stream) return;
     if (this.screenVideoTrack) {
       const capturedTrack = this.screenVideoTrack;
       capturedTrack.addEventListener('ended', () => { if (this.screenVideoTrack === capturedTrack) void this.setScreenStream(null); }, { once: true });
     }
     try {
-      await Promise.all([...this.peers.values()].map(async (peer) => {
+      if (this.usesScreenRelay) {
+        if (this.screenVideoTrack && this.peers.size) await this.relay.start(this.screenVideoTrack,this.systemAudioTrack);
+        else await this.relay.stopSource();
+      } else await Promise.all([...this.peers.values()].map(async (peer) => {
         if (!peer.screenSender) return;
         await peer.screenSender.replaceTrack(this.screenVideoTrack);
         await peer.systemAudioSender.replaceTrack(mode === 'combined' ? this.systemAudioTrack : null);
         if (this.screenVideoTrack) await this.applyVideoQuality(peer.screenSender);
       }));
     } catch (error) {
+      if (generation !== this.captureGeneration || this.screenStream !== stream) {
+        if (stream && stream !== this.screenStream) stream.getTracks().forEach(track => track.stop());
+        throw error;
+      }
+      await this.relay.stopSource();
       await Promise.allSettled([...this.peers.values()].flatMap((peer) => [peer.screenSender?.replaceTrack(null), peer.systemAudioSender?.replaceTrack(null)]));
       this.screenStream?.getTracks().forEach((track) => track.stop());
       this.screenStream = null; this.screenVideoTrack = null; this.systemAudioTrack = null;
@@ -257,12 +295,15 @@ export class MeshMedia extends EventTarget {
       this.onState({ state: 'screen_stopped' });
       throw error;
     }
+    if (generation !== this.captureGeneration || this.screenStream !== stream) return;
     if (mode === 'combined' && this.systemAudioTrack) {
       const capturedAudio = this.systemAudioTrack;
       capturedAudio.addEventListener('ended', () => { if (this.systemAudioTrack === capturedAudio) void this.setSystemAudioTrack(null); }, { once: true });
     }
     if (previousStream && previousStream !== stream) previousStream.getTracks().forEach((track) => track.stop());
     this.publishMediaState();
+    if (this.usesScreenRelay && stream) this.relay.announce();
+    this.publishQualityState();
     this.onState({ state: stream ? 'screen_started' : 'screen_stopped' });
   }
 
@@ -293,7 +334,8 @@ export class MeshMedia extends EventTarget {
     this.systemAudioTrack = track;
     if (!track) this.captureMode = 'limited';
     try {
-      await Promise.all([...this.peers.values()].filter((peer) => peer.systemAudioSender).map((peer) => peer.systemAudioSender.replaceTrack(this.captureMode === 'combined' ? track : null)));
+      if (this.usesScreenRelay) await this.relay.updateAudio(this.captureMode === 'combined' ? track : null);
+      else await Promise.all([...this.peers.values()].filter((peer) => peer.systemAudioSender).map((peer) => peer.systemAudioSender.replaceTrack(this.captureMode === 'combined' ? track : null)));
     } finally {
       if (previousTrack && previousTrack !== track) previousTrack.stop();
       this.publishMediaState();
@@ -390,11 +432,22 @@ export class MeshMedia extends EventTarget {
   async setQuality(quality) {
     if (!QUALITY[quality]) return false;
     this.quality = quality;
-    await this.applyCaptureQuality();
-    const senders = [...this.peers.values()].map((peer) => peer.screenSender).filter(Boolean);
-    await Promise.all(senders.map((sender) => this.applyVideoQuality(sender)));
-    this.onState({ state: 'quality', target: quality, targetText: `目标 ${quality} · 初始发送参数，实际效果以统计为准` });
+    await this.refreshVideoQuality();
     return true;
+  }
+
+  async refreshVideoQuality() {
+    const generation = this.captureGeneration;
+    await this.applyCaptureQuality();
+    if (generation !== this.captureGeneration) return;
+    const senders = [...this.peers.values()].map((peer) => peer.screenSender).filter(Boolean);
+    if (this.usesScreenRelay && this.relay.source?.videoSender) senders.push(this.relay.source.videoSender);
+    await Promise.all(senders.map((sender) => this.applyVideoQuality(sender)));
+    this.publishQualityState();
+  }
+
+  publishQualityState() {
+    this.onState({ state: 'quality', target: this.quality, targetText: `目标 ${this.quality} · 初始发送参数，实际效果以统计为准` });
   }
 
   async applyVideoQuality(sender) {
@@ -402,12 +455,16 @@ export class MeshMedia extends EventTarget {
     try {
       const target = QUALITY[this.quality];
       const parameters = sender.getParameters();
+      const source = this.screenVideoTrack?.getSettings?.() ?? {};
+      const scale = Math.max(1, (source.width ?? target.width) / target.width, (source.height ?? target.height) / target.height);
+      const current = parameters.encodings?.[0];
+      if (parameters.degradationPreference === 'maintain-framerate' && current?.maxBitrate === target.bitrate
+        && current.maxFramerate === target.fps && current.scaleResolutionDownBy === scale) return true;
       parameters.degradationPreference = 'maintain-framerate';
       if (!parameters.encodings?.length) parameters.encodings = [{}];
       parameters.encodings[0].maxBitrate = target.bitrate;
       parameters.encodings[0].maxFramerate = target.fps;
-      const sourceWidth = this.screenVideoTrack?.getSettings?.().width ?? target.width;
-      parameters.encodings[0].scaleResolutionDownBy = Math.max(1, sourceWidth / target.width);
+      parameters.encodings[0].scaleResolutionDownBy = scale;
       try { await sender.setParameters(parameters); }
       catch {
         // Keep basic bitrate/FPS targets if the browser rejects the preference.
@@ -430,7 +487,10 @@ export class MeshMedia extends EventTarget {
     try {
       track.contentHint = 'motion';
       if (typeof track.applyConstraints !== 'function') return false;
-      await track.applyConstraints(captureVideoConstraints(this.quality, this.shareCursor));
+      const constraints = captureVideoConstraints(this.quality, this.shareCursor);
+      const current = track.getConstraints?.();
+      if (current?.cursor === constraints.cursor && ['width', 'height', 'frameRate'].every(key => current[key]?.ideal === constraints[key].ideal && current[key]?.max === constraints[key].max)) return true;
+      await track.applyConstraints(constraints);
       return true;
     } catch {
       this.onState({ state: 'capture_quality_unsupported', message: '浏览器未能应用部分采集画质设置，仍按当前采集设置共享；请查看采集与实际发送帧率。' });
@@ -493,6 +553,7 @@ export class MeshMedia extends EventTarget {
 
   setPresenter(peerId) {
     this.presenterPeerId = peerId ?? '';
+    if (this.usesScreenRelay) this.relay.syncPresenter(this.presenterPeerId);
     for (const audio of this.audioElements.values()) if (audio.dataset?.trackRole === 'systemAudio') {
       audio.muted = audio.userMuted === true || this.voiceOnly || audio.dataset.sourcePeerId !== this.presenterPeerId;
     }
@@ -504,14 +565,23 @@ export class MeshMedia extends EventTarget {
     for (const stream of this.remoteScreens.values()) for (const track of stream.getVideoTracks()) track.enabled = !this.voiceOnly;
   }
 
-  async getStatsSnapshot() {
+  async getStatsSnapshot({ peerIds = null, videoOnly = false } = {}) {
     const snapshots = [];
-    for (const peer of this.peers.values()) {
-      const reports = await peer.pc.getStats();
+    const currentPeers = () => this.usesScreenRelay && videoOnly ? this.relay.statsPeers() : this.peers;
+    const available = currentPeers();
+    const peers = peerIds === null ? [...available] : [...new Set(peerIds)].filter(id => available.has(id)).map(id => [id, available.get(id)]);
+    const readings = await Promise.all(peers.map(async ([peerId, peer]) => {
+      try { return { peerId, peer, reports: await peer.pc.getStats() }; }
+      catch (error) { if (currentPeers().get(peerId) !== peer) return null; throw error; }
+    }));
+    for (const reading of readings) {
+      if (!reading || currentPeers().get(reading.peerId) !== reading.peer) continue;
+      const { peerId, reports } = reading;
       for (const report of reports.values()) {
         if (report.type !== 'outbound-rtp' && report.type !== 'inbound-rtp') continue;
         const role = report.kind === 'video' || report.mediaType === 'video' ? 'screenVideo' : 'audio';
-        const key = `${peer.peerId}:${report.id}`;
+        if (videoOnly && role !== 'screenVideo') continue;
+        const key = `${peerId}:${report.id}`;
         const previous = this.statsPrevious.get(key);
         const now = report.timestamp ?? performance.now();
         const bytes = report.bytesSent ?? report.bytesReceived;
@@ -523,16 +593,23 @@ export class MeshMedia extends EventTarget {
         const sourceTime = source?.timestamp ?? now;
         const sourceDelta = previous && sourceTime > previous.sourceTime && Number.isFinite(source?.frames) && Number.isFinite(previous.sourceFrames) && source.frames >= previous.sourceFrames
           ? (source.frames - previous.sourceFrames) * 1000 / (sourceTime - previous.sourceTime) : null;
-        this.statsPrevious.set(key, { time: now, bytes, frames, sourceTime, sourceFrames: source?.frames });
+        const encodedFramesDelta = previous && Number.isFinite(previous.framesEncoded) && report.framesEncoded >= previous.framesEncoded ? report.framesEncoded - previous.framesEncoded : null;
+        const encodeTimeDelta = previous && Number.isFinite(previous.totalEncodeTime) && report.totalEncodeTime >= previous.totalEncodeTime ? report.totalEncodeTime - previous.totalEncodeTime : null;
+        const cpuTime = report.qualityLimitationDurations?.cpu;
+        const cpuDelta = previous && Number.isFinite(previous.cpuTime) && cpuTime >= previous.cpuTime ? cpuTime - previous.cpuTime : null;
+        this.statsPrevious.set(key, { time: now, bytes, frames, sourceTime, sourceFrames: source?.frames, framesEncoded: report.framesEncoded, totalEncodeTime: report.totalEncodeTime, cpuTime });
         const codec = report.codecId ? reports.get(report.codecId) : null;
         const transport = report.transportId ? reports.get(report.transportId) : null;
         const pair = transport?.selectedCandidatePairId ? reports.get(transport.selectedCandidatePairId) : null;
-        snapshots.push({ peerId: peer.peerId, direction: report.type, role, width: report.frameWidth, height: report.frameHeight, fps: report.framesPerSecond ?? measuredFps, bitrate, droppedFrames: report.framesDropped ?? report.framesDiscarded,
+        snapshots.push({ peerId, localRelay:reading.peer.localRelay === true, direction: report.type, role, width: report.frameWidth, height: report.frameHeight, fps: report.framesPerSecond ?? measuredFps, bitrate, droppedFrames: report.framesDropped ?? report.framesDiscarded,
           sourceFps: source?.framesPerSecond ?? sourceDelta,
           intervalFps: measuredFps, sourceIntervalFps: sourceDelta, sampleIntervalSeconds: elapsed,
           codec: ['video/VP8', 'video/VP9', 'video/H264', 'video/AV1'].includes(codec?.mimeType) ? codec.mimeType.slice(6) : null,
           powerEfficientEncoder: typeof report.powerEfficientEncoder === 'boolean' ? report.powerEfficientEncoder : null,
           averageEncodeMs: Number.isFinite(report.totalEncodeTime) && report.framesEncoded > 0 ? report.totalEncodeTime * 1000 / report.framesEncoded : null,
+          encodedFramesDelta, intervalEncodeMs: encodedFramesDelta > 0 && encodeTimeDelta !== null ? encodeTimeDelta * 1000 / encodedFramesDelta : null,
+          encodeTimeRatio: elapsed && encodeTimeDelta !== null ? encodeTimeDelta / elapsed : null,
+          cpuLimitedRatio: elapsed && cpuDelta !== null ? Math.min(1, cpuDelta / elapsed) : null,
           qualityLimitationReason: ['none', 'cpu', 'bandwidth', 'other'].includes(report.qualityLimitationReason) ? report.qualityLimitationReason : null,
           availableOutgoingBitrate: pair?.availableOutgoingBitrate ?? null,
         });
@@ -547,6 +624,8 @@ export class MeshMedia extends EventTarget {
     this.text.removePeer(peerId);
     peer.pc.close();
     this.peers.delete(peerId);
+    let sourceClosed;
+    if (this.usesScreenRelay) { this.relay.removePeer(peerId); if (!this.peers.size) sourceClosed = this.relay.stopSource(); }
     this.remoteScreens.delete(peerId);
     for (const key of this.statsPrevious.keys()) if (key.startsWith(`${peerId}:`)) this.statsPrevious.delete(key);
     for (const key of [`${peerId}:microphone`, `${peerId}:systemAudio`]) {
@@ -554,19 +633,18 @@ export class MeshMedia extends EventTarget {
       audio?.pause(); audio?.remove(); this.audioElements.delete(key);
     }
     this.onState({ state: 'peer_closed', peerId });
+    await sourceClosed;
   }
 
   async closeAll() {
     this.captureGeneration += 1;
-    this.claimingStream?.getTracks().forEach((track) => track.stop());
+    const relayClosed = this.relay.close();
+    this.statsPrevious.clear();
+    const captured = new Set([this.claimingStream,this.preparingScreenStream,this.screenStream,this.pendingScreenStream].flatMap(stream => stream?.getTracks?.() ?? []));
+    if (this.microphoneTrack) captured.add(this.microphoneTrack);
     this.claimingStream = null;
-    this.preparingScreenStream?.getTracks().forEach((track) => track.stop());
     this.preparingScreenStream = null;
     this.captureAttempt = null;
-    await Promise.all([...this.peers.keys()].map((peerId) => this.closePeer(peerId)));
-    this.screenStream?.getTracks?.().forEach((track) => track.stop());
-    this.pendingScreenStream?.getTracks?.().forEach((track) => track.stop());
-    this.microphoneTrack?.stop?.();
     this.screenStream = null; this.pendingScreenStream = null; this.screenVideoTrack = null; this.systemAudioTrack = null; this.microphoneTrack = null;
     this.captureMode = 'limited';
     this.ownsPresentation = false;
@@ -574,6 +652,11 @@ export class MeshMedia extends EventTarget {
     this.remoteScreens.clear();
     this.voiceOnly = false;
     this.isolation = { state: 'unverified', label: '未验证', verified: false };
+    // Release capture synchronously and clear ownership before any network wait.
+    // Reentrant leave/close events cannot stop a track twice or clear a new room.
+    const peersClosed = [...this.peers.keys()].map((peerId) => this.closePeer(peerId));
+    captured.forEach(track => track.stop?.());
     this.onState({ state: 'closed', isolation: this.isolation });
+    await Promise.all([...peersClosed,relayClosed]);
   }
 }

@@ -1,0 +1,375 @@
+{
+  "scope": "Same-machine headless Edge; synthetic 1920×1080 60 FPS source; two receivers in a separate browser process; simulated game focus. Not a real game or physical screen capture benchmark.",
+  "cpu": "AMD Ryzen 7 7735HS with Radeon Graphics        ",
+  "logicalProcessors": 16,
+  "requestedQuality": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 60,
+    "bitratePerReceiver": 8000000
+  },
+  "cpuScope": "Sender browser processes plus sender-owned Go service. Viewer browser CPU excluded. Process CPU sampling helpers run only at boundaries, outside the product.",
+  "builds": {
+    "baseline": {
+      "path": "D:\\个人项目\\局域网屏幕共享\\dist\\局域网屏幕共享-0.4.1-game-priority.exe",
+      "sha256": "a1bd202ee77f38d9d5b8e1c4b93afeb421b1d527fb0c4e6480b6815aa8364ca1"
+    },
+    "candidate": {
+      "path": "D:\\个人项目\\局域网屏幕共享\\dist\\局域网屏幕共享-single-encode.exe",
+      "sha256": "3ea65903e5d51787aa450ec90758bcf6bcf0d454138d940ff049e6096053c87a"
+    }
+  },
+  "runs": [
+    {
+      "label": "baseline",
+      "startedAtUTC": "2026-11-05T16:19:33.448Z",
+      "browserVersion": "155.0.4283.45",
+      "relayEnabled": false,
+      "elapsedSeconds": 20.013790500000002,
+      "cpuSeconds": 120.34676300000001,
+      "cpuByProcessType": [
+        {
+          "type": "browser",
+          "seconds": 0.15239499999999984
+        },
+        {
+          "type": "renderer",
+          "seconds": 0.0003599999999999992
+        },
+        {
+          "type": "renderer",
+          "seconds": 115.13339400000001
+        },
+        {
+          "type": "GPU",
+          "seconds": 3.264330000000001
+        },
+        {
+          "type": "network.mojom.NetworkService",
+          "seconds": 1.5007279999999998
+        },
+        {
+          "type": "storage.mojom.StorageService",
+          "seconds": 0.000054999999999999494
+        },
+        {
+          "type": "audio.mojom.AudioService",
+          "seconds": 0.295501
+        }
+      ],
+      "appCPUSeconds": 0,
+      "appElapsedSeconds": 21.317586900000002,
+      "appWorkingSetBytes": 17350656,
+      "totalCPUEquivalentCores": 6.013191903852496,
+      "receivers": [
+        {
+          "frames": 2515,
+          "timestamp": 1793895623031.566,
+          "width": 1920,
+          "height": 1080,
+          "intervalFps": 59.165934105637696
+        },
+        {
+          "frames": 2515,
+          "timestamp": 1793895623031.591,
+          "width": 1920,
+          "height": 1080,
+          "intervalFps": 59.06583983046422
+        }
+      ],
+      "activeSenderPreview": false,
+      "qualityPassed": true,
+      "rows": [
+        {
+          "key": "0:OT01V2991473878",
+          "codec": "video/VP8",
+          "frames": 2516,
+          "timestamp": 1793895623023.134,
+          "totalEncodeTime": 25.712,
+          "width": 1920,
+          "height": 1080,
+          "qualityLimitationReason": "none",
+          "resolutionChanges": 0,
+          "efficientEncoder": null,
+          "parameters": {
+            "active": true,
+            "adaptivePtime": false,
+            "maxBitrate": 8000000,
+            "maxFramerate": 60,
+            "networkPriority": "low",
+            "priority": "low",
+            "scaleResolutionDownBy": 1
+          },
+          "intervalFrames": 1186,
+          "intervalFps": 59.20207375729482,
+          "unchangedResolution": true,
+          "intervalEncodeMs": 13.172006745362562
+        },
+        {
+          "key": "1:OT01V3045444895",
+          "codec": "video/VP8",
+          "frames": 2515,
+          "timestamp": 1793895623024.544,
+          "totalEncodeTime": 25.529,
+          "width": 1920,
+          "height": 1080,
+          "qualityLimitationReason": "none",
+          "resolutionChanges": 0,
+          "efficientEncoder": null,
+          "parameters": {
+            "active": true,
+            "adaptivePtime": false,
+            "maxBitrate": 8000000,
+            "maxFramerate": 60,
+            "networkPriority": "low",
+            "priority": "low",
+            "scaleResolutionDownBy": 1
+          },
+          "intervalFrames": 1183,
+          "intervalFps": 59.0577345454062,
+          "unchangedResolution": true,
+          "intervalEncodeMs": 13.074387151310228
+        }
+      ]
+    },
+    {
+      "label": "candidate",
+      "startedAtUTC": "2026-11-05T16:20:24.911Z",
+      "browserVersion": "155.0.4283.45",
+      "relayEnabled": true,
+      "elapsedSeconds": 20.0094044,
+      "cpuSeconds": 58.47189099999999,
+      "cpuByProcessType": [
+        {
+          "type": "browser",
+          "seconds": 0.1115219999999999
+        },
+        {
+          "type": "renderer",
+          "seconds": 0.00037399999999999933
+        },
+        {
+          "type": "renderer",
+          "seconds": 54.14704499999999
+        },
+        {
+          "type": "GPU",
+          "seconds": 3.056038
+        },
+        {
+          "type": "network.mojom.NetworkService",
+          "seconds": 0.865017
+        },
+        {
+          "type": "storage.mojom.StorageService",
+          "seconds": 0.00003699999999999537
+        },
+        {
+          "type": "entity_extraction_service.mojom.Extractor",
+          "seconds": 0.0003999999999999976
+        },
+        {
+          "type": "audio.mojom.AudioService",
+          "seconds": 0.291458
+        }
+      ],
+      "appCPUSeconds": 1.703125,
+      "appElapsedSeconds": 21.883902000000003,
+      "appWorkingSetBytes": 31326208,
+      "totalCPUEquivalentCores": 3.000045935386191,
+      "receivers": [
+        {
+          "frames": 1562,
+          "timestamp": 1793895657831.016,
+          "width": 1920,
+          "height": 1080,
+          "intervalFps": 59.875083786462056
+        },
+        {
+          "frames": 1562,
+          "timestamp": 1793895657830.972,
+          "width": 1920,
+          "height": 1080,
+          "intervalFps": 59.875437100636944
+        }
+      ],
+      "activeSenderPreview": false,
+      "qualityPassed": true,
+      "rows": [
+        {
+          "key": "2:OT01V2210233834",
+          "codec": "video/VP8",
+          "frames": 1578,
+          "timestamp": 1793895657822.898,
+          "totalEncodeTime": 16.962,
+          "width": 1920,
+          "height": 1080,
+          "qualityLimitationReason": "none",
+          "resolutionChanges": 0,
+          "efficientEncoder": null,
+          "parameters": {
+            "active": true,
+            "adaptivePtime": false,
+            "maxBitrate": 8000000,
+            "maxFramerate": 60,
+            "networkPriority": "low",
+            "priority": "low",
+            "scaleResolutionDownBy": 1
+          },
+          "intervalFrames": 1201,
+          "intervalFps": 59.9720487819549,
+          "unchangedResolution": true,
+          "intervalEncodeMs": 10.979184013322232
+        }
+      ]
+    },
+    {
+      "label": "candidate",
+      "startedAtUTC": "2026-11-05T16:21:00.690Z",
+      "browserVersion": "155.0.4283.45",
+      "relayEnabled": true,
+      "elapsedSeconds": 20.019581900000006,
+      "cpuSeconds": 58.742784,
+      "cpuByProcessType": [
+        {
+          "type": "browser",
+          "seconds": 0.09527099999999988
+        },
+        {
+          "type": "renderer",
+          "seconds": 0.00034200000000000896
+        },
+        {
+          "type": "renderer",
+          "seconds": 54.216875
+        },
+        {
+          "type": "GPU",
+          "seconds": 3.2380079999999998
+        },
+        {
+          "type": "network.mojom.NetworkService",
+          "seconds": 0.894385
+        },
+        {
+          "type": "storage.mojom.StorageService",
+          "seconds": 0.00005100000000000937
+        },
+        {
+          "type": "entity_extraction_service.mojom.Extractor",
+          "seconds": 0.0003099999999999978
+        },
+        {
+          "type": "audio.mojom.AudioService",
+          "seconds": 0.29754200000000003
+        }
+      ],
+      "appCPUSeconds": 1.96875,
+      "appElapsedSeconds": 21.18865359999999,
+      "appWorkingSetBytes": 32104448,
+      "totalCPUEquivalentCores": 3.027181569566777,
+      "receivers": [
+        {
+          "frames": 1513,
+          "timestamp": 1793895694212.388,
+          "width": 1920,
+          "height": 1080,
+          "intervalFps": 58.317372115121096
+        },
+        {
+          "frames": 1513,
+          "timestamp": 1793895694212.087,
+          "width": 1920,
+          "height": 1080,
+          "intervalFps": 58.315058868356175
+        }
+      ],
+      "activeSenderPreview": false,
+      "qualityPassed": true,
+      "rows": [
+        {
+          "key": "2:OT01V155447153",
+          "codec": "video/VP8",
+          "frames": 1527,
+          "timestamp": 1793895694193.987,
+          "totalEncodeTime": 17.297,
+          "width": 1920,
+          "height": 1080,
+          "qualityLimitationReason": "none",
+          "resolutionChanges": 0,
+          "efficientEncoder": null,
+          "parameters": {
+            "active": true,
+            "adaptivePtime": false,
+            "maxBitrate": 8000000,
+            "maxFramerate": 60,
+            "networkPriority": "low",
+            "priority": "low",
+            "scaleResolutionDownBy": 1
+          },
+          "intervalFrames": 1168,
+          "intervalFps": 58.2959710105207,
+          "unchangedResolution": true,
+          "intervalEncodeMs": 11.22859589041096
+        }
+      ]
+    },
+    {
+      "label": "baseline",
+      "startedAtUTC": "2026-11-05T16:21:35.872Z",
+      "browserVersion": "155.0.4283.45",
+      "relayEnabled": false,
+      "elapsedSeconds": 20.010339399999996,
+      "cpuSeconds": 58.040523,
+      "cpuByProcessType": [
+        {
+          "type": "browser",
+          "seconds": 0.28836200000000023
+        },
+        {
+          "type": "renderer",
+          "seconds": 0.0010779999999999956
+        },
+        {
+          "type": "renderer",
+          "seconds": 53.862458000000004
+        },
+        {
+          "type": "GPU",
+          "seconds": 3.1067210000000003
+        },
+        {
+          "type": "network.mojom.NetworkService",
+          "seconds": 0.516993
+        },
+        {
+          "type": "storage.mojom.StorageService",
+          "seconds": 0.0010890000000000066
+        },
+        {
+          "type": "audio.mojom.AudioService",
+          "seconds": 0.26375400000000004
+        },
+        {
+          "type": "edge_collections.mojom.CollectionsDataManager",
+          "seconds": 0.00006799999999999862
+        }
+      ],
+      "appCPUSeconds": 0.140625,
+      "appElapsedSeconds": 20.989692899999994,
+      "appWorkingSetBytes": 18337792,
+      "totalCPUEquivalentCores": 2.907226381618323,
+      "receivers": [
+        null,
+        null
+      ],
+      "activeSenderPreview": false,
+      "qualityPassed": false,
+      "rows": []
+    }
+  ],
+  "qualityGate": {
+    "passed": false,
+    "criteria": "Actual 1920×1080 at both boundaries without quality-driven resolution changes, unchanged 60 FPS / 8 Mbps targets, >=57 measured FPS per stream, candidate decode rate no more than 2% below its paired baseline. This is synthetic frame-rate tolerance, not a game low-FPS tolerance."
+  }
+}

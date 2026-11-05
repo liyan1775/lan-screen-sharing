@@ -60,7 +60,7 @@ test('missingSystemAudioWaitsForExplicitLimitedModeOptIn', async (t) => {
 
   const result = await media.startScreenFromGesture('combined');
 
-  assert.deepEqual(browser.calls[0], { video: { displaySurface: 'monitor', width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 60, max: 60 }, cursor: 'never' }, audio: { restrictOwnAudio: true }, systemAudio: 'include' });
+  assert.deepEqual(browser.calls[0], { video: { displaySurface: 'monitor', width: { ideal: 1920, max: 1920 }, height: { ideal: 1080, max: 1080 }, frameRate: { ideal: 60, max: 60 }, cursor: 'never' }, audio: { restrictOwnAudio: true }, systemAudio: 'include' });
   assert.equal(result.captureState, 'missing_audio');
   assert.equal(result.isolation.state, 'missing_audio');
   assert.equal(result.isolation.label, '未捕获屏幕音频');

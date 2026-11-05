@@ -104,9 +104,9 @@ test('member UI joins a discovered room in one click and preserves mic across sh
     if (String(url).includes('/api/v1/rooms')) return {ok:true,json:async()=>({available:true,rooms:[{id:'found-room',name:'一起玩',hostIPv4:'192.168.1.20',hostPort:45678,roomCode:'ABCD2345',members:1,capacity:3}]})};
     return { ok: true, json: async () => ({ localWsPath: '/ws/v1',localControlToken:'test-local-control' }) };
   };
-  let statsTick, copiedReport;
+  let copiedReport;
   globalThis.navigator.clipboard = { async writeText(text) { copiedReport = text; } };
-  globalThis.setInterval = (callback, ms) => { if (ms === 2000) statsTick = callback; return 1; };
+  globalThis.setInterval = () => 1;
   globalThis.setTimeout = () => 1;
   t.after(() => {
     MeshMedia.prototype.closeAll = originalCloseAll;
@@ -229,11 +229,20 @@ test('member UI joins a discovered room in one click and preserves mic across sh
   const originalGetStats = mediaInstance.getStatsSnapshot;
   let videoRow = {role:'screenVideo',direction:'outbound-rtp',width:1920,height:1080,fps:25,sourceFps:25,intervalFps:25,sourceIntervalFps:25,sampleIntervalSeconds:2};
   mediaInstance.peers.set('stats-only',{pc:{close(){}}});
-  mediaInstance.getStatsSnapshot = async () => [videoRow];
+  let statsReads = 0;
+  mediaInstance.getStatsSnapshot = async () => { statsReads++; return [videoRow]; };
   document.visibilityState = 'hidden'; document.querySelector('#quality-target').value = '1080p60';
-  statsTick(); await until(() => document.querySelector('#actual-stats').textContent.includes('25.0 FPS'));
+  const hiddenText = document.querySelector('#actual-stats').textContent;
+  document.dispatchEvent(new window.Event('visibilitychange'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(statsReads, 1, 'background sharing retains diagnostic samples');
+  assert.equal(document.querySelector('#actual-stats').textContent, hiddenText, 'hidden diagnostic text is not rendered');
   document.visibilityState = 'visible'; videoRow = {...videoRow,fps:59,sourceFps:59};
-  statsTick(); await until(() => document.querySelector('#actual-stats').textContent.includes('59.0 FPS'));
+  document.dispatchEvent(new window.Event('visibilitychange'));
+  await document.querySelector('#open-settings').click();
+  document.querySelector('.settings-section').open = true;
+  document.querySelector('.settings-section').dispatchEvent(new window.Event('toggle'));
+  await until(() => document.querySelector('#actual-stats').textContent.includes('59.0 FPS'));
   await document.querySelector('#copy-media-diagnostics').click();
   assert.match(copiedReport,/页面后台.*25.0/,'the app must preserve fullscreen-era samples after foreground rates recover');
   assert.match(copiedReport,/页面前台.*59.0/);

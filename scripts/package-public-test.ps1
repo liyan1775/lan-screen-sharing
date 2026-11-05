@@ -17,14 +17,21 @@ $names = @('先看这里.html', '快速上手.txt', '测试反馈.txt', '开源�
 foreach ($name in $names) { if (-not (Test-Path -LiteralPath (Join-Path $guide $name) -PathType Leaf)) { throw "Missing guide: $name" } }
 if (-not ([IO.File]::ReadAllText((Join-Path $guide '先看这里.html')).Contains($Version))) { throw 'The guide must identify the requested version.' }
 # --version exits before any networking, browser, or capture setup.
-$stdout = [IO.Path]::GetTempFileName()
-$stderr = [IO.Path]::GetTempFileName()
+$versionStart = [Diagnostics.ProcessStartInfo]::new()
+$versionStart.FileName = $exe
+$versionStart.Arguments = '--version'
+$versionStart.UseShellExecute = $false
+$versionStart.CreateNoWindow = $true
+$versionStart.RedirectStandardOutput = $true
+$versionStart.RedirectStandardError = $true
+$process = [Diagnostics.Process]::new()
+$process.StartInfo = $versionStart
 try {
-  $process = Start-Process -FilePath $exe -ArgumentList '--version' -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru -WindowStyle Hidden
+  if (-not $process.Start()) { throw 'Executable version check could not start.' }
   if (-not $process.WaitForExit(10000)) { $process.Kill(); throw 'Executable version check timed out.' }
-  $actualVersion = [IO.File]::ReadAllText($stdout).Trim()
+  $actualVersion = $process.StandardOutput.ReadToEnd().Trim()
   if ($process.ExitCode -ne 0 -or $actualVersion -ne $Version) { throw "Executable version does not match $Version (reported '$actualVersion')." }
-} finally { Remove-Item -LiteralPath $stdout,$stderr -Force -ErrorAction SilentlyContinue }
+} finally { $process.Dispose() }
 if (-not $OutputRoot) { $OutputRoot = Join-Path (Split-Path -Parent $PSScriptRoot) 'dist' }
 New-Item -ItemType Directory -Force -Path $OutputRoot | Out-Null
 $packageName = "局域网屏幕共享-$Version-公开测试版"
@@ -35,7 +42,10 @@ foreach ($path in @($folder,$zip,$checksum)) { if (Test-Path -LiteralPath $path)
 New-Item -ItemType Directory -Path $folder | Out-Null
 Copy-Item -LiteralPath $exe -Destination (Join-Path $folder '局域网屏幕共享.exe')
 foreach ($name in $names) {
-  $content = [IO.File]::ReadAllText((Join-Path $guide $name), [Text.Encoding]::UTF8) -replace '\r?\n', "`r`n"
+  $source = Join-Path $guide $name
+  $runtimeNotices = [IO.Path]::ChangeExtension($exe, '.licenses.txt')
+  if ($name -eq '开源组件许可.txt' -and (Test-Path -LiteralPath $runtimeNotices -PathType Leaf)) { $source = $runtimeNotices }
+  $content = [IO.File]::ReadAllText($source, [Text.Encoding]::UTF8) -replace '\r?\n', "`r`n"
   [IO.File]::WriteAllText((Join-Path $folder $name), $content, [Text.UTF8Encoding]::new($true))
 }
 $info = "局域网屏幕共享 $Version · 公开测试版`r`n程序 SHA-256：$hash`r`n"

@@ -1,0 +1,130 @@
+{
+  "baseline": false,
+  "measurements": {
+    "idle": {
+      "milliseconds": 6500,
+      "pages": [
+        {
+          "stats": 0,
+          "roomRequests": 2,
+          "diagnosticsMutations": 0
+        },
+        {
+          "stats": 0,
+          "roomRequests": 2,
+          "diagnosticsMutations": 0
+        },
+        {
+          "stats": 0,
+          "roomRequests": 2,
+          "diagnosticsMutations": 0
+        }
+      ]
+    },
+    "voice": {
+      "milliseconds": 6500,
+      "pages": [
+        {
+          "stats": 0,
+          "roomRequests": 0,
+          "diagnosticsMutations": 0
+        },
+        {
+          "stats": 0,
+          "roomRequests": 0,
+          "diagnosticsMutations": 0
+        },
+        {
+          "stats": 0,
+          "roomRequests": 0,
+          "diagnosticsMutations": 0
+        }
+      ]
+    },
+    "activePlayers": [
+      1,
+      1,
+      1
+    ],
+    "sharingDiagnosticsClosed": {
+      "milliseconds": 11000,
+      "pages": [
+        {
+          "stats": 1,
+          "roomRequests": 0,
+          "diagnosticsMutations": 0
+        },
+        {
+          "stats": 1,
+          "roomRequests": 0,
+          "diagnosticsMutations": 0
+        },
+        {
+          "stats": 1,
+          "roomRequests": 0,
+          "diagnosticsMutations": 0
+        }
+      ]
+    },
+    "sharingDiagnosticsOpen": {
+      "milliseconds": 6500,
+      "pages": [
+        {
+          "stats": 3,
+          "roomRequests": 0,
+          "diagnosticsMutations": 4
+        },
+        {
+          "stats": 3,
+          "roomRequests": 0,
+          "diagnosticsMutations": 2
+        },
+        {
+          "stats": 3,
+          "roomRequests": 0,
+          "diagnosticsMutations": 2
+        }
+      ]
+    },
+    "screenStopped": {
+      "milliseconds": 6500,
+      "pages": [
+        {
+          "stats": 0,
+          "roomRequests": 0,
+          "diagnosticsMutations": 0
+        },
+        {
+          "stats": 0,
+          "roomRequests": 0,
+          "diagnosticsMutations": 0
+        },
+        {
+          "stats": 0,
+          "roomRequests": 0,
+          "diagnosticsMutations": 0
+        }
+      ]
+    },
+    "returnedToRooms": {
+      "milliseconds": 3500,
+      "pages": [
+        {
+          "stats": 0,
+          "roomRequests": 0,
+          "diagnosticsMutations": 0
+        },
+        {
+          "stats": 0,
+          "roomRequests": 1,
+          "diagnosticsMutations": 0
+        },
+        {
+          "stats": 0,
+          "roomRequests": 0,
+          "diagnosticsMutations": 0
+        }
+      ]
+    }
+  }
+}

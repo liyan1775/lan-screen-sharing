@@ -518,7 +518,7 @@ func (h *Hub) ServeLocal(ctx context.Context, conn *Connection, hostToken string
 			}
 			continue
 		}
-		if lost && msg.Type != "viewer.join" && msg.Type != "viewer.leave" && (strings.HasPrefix(msg.Type, "rtc.") || strings.HasPrefix(msg.Type, "share.") || msg.Type == "media.state" || msg.Type == "heartbeat") {
+		if lost && msg.Type != "viewer.join" && msg.Type != "viewer.leave" && (strings.HasPrefix(msg.Type, "rtc.") || strings.HasPrefix(msg.Type, "screen.") || strings.HasPrefix(msg.Type, "share.") || msg.Type == "media.state" || msg.Type == "heartbeat") {
 			h.sendError(ctx, conn, msg.RequestID, "SIGNAL_CONNECTION_LOST", "主播信令连接已断开，请使用重连凭证重试", true)
 			continue
 		}
@@ -629,7 +629,7 @@ func (h *Hub) ServeLocal(ctx context.Context, conn *Connection, hostToken string
 			s.cleanupMu.Lock()
 			h.leaveViewer(ctx, s, msg.RequestID, true, true)
 			s.cleanupMu.Unlock()
-		case "rtc.description", "rtc.candidate":
+		case "rtc.description", "rtc.candidate", "screen.ready", "screen.description":
 			if s.role != protocol.RoleHost || s.roomID == "" {
 				if b, _ := s.bridgeSnapshot(); b != nil {
 					if err := b.Write(ctx, mustJSON(msg)); err != nil {
@@ -771,7 +771,7 @@ func (h *Hub) ServeLAN(ctx context.Context, conn *Connection) {
 			return
 		}
 		switch msg.Type {
-		case "rtc.description", "rtc.candidate":
+		case "rtc.description", "rtc.candidate", "screen.ready", "screen.description":
 			if e := h.route(s, msg); e != nil {
 				h.sendError(ctx, conn, msg.RequestID, protocol.ErrorCode(e), "信令目标不属于当前房间", false)
 			}

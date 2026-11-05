@@ -5,7 +5,7 @@ export function setPreviewStream(video, stream, onBlocked = () => {}) {
   const generation = (playbackGeneration.get(video) ?? 0) + 1;
   playbackGeneration.set(video, generation);
   video.srcObject = stream ?? null;
-  if (!stream) return;
+  if (!stream) { video.pause?.(); return; }
 
   const reportIfCurrent = () => {
     if (playbackGeneration.get(video) === generation && video.srcObject === stream) onBlocked();

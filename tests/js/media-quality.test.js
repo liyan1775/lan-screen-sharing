@@ -19,10 +19,59 @@ test('changing quality updates capture constraints before sender encoding, inclu
   await media.setQuality('720p60');
   assert.equal(order[0][0], 'capture');
   assert.deepEqual(order[0][1].frameRate, { ideal: 30, max: 30 });
+  assert.deepEqual(order[0][1].width, { ideal: 1280, max: 1280 });
+  assert.deepEqual(order[0][1].height, { ideal: 720, max: 720 });
   assert.equal(order[1][1].maxFramerate, 30);
   assert.deepEqual(order[2][1].frameRate, { ideal: 60, max: 60 });
   assert.equal(order[3][1].maxFramerate, 60);
   assert.equal(media.screenVideoTrack.contentHint, 'motion');
+});
+
+test('sender fallback fits both dimensions of large, ultrawide and portrait sources inside the target', async () => {
+  const { media } = mediaFixture();
+  let encoding;
+  const sender = { getParameters: () => ({ encodings: [{}] }), async setParameters(value) { encoding = value.encodings[0]; } };
+  for (const [width, height] of [[3840, 2160], [3440, 1440], [1080, 1920], [1920, 1200], [640, 480]]) {
+    media.screenVideoTrack = { getSettings: () => ({ width, height }) };
+    await media.applyVideoQuality(sender);
+    assert.ok(width / encoding.scaleResolutionDownBy <= 1920);
+    assert.ok(height / encoding.scaleResolutionDownBy <= 1080);
+    assert.ok(encoding.scaleResolutionDownBy >= 1);
+    assert.equal(encoding.maxFramerate, 60);
+    assert.equal(encoding.maxBitrate, 8_000_000);
+  }
+});
+
+test('video diagnostics skip unrelated peer connections and start requested reads concurrently', async () => {
+  const { media } = mediaFixture();
+  const calls = [], completions = [];
+  for (const id of ['presenter', 'other']) media.peers.set(id, { pc: { getStats() {
+    calls.push(id);
+    return new Promise(resolve => completions.push(() => resolve(new Map([
+      ['video', { id: 'video', type: 'inbound-rtp', kind: 'video', timestamp: 1000, bytesReceived: 100 }],
+      ['audio', { id: 'audio', type: 'inbound-rtp', kind: 'audio', timestamp: 1000, bytesReceived: 100 }],
+    ]))));
+  } } });
+  const selected = media.getStatsSnapshot({ peerIds: ['presenter', 'missing', 'presenter'], videoOnly: true });
+  assert.deepEqual(calls, ['presenter']); completions.shift()();
+  const rows = await selected;
+  assert.equal(rows.length, 1); assert.equal(rows[0].peerId, 'presenter'); assert.equal(rows[0].role, 'screenVideo');
+  calls.length = 0;
+  const all = media.getStatsSnapshot();
+  assert.deepEqual(calls, ['presenter', 'other']);
+  completions.splice(0).forEach(finish => finish());
+  assert.equal((await all).length, 4);
+});
+
+test('a late stats response from a replaced connection cannot repopulate its history', async () => {
+  const { media } = mediaFixture();
+  let finish;
+  media.peers.set('peer', { pc: { getStats: () => new Promise(resolve => { finish = resolve; }) } });
+  const snapshot = media.getStatsSnapshot();
+  media.peers.set('peer', { pc: {} });
+  finish(new Map([['video', { id: 'video', type: 'outbound-rtp', kind: 'video', timestamp: 1000, bytesSent: 100 }]]));
+  assert.deepEqual(await snapshot, []);
+  assert.equal(media.statsPrevious.size, 0);
 });
 
 test('video senders prefer frame rate and preserve basic targets if that preference is rejected', async () => {

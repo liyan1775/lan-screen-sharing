@@ -1,0 +1,1070 @@
+{
+  "scope": "Same-machine headless Edge; synthetic 1920×1080 60 FPS source; two receivers in a separate browser process; simulated game focus. Not a real game or physical screen capture benchmark.",
+  "cpu": "AMD Ryzen 7 7735HS with Radeon Graphics        ",
+  "logicalProcessors": 16,
+  "requestedQuality": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 60,
+    "bitratePerReceiver": 8000000
+  },
+  "cpuScope": "Sender browser processes plus sender-owned Go service. Viewer browser CPU excluded. Process CPU sampling helpers run only at boundaries, outside the product.",
+  "builds": {
+    "baseline": {
+      "path": "D:\\个人项目\\局域网屏幕共享\\dist\\局域网屏幕共享-0.4.1-game-priority.exe",
+      "sha256": "a1bd202ee77f38d9d5b8e1c4b93afeb421b1d527fb0c4e6480b6815aa8364ca1"
+    },
+    "candidate": {
+      "path": "D:\\个人项目\\局域网屏幕共享\\dist\\局域网屏幕共享-single-encode.exe",
+      "sha256": "51b87c597f47ea33c076cba51610b263d47d7960e9cd124c43e65aa355c2c0f9"
+    }
+  },
+  "runs": [
+    {
+      "label": "baseline",
+      "startedAtUTC": "2026-11-05T16:37:36.529Z",
+      "browserVersion": "155.0.4283.45",
+      "relayEnabled": false,
+      "elapsedSeconds": 20.006796500000004,
+      "cpuSeconds": 112.57680400000001,
+      "cpuByProcessType": [
+        {
+          "type": "browser",
+          "seconds": 0.05953700000000017
+        },
+        {
+          "type": "renderer",
+          "seconds": 0.00003899999999999737
+        },
+        {
+          "type": "renderer",
+          "seconds": 108.147704
+        },
+        {
+          "type": "GPU",
+          "seconds": 2.910233
+        },
+        {
+          "type": "network.mojom.NetworkService",
+          "seconds": 1.1689300000000002
+        },
+        {
+          "type": "storage.mojom.StorageService",
+          "seconds": 0.000059000000000003494
+        },
+        {
+          "type": "audio.mojom.AudioService",
+          "seconds": 0.29030200000000006
+        }
+      ],
+      "appCPUSeconds": 0.015625,
+      "appElapsedSeconds": 21.0740665,
+      "appWorkingSetBytes": 17326080,
+      "totalCPUEquivalentCores": 5.62766946178639,
+      "receivers": [
+        {
+          "frames": 2880,
+          "timestamp": 1793896710965.971,
+          "width": 1920,
+          "height": 1080,
+          "intervalFps": 59.486810513134245
+        },
+        {
+          "frames": 2882,
+          "timestamp": 1793896710966.032,
+          "width": 1920,
+          "height": 1080,
+          "intervalFps": 59.53651642765537
+        }
+      ],
+      "sessionState": [
+        {
+          "stage": "watch",
+          "error": "",
+          "connections": [
+            {
+              "state": "connected",
+              "tracks": [
+                {
+                  "kind": "video",
+                  "state": "live"
+                },
+                {
+                  "kind": "audio",
+                  "state": "live"
+                },
+                null
+              ]
+            },
+            {
+              "state": "connected",
+              "tracks": [
+                {
+                  "kind": "video",
+                  "state": "live"
+                },
+                {
+                  "kind": "audio",
+                  "state": "live"
+                },
+                null
+              ]
+            }
+          ],
+          "pageErrors": 0,
+          "httpErrors": 0,
+          "recentRoomEvents": []
+        },
+        {
+          "stage": "watch",
+          "error": "",
+          "connections": [
+            {
+              "state": "connected",
+              "tracks": [
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "state": "connected",
+              "tracks": [
+                null,
+                null,
+                null
+              ]
+            }
+          ],
+          "pageErrors": 0,
+          "httpErrors": 0,
+          "recentRoomEvents": []
+        },
+        {
+          "stage": "watch",
+          "error": "",
+          "connections": [
+            {
+              "state": "connected",
+              "tracks": [
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "state": "connected",
+              "tracks": [
+                null,
+                null,
+                null
+              ]
+            }
+          ],
+          "pageErrors": 0,
+          "httpErrors": 0,
+          "recentRoomEvents": []
+        }
+      ],
+      "serviceExitCodes": [
+        null,
+        null,
+        null
+      ],
+      "videoBefore": [
+        {
+          "key": "0:OT01V1207631059",
+          "codec": "video/VP8",
+          "frames": 1689,
+          "timestamp": 1793896690936.031,
+          "bytes": 4216438,
+          "qpSum": 6502,
+          "totalEncodeTime": 8.237,
+          "width": 1920,
+          "height": 1080,
+          "qualityLimitationReason": "none",
+          "resolutionChanges": 0,
+          "efficientEncoder": null,
+          "parameters": {
+            "active": true,
+            "adaptivePtime": false,
+            "maxBitrate": 8000000,
+            "maxFramerate": 60,
+            "networkPriority": "low",
+            "priority": "low",
+            "scaleResolutionDownBy": 1
+          }
+        },
+        {
+          "key": "1:OT01V1140100175",
+          "codec": "video/VP8",
+          "frames": 1691,
+          "timestamp": 1793896690937.658,
+          "bytes": 4211636,
+          "qpSum": 6475,
+          "totalEncodeTime": 8.281,
+          "width": 1920,
+          "height": 1080,
+          "qualityLimitationReason": "none",
+          "resolutionChanges": 0,
+          "efficientEncoder": null,
+          "parameters": {
+            "active": true,
+            "adaptivePtime": false,
+            "maxBitrate": 8000000,
+            "maxFramerate": 60,
+            "networkPriority": "low",
+            "priority": "low",
+            "scaleResolutionDownBy": 1
+          }
+        }
+      ],
+      "receiversBefore": [
+        {
+          "frames": 1689,
+          "timestamp": 1793896690944.726,
+          "width": 1920,
+          "height": 1080
+        },
+        {
+          "frames": 1690,
+          "timestamp": 1793896690944.706,
+          "width": 1920,
+          "height": 1080
+        }
+      ],
+      "activeSenderPreview": false,
+      "qualityPassed": true,
+      "rows": [
+        {
+          "key": "0:OT01V1207631059",
+          "codec": "video/VP8",
+          "frames": 2881,
+          "timestamp": 1793896710957.407,
+          "bytes": 10768531,
+          "qpSum": 8886,
+          "totalEncodeTime": 21.236,
+          "width": 1920,
+          "height": 1080,
+          "qualityLimitationReason": "none",
+          "resolutionChanges": 0,
+          "efficientEncoder": null,
+          "parameters": {
+            "active": true,
+            "adaptivePtime": false,
+            "maxBitrate": 8000000,
+            "maxFramerate": 60,
+            "networkPriority": "low",
+            "priority": "low",
+            "scaleResolutionDownBy": 1
+          },
+          "intervalFrames": 1192,
+          "intervalFps": 59.53636760007822,
+          "intervalBitrate": 2618039.0429389216,
+          "intervalAverageQP": 2,
+          "unchangedResolution": true,
+          "intervalEncodeMs": 10.90520134228188
+        },
+        {
+          "key": "1:OT01V1140100175",
+          "codec": "video/VP8",
+          "frames": 2883,
+          "timestamp": 1793896710958.506,
+          "bytes": 10736984,
+          "qpSum": 8859,
+          "totalEncodeTime": 21.32,
+          "width": 1920,
+          "height": 1080,
+          "qualityLimitationReason": "none",
+          "resolutionChanges": 0,
+          "efficientEncoder": null,
+          "parameters": {
+            "active": true,
+            "adaptivePtime": false,
+            "maxBitrate": 8000000,
+            "maxFramerate": 60,
+            "networkPriority": "low",
+            "priority": "low",
+            "scaleResolutionDownBy": 1
+          },
+          "intervalFrames": 1192,
+          "intervalFps": 59.53793722398309,
+          "intervalBitrate": 2607421.2052929103,
+          "intervalAverageQP": 2,
+          "unchangedResolution": true,
+          "intervalEncodeMs": 10.938758389261745
+        }
+      ]
+    },
+    {
+      "label": "candidate",
+      "startedAtUTC": "2026-11-05T16:38:32.472Z",
+      "browserVersion": "155.0.4283.45",
+      "relayEnabled": true,
+      "elapsedSeconds": 20.011678499999995,
+      "cpuSeconds": 49.909124000000006,
+      "cpuByProcessType": [
+        {
+          "type": "browser",
+          "seconds": 0.098522
+        },
+        {
+          "type": "renderer",
+          "seconds": 0.0002460000000000101
+        },
+        {
+          "type": "renderer",
+          "seconds": 46.158792
+        },
+        {
+          "type": "GPU",
+          "seconds": 2.688553
+        },
+        {
+          "type": "network.mojom.NetworkService",
+          "seconds": 0.6773840000000001
+        },
+        {
+          "type": "storage.mojom.StorageService",
+          "seconds": 0.00003599999999999437
+        },
+        {
+          "type": "entity_extraction_service.mojom.Extractor",
+          "seconds": 0.0002559999999999993
+        },
+        {
+          "type": "audio.mojom.AudioService",
+          "seconds": 0.285335
+        }
+      ],
+      "appCPUSeconds": 1.375,
+      "appElapsedSeconds": 20.841437000000006,
+      "appWorkingSetBytes": 31412224,
+      "totalCPUEquivalentCores": 2.5599742286796534,
+      "receivers": [
+        {
+          "frames": 1552,
+          "timestamp": 1793896744839.395,
+          "width": 1920,
+          "height": 1080,
+          "intervalFps": 59.83265247738907
+        },
+        {
+          "frames": 1579,
+          "timestamp": 1793896744839.128,
+          "width": 1920,
+          "height": 1080,
+          "intervalFps": 59.833169738390346
+        }
+      ],
+      "sessionState": [
+        {
+          "stage": "watch",
+          "error": "",
+          "connections": [
+            {
+              "state": "connected",
+              "tracks": [
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "state": "connected",
+              "tracks": [
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "state": "connected",
+              "tracks": [
+                {
+                  "kind": "video",
+                  "state": "live"
+                },
+                {
+                  "kind": "audio",
+                  "state": "live"
+                }
+              ]
+            }
+          ],
+          "pageErrors": 0,
+          "httpErrors": 0,
+          "recentRoomEvents": []
+        },
+        {
+          "stage": "watch",
+          "error": "",
+          "connections": [
+            {
+              "state": "connected",
+              "tracks": [
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "state": "connected",
+              "tracks": [
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "state": "connected",
+              "tracks": [
+                null,
+                null
+              ]
+            }
+          ],
+          "pageErrors": 0,
+          "httpErrors": 0,
+          "recentRoomEvents": []
+        },
+        {
+          "stage": "watch",
+          "error": "",
+          "connections": [
+            {
+              "state": "connected",
+              "tracks": [
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "state": "connected",
+              "tracks": [
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "state": "connected",
+              "tracks": [
+                null,
+                null
+              ]
+            }
+          ],
+          "pageErrors": 0,
+          "httpErrors": 0,
+          "recentRoomEvents": []
+        }
+      ],
+      "serviceExitCodes": [
+        null,
+        null,
+        null
+      ],
+      "videoBefore": [
+        {
+          "key": "2:OT01V799346727",
+          "codec": "video/VP8",
+          "frames": 392,
+          "timestamp": 1793896724809.468,
+          "bytes": 1909156,
+          "qpSum": 1847,
+          "totalEncodeTime": 3.369,
+          "width": 1920,
+          "height": 1080,
+          "qualityLimitationReason": "none",
+          "resolutionChanges": 0,
+          "efficientEncoder": null,
+          "parameters": {
+            "active": true,
+            "adaptivePtime": false,
+            "maxBitrate": 8000000,
+            "maxFramerate": 60,
+            "networkPriority": "low",
+            "priority": "low",
+            "scaleResolutionDownBy": 1
+          }
+        }
+      ],
+      "receiversBefore": [
+        {
+          "frames": 354,
+          "timestamp": 1793896724816.883,
+          "width": 1920,
+          "height": 1080
+        },
+        {
+          "frames": 381,
+          "timestamp": 1793896724816.789,
+          "width": 1920,
+          "height": 1080
+        }
+      ],
+      "activeSenderPreview": false,
+      "qualityPassed": true,
+      "rows": [
+        {
+          "key": "2:OT01V799346727",
+          "codec": "video/VP8",
+          "frames": 1593,
+          "timestamp": 1793896744833.514,
+          "bytes": 8203896,
+          "qpSum": 4249,
+          "totalEncodeTime": 13.083,
+          "width": 1920,
+          "height": 1080,
+          "qualityLimitationReason": "none",
+          "resolutionChanges": 0,
+          "efficientEncoder": null,
+          "parameters": {
+            "active": true,
+            "adaptivePtime": false,
+            "maxBitrate": 8000000,
+            "maxFramerate": 60,
+            "networkPriority": "low",
+            "priority": "low",
+            "scaleResolutionDownBy": 1
+          },
+          "intervalFrames": 1201,
+          "intervalFps": 59.977888888764255,
+          "intervalBitrate": 2514872.381706311,
+          "intervalAverageQP": 2,
+          "unchangedResolution": true,
+          "intervalEncodeMs": 8.088259783513738
+        }
+      ]
+    },
+    {
+      "label": "candidate",
+      "startedAtUTC": "2026-11-05T16:39:06.102Z",
+      "browserVersion": "155.0.4283.45",
+      "relayEnabled": true,
+      "elapsedSeconds": 20.003738000000013,
+      "cpuSeconds": 50.025543,
+      "cpuByProcessType": [
+        {
+          "type": "browser",
+          "seconds": 0.09251000000000031
+        },
+        {
+          "type": "renderer",
+          "seconds": 0.0003019999999999967
+        },
+        {
+          "type": "renderer",
+          "seconds": 46.28845
+        },
+        {
+          "type": "GPU",
+          "seconds": 2.6897710000000004
+        },
+        {
+          "type": "network.mojom.NetworkService",
+          "seconds": 0.671249
+        },
+        {
+          "type": "storage.mojom.StorageService",
+          "seconds": 0.00004899999999999349
+        },
+        {
+          "type": "entity_extraction_service.mojom.Extractor",
+          "seconds": 0.000337999999999998
+        },
+        {
+          "type": "edge_collections.mojom.CollectionsDataManager",
+          "seconds": 0.0003029999999999977
+        },
+        {
+          "type": "audio.mojom.AudioService",
+          "seconds": 0.282571
+        }
+      ],
+      "appCPUSeconds": 1.0625,
+      "appElapsedSeconds": 20.8246293,
+      "appWorkingSetBytes": 31604736,
+      "totalCPUEquivalentCores": 2.551831065037421,
+      "receivers": [
+        {
+          "frames": 1552,
+          "timestamp": 1793896778396.541,
+          "width": 1920,
+          "height": 1080,
+          "intervalFps": 59.909255563178135
+        },
+        {
+          "frames": 1577,
+          "timestamp": 1793896778396.519,
+          "width": 1920,
+          "height": 1080,
+          "intervalFps": 59.909758369579535
+        }
+      ],
+      "sessionState": [
+        {
+          "stage": "watch",
+          "error": "",
+          "connections": [
+            {
+              "state": "connected",
+              "tracks": [
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "state": "connected",
+              "tracks": [
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "state": "connected",
+              "tracks": [
+                {
+                  "kind": "video",
+                  "state": "live"
+                },
+                {
+                  "kind": "audio",
+                  "state": "live"
+                }
+              ]
+            }
+          ],
+          "pageErrors": 0,
+          "httpErrors": 0,
+          "recentRoomEvents": []
+        },
+        {
+          "stage": "watch",
+          "error": "",
+          "connections": [
+            {
+              "state": "connected",
+              "tracks": [
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "state": "connected",
+              "tracks": [
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "state": "connected",
+              "tracks": [
+                null,
+                null
+              ]
+            }
+          ],
+          "pageErrors": 0,
+          "httpErrors": 0,
+          "recentRoomEvents": []
+        },
+        {
+          "stage": "watch",
+          "error": "",
+          "connections": [
+            {
+              "state": "connected",
+              "tracks": [
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "state": "connected",
+              "tracks": [
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "state": "connected",
+              "tracks": [
+                null,
+                null
+              ]
+            }
+          ],
+          "pageErrors": 0,
+          "httpErrors": 0,
+          "recentRoomEvents": []
+        }
+      ],
+      "serviceExitCodes": [
+        null,
+        null,
+        null
+      ],
+      "videoBefore": [
+        {
+          "key": "2:OT01V81592715",
+          "codec": "video/VP8",
+          "frames": 390,
+          "timestamp": 1793896758376.78,
+          "bytes": 1988574,
+          "qpSum": 1888,
+          "totalEncodeTime": 3.257,
+          "width": 1920,
+          "height": 1080,
+          "qualityLimitationReason": "none",
+          "resolutionChanges": 0,
+          "efficientEncoder": null,
+          "parameters": {
+            "active": true,
+            "adaptivePtime": false,
+            "maxBitrate": 8000000,
+            "maxFramerate": 60,
+            "networkPriority": "low",
+            "priority": "low",
+            "scaleResolutionDownBy": 1
+          }
+        }
+      ],
+      "receiversBefore": [
+        {
+          "frames": 353,
+          "timestamp": 1793896758382.939,
+          "width": 1920,
+          "height": 1080
+        },
+        {
+          "frames": 378,
+          "timestamp": 1793896758383.085,
+          "width": 1920,
+          "height": 1080
+        }
+      ],
+      "activeSenderPreview": false,
+      "qualityPassed": true,
+      "rows": [
+        {
+          "key": "2:OT01V81592715",
+          "codec": "video/VP8",
+          "frames": 1591,
+          "timestamp": 1793896778392.652,
+          "bytes": 8338564,
+          "qpSum": 4290,
+          "totalEncodeTime": 13.001,
+          "width": 1920,
+          "height": 1080,
+          "qualityLimitationReason": "none",
+          "resolutionChanges": 0,
+          "efficientEncoder": null,
+          "parameters": {
+            "active": true,
+            "adaptivePtime": false,
+            "maxBitrate": 8000000,
+            "maxFramerate": 60,
+            "networkPriority": "low",
+            "priority": "low",
+            "scaleResolutionDownBy": 1
+          },
+          "intervalFrames": 1201,
+          "intervalFps": 60.002381898779255,
+          "intervalBitrate": 2537981.848682293,
+          "intervalAverageQP": 2,
+          "unchangedResolution": true,
+          "intervalEncodeMs": 8.11323896752706
+        }
+      ]
+    },
+    {
+      "label": "baseline",
+      "startedAtUTC": "2026-11-05T16:39:39.660Z",
+      "browserVersion": "155.0.4283.45",
+      "relayEnabled": false,
+      "elapsedSeconds": 20.004883300000017,
+      "cpuSeconds": 113.441677,
+      "cpuByProcessType": [
+        {
+          "type": "browser",
+          "seconds": 0.13437299999999963
+        },
+        {
+          "type": "renderer",
+          "seconds": 0.0003019999999999967
+        },
+        {
+          "type": "renderer",
+          "seconds": 108.896176
+        },
+        {
+          "type": "GPU",
+          "seconds": 2.8914909999999994
+        },
+        {
+          "type": "network.mojom.NetworkService",
+          "seconds": 1.2135470000000002
+        },
+        {
+          "type": "storage.mojom.StorageService",
+          "seconds": 0.00007999999999999674
+        },
+        {
+          "type": "audio.mojom.AudioService",
+          "seconds": 0.305708
+        }
+      ],
+      "appCPUSeconds": 0.03125,
+      "appElapsedSeconds": 21.050322400000006,
+      "appWorkingSetBytes": 17125376,
+      "totalCPUEquivalentCores": 5.672183801547287,
+      "receivers": [
+        {
+          "frames": 2515,
+          "timestamp": 1793896827614.193,
+          "width": 1920,
+          "height": 1080,
+          "intervalFps": 59.18468083277866
+        },
+        {
+          "frames": 2516,
+          "timestamp": 1793896827614.167,
+          "width": 1920,
+          "height": 1080,
+          "intervalFps": 59.13426366144296
+        }
+      ],
+      "sessionState": [
+        {
+          "stage": "watch",
+          "error": "",
+          "connections": [
+            {
+              "state": "connected",
+              "tracks": [
+                {
+                  "kind": "video",
+                  "state": "live"
+                },
+                {
+                  "kind": "audio",
+                  "state": "live"
+                },
+                null
+              ]
+            },
+            {
+              "state": "connected",
+              "tracks": [
+                {
+                  "kind": "video",
+                  "state": "live"
+                },
+                {
+                  "kind": "audio",
+                  "state": "live"
+                },
+                null
+              ]
+            }
+          ],
+          "pageErrors": 0,
+          "httpErrors": 0,
+          "recentRoomEvents": []
+        },
+        {
+          "stage": "watch",
+          "error": "",
+          "connections": [
+            {
+              "state": "connected",
+              "tracks": [
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "state": "connected",
+              "tracks": [
+                null,
+                null,
+                null
+              ]
+            }
+          ],
+          "pageErrors": 0,
+          "httpErrors": 0,
+          "recentRoomEvents": []
+        },
+        {
+          "stage": "watch",
+          "error": "",
+          "connections": [
+            {
+              "state": "connected",
+              "tracks": [
+                null,
+                null,
+                null
+              ]
+            },
+            {
+              "state": "connected",
+              "tracks": [
+                null,
+                null,
+                null
+              ]
+            }
+          ],
+          "pageErrors": 0,
+          "httpErrors": 0,
+          "recentRoomEvents": []
+        }
+      ],
+      "serviceExitCodes": [
+        null,
+        null,
+        null
+      ],
+      "videoBefore": [
+        {
+          "key": "0:OT01V446821612",
+          "codec": "video/VP8",
+          "frames": 1330,
+          "timestamp": 1793896807582.683,
+          "bytes": 4034922,
+          "qpSum": 5428,
+          "totalEncodeTime": 8.459,
+          "width": 1920,
+          "height": 1080,
+          "qualityLimitationReason": "none",
+          "resolutionChanges": 0,
+          "efficientEncoder": null,
+          "parameters": {
+            "active": true,
+            "adaptivePtime": false,
+            "maxBitrate": 8000000,
+            "maxFramerate": 60,
+            "networkPriority": "low",
+            "priority": "low",
+            "scaleResolutionDownBy": 1
+          }
+        },
+        {
+          "key": "1:OT01V3447038927",
+          "codec": "video/VP8",
+          "frames": 1332,
+          "timestamp": 1793896807584.397,
+          "bytes": 4093512,
+          "qpSum": 5574,
+          "totalEncodeTime": 8.524,
+          "width": 1920,
+          "height": 1080,
+          "qualityLimitationReason": "none",
+          "resolutionChanges": 0,
+          "efficientEncoder": null,
+          "parameters": {
+            "active": true,
+            "adaptivePtime": false,
+            "maxBitrate": 8000000,
+            "maxFramerate": 60,
+            "networkPriority": "low",
+            "priority": "low",
+            "scaleResolutionDownBy": 1
+          }
+        }
+      ],
+      "receiversBefore": [
+        {
+          "frames": 1330,
+          "timestamp": 1793896807592.12,
+          "width": 1920,
+          "height": 1080
+        },
+        {
+          "frames": 1332,
+          "timestamp": 1793896807591.934,
+          "width": 1920,
+          "height": 1080
+        }
+      ],
+      "activeSenderPreview": false,
+      "qualityPassed": true,
+      "rows": [
+        {
+          "key": "0:OT01V446821612",
+          "codec": "video/VP8",
+          "frames": 2515,
+          "timestamp": 1793896827606.587,
+          "bytes": 10474098,
+          "qpSum": 7798,
+          "totalEncodeTime": 21.712,
+          "width": 1920,
+          "height": 1080,
+          "qualityLimitationReason": "none",
+          "resolutionChanges": 0,
+          "efficientEncoder": null,
+          "parameters": {
+            "active": true,
+            "adaptivePtime": false,
+            "maxBitrate": 8000000,
+            "maxFramerate": 60,
+            "networkPriority": "low",
+            "priority": "low",
+            "scaleResolutionDownBy": 1
+          },
+          "intervalFrames": 1185,
+          "intervalFps": 59.179269503453575,
+          "intervalBitrate": 2572595.658289756,
+          "intervalAverageQP": 2,
+          "unchangedResolution": true,
+          "intervalEncodeMs": 11.183966244725738
+        },
+        {
+          "key": "1:OT01V3447038927",
+          "codec": "video/VP8",
+          "frames": 2516,
+          "timestamp": 1793896827608.076,
+          "bytes": 10721061,
+          "qpSum": 7942,
+          "totalEncodeTime": 21.858,
+          "width": 1920,
+          "height": 1080,
+          "qualityLimitationReason": "none",
+          "resolutionChanges": 0,
+          "efficientEncoder": null,
+          "parameters": {
+            "active": true,
+            "adaptivePtime": false,
+            "maxBitrate": 8000000,
+            "maxFramerate": 60,
+            "networkPriority": "low",
+            "priority": "low",
+            "scaleResolutionDownBy": 1
+          },
+          "intervalFrames": 1184,
+          "intervalFps": 59.12999317738914,
+          "intervalBitrate": 2647884.6429244066,
+          "intervalAverageQP": 2,
+          "unchangedResolution": true,
+          "intervalEncodeMs": 11.261824324324326
+        }
+      ]
+    }
+  ],
+  "qualityGate": {
+    "passed": true,
+    "criteria": "Actual 1920×1080 at both boundaries without quality-driven resolution changes, unchanged 60 FPS / 8 Mbps targets, >=57 measured FPS per stream, candidate decode rate no more than 2% below its paired baseline. This is synthetic frame-rate tolerance, not a game low-FPS tolerance."
+  }
+}

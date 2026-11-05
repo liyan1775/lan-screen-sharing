@@ -20,21 +20,28 @@ jobs:
       - run: npm ci
       - run: go test ./... -count=1
       - run: npm test
+      - name: Verify game frame capture wrapper
+        shell: pwsh
+        run: powershell -NoProfile -File tests/powershell/game-frametimes.test.ps1
       - run: npm run lab:build
       - run: npm run lab:test
       - run: npm run experience:build
       - run: npm run experience:test
       - name: Build Windows executable
         shell: pwsh
-        run: ./scripts/build.ps1 -BuildVersion 0.4.1 -OutputPath ./dist/lan-screen-sharing-0.4.1.exe
+        run: ./scripts/build.ps1 -BuildVersion 0.5.0 -OutputPath ./dist/lan-screen-sharing-0.5.0.exe
       - name: Install isolated Chromium test runtime
         run: node node_modules/playwright-core/cli.js install chromium
       - name: Frontend and synthetic media browser regression
         shell: pwsh
         run: |
-          $env:LANSW_EXE = (Resolve-Path './dist/lan-screen-sharing-0.4.1.exe').Path
+          $env:LANSW_EXE = (Resolve-Path './dist/lan-screen-sharing-0.5.0.exe').Path
           $env:LANSW_BROWSER_PATH = (& node --input-type=module -e "import { chromium } from 'playwright-core'; process.stdout.write(chromium.executablePath());").Trim()
           node --test tests/e2e/frontend-hig.spec.js
           if ($LASTEXITCODE -ne 0) { throw 'Frontend browser checks failed.' }
           node --test tests/e2e/mesh.spec.js
           if ($LASTEXITCODE -ne 0) { throw 'Synthetic media checks failed.' }
+          node --test tests/e2e/performance.spec.js
+          if ($LASTEXITCODE -ne 0) { throw 'Background work performance checks failed.' }
+          node --test tests/e2e/landing.spec.js
+          if ($LASTEXITCODE -ne 0) { throw 'Product introduction checks failed.' }

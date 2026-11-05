@@ -1,5 +1,6 @@
 /dist/*.exe
 /dist/*.exe~
+/dist/*.licenses.txt
 /dist/局域网屏幕共享-*-公开测试版/
 /dist/局域网屏幕共享-*-公开测试版.zip
 /dist/局域网屏幕共享-*-公开测试版.zip.sha256

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -361,8 +362,33 @@ func (m *Manager) Route(roomID, fromPeerID, toPeerID string, msg SignalMessage) 
 	if from == nil || to == nil || fromPeerID == toPeerID || !from.connected || !to.connected {
 		return errors.New("SIGNAL_TARGET_NOT_MEMBER")
 	}
-	if msg.Type != "rtc.description" && msg.Type != "rtc.candidate" {
+	if msg.Type != "rtc.description" && msg.Type != "rtc.candidate" && msg.Type != "screen.ready" && msg.Type != "screen.description" {
 		return errors.New("INVALID_MESSAGE")
+	}
+	if msg.Type == "screen.ready" && r.presenterPeerID != fromPeerID {
+		return errors.New("SHARE_NOT_OWNER")
+	}
+	if msg.Type == "screen.description" {
+		var payload struct {
+			Description struct {
+				Type string `json:"type"`
+			} `json:"description"`
+		}
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+			return errors.New("INVALID_MESSAGE")
+		}
+		switch payload.Description.Type {
+		case "offer":
+			if toPeerID != r.presenterPeerID {
+				return errors.New("SHARE_NOT_OWNER")
+			}
+		case "answer":
+			if fromPeerID != r.presenterPeerID {
+				return errors.New("SHARE_NOT_OWNER")
+			}
+		default:
+			return errors.New("INVALID_MESSAGE")
+		}
 	}
 	return nil
 }

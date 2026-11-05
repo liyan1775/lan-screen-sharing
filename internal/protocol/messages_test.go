@@ -68,3 +68,34 @@ func TestTrackMapRequiresUniqueMID(t *testing.T) {
 		t.Fatal("unknown track role accepted")
 	}
 }
+
+func TestScreenMessagesRequireOneAuthenticatedDirectionAndEpoch(t *testing.T) {
+	for _, tc := range []struct{ kind, payload string }{
+		{"screen.ready", `{"toPeerId":"viewer","epoch":"capture-1"}`},
+		{"screen.ready", `{"fromPeerId":"presenter","epoch":"capture-1"}`},
+		{"screen.description", `{"toPeerId":"presenter","epoch":"capture-1","description":{"type":"offer","sdp":"v=0"}}`},
+		{"screen.description", `{"fromPeerId":"presenter","epoch":"capture-1","description":{"type":"answer","sdp":"v=0"}}`},
+	} {
+		wire, _ := json.Marshal(Envelope{V: 1, Type: tc.kind, RequestID: "screen-1", Payload: json.RawMessage(tc.payload)})
+		if err := Decode(wire, new(Envelope)); err != nil {
+			t.Fatalf("valid %s: %v", tc.kind, err)
+		}
+	}
+	for _, tc := range []struct{ kind, payload string }{
+		{"screen.ready", `{"toPeerId":"viewer"}`},
+		{"screen.ready", `{"epoch":"capture-1"}`},
+		{"screen.ready", `{"toPeerId":"viewer","fromPeerId":"forged","epoch":"capture-1"}`},
+		{"screen.ready", `{"toPeerId":"viewer","epoch":"` + strings.Repeat("x", 65) + `"}`},
+		{"screen.ready", `{"toPeerId":"viewer","epoch":"capture-1","sessionId":"local-secret"}`},
+		{"screen.description", `{"toPeerId":"presenter","epoch":"capture-1","description":{"type":"rollback","sdp":"v=0"}}`},
+		{"screen.description", `{"toPeerId":"presenter","epoch":"capture-1","description":{"type":"offer","sdp":""}}`},
+	} {
+		wire, _ := json.Marshal(Envelope{V: 1, Type: tc.kind, RequestID: "screen-1", Payload: json.RawMessage(tc.payload)})
+		if err := Decode(wire, new(Envelope)); err == nil {
+			t.Fatalf("invalid %s accepted: %s", tc.kind, tc.payload)
+		}
+	}
+	if err := Decode([]byte(`{"v":1,"type":"screen.ready","payload":{"toPeerId":"viewer","epoch":"capture-1"}}`), new(Envelope)); err == nil {
+		t.Fatal("uncorrelated screen negotiation accepted")
+	}
+}

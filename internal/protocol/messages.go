@@ -58,6 +58,19 @@ type SignalDescriptionPayload struct {
 	Tracks      []Track     `json:"tracks"`
 }
 
+type ScreenReadyPayload struct {
+	ToPeerID   string `json:"toPeerId,omitempty"`
+	FromPeerID string `json:"fromPeerId,omitempty"`
+	Epoch      string `json:"epoch"`
+}
+
+type ScreenDescriptionPayload struct {
+	ToPeerID    string      `json:"toPeerId,omitempty"`
+	FromPeerID  string      `json:"fromPeerId,omitempty"`
+	Epoch       string      `json:"epoch"`
+	Description Description `json:"description"`
+}
+
 type SignalCandidatePayload struct {
 	ToPeerID  string    `json:"toPeerId"`
 	Candidate Candidate `json:"candidate"`
@@ -86,6 +99,7 @@ var knownTypes = map[string]bool{
 	"peer.joined": true, "peer.left": true, "peer.state": true,
 	"room.ended": true, "error": true,
 	"share.claim": true, "share.release": true,
+	"screen.ready": true, "screen.description": true,
 }
 
 func ValidateRole(role Role) error {
@@ -147,6 +161,8 @@ func Decode(data []byte, target *Envelope) error {
 
 func requiresRequestID(messageType string) bool {
 	switch messageType {
+	case "screen.ready", "screen.description":
+		return true
 	case "auth.hello", "host.createRoom", "host.endRoom", "viewer.join", "viewer.leave", "rtc.description", "rtc.candidate", "media.state", "heartbeat", "signal.join", "signal.leave", "share.claim", "share.release":
 		return true
 	default:
@@ -156,6 +172,24 @@ func requiresRequestID(messageType string) bool {
 
 func validatePayload(e Envelope) error {
 	switch e.Type {
+	case "screen.ready":
+		var p ScreenReadyPayload
+		if err := decodePayload(e.Payload, &p); err != nil {
+			return err
+		}
+		if (p.ToPeerID == "") == (p.FromPeerID == "") || len(p.Epoch) < 1 || len(p.Epoch) > 64 {
+			return errors.New("invalid screen readiness")
+		}
+		return nil
+	case "screen.description":
+		var p ScreenDescriptionPayload
+		if err := decodePayload(e.Payload, &p); err != nil {
+			return err
+		}
+		if (p.ToPeerID == "") == (p.FromPeerID == "") || len(p.Epoch) < 1 || len(p.Epoch) > 64 || p.Description.SDP == "" || (p.Description.Type != "offer" && p.Description.Type != "answer") {
+			return errors.New("invalid screen description")
+		}
+		return nil
 	case "auth.hello":
 		var p AuthHelloPayload
 		if err := decodePayload(e.Payload, &p); err != nil {

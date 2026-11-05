@@ -379,10 +379,32 @@ function nextPresentedVideoFrame(video, deadline) {
   });
 }
 
+function productVideoElement() {
+  const screen = document.querySelector('#remote-screen');
+  // Older pinned fixture binaries use a separate local preview for the host.
+  return screen?.srcObject ? screen : document.querySelector('#local-preview') ?? screen;
+}
+
+async function readActualStatsText() {
+  const dialog = document.querySelector('#settings-dialog');
+  const details = dialog?.querySelector('.settings-section');
+  const wasOpen = dialog?.open, wasExpanded = details?.open;
+  try {
+    if (dialog && !wasOpen) document.querySelector('#open-settings')?.click();
+    if (details) details.open = true;
+    const deadline = performance.now() + 5000;
+    while (!/实际 \d+×\d+/.test(document.querySelector('#actual-stats')?.textContent ?? '') && performance.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    return document.querySelector('#actual-stats')?.textContent ?? '';
+  } finally {
+    if (details) details.open = !!wasExpanded;
+    if (dialog?.open && !wasOpen) dialog.close();
+  }
+}
+
 async function visibleFrameEvidence() {
-  const video = document.querySelector('#role-label')?.textContent === '主播'
-    ? document.querySelector('#local-preview')
-    : document.querySelector('#remote-screen');
+  const video = productVideoElement();
   if (!video) return { ok: false, readyState: null, width: null, height: null, varied: false, variedPixelsDelta: null, presentedFrameProgressed: false };
   const readyState = video.readyState;
   const width = video.videoWidth;
@@ -791,7 +813,7 @@ export async function installVisibleHarness({ role, alias, denyMic = false, sile
     state.qualityDiagnostics = { stage: 'frame', frame };
     updateEvidence();
     if (!frame.ok || !frame.presentedFrameProgressed || !frame.varied) throw new Error('decoded screen frame/dimensions/content missing');
-    const videoElement = document.querySelector(parsedRole === 'host' ? '#local-preview' : '#remote-screen');
+    const videoElement = productVideoElement();
     const playEvidence = silentOutput?.snapshot(videoElement);
     state.qualityDiagnostics = { ...state.qualityDiagnostics, stage: 'play', play: playEvidence };
     updateEvidence();
@@ -801,7 +823,7 @@ export async function installVisibleHarness({ role, alias, denyMic = false, sile
     const expectedPeers = members.filter((member) => member.peerId !== own && (parsedRole === 'host' ? member.role === 'viewer' : member.role === 'host')).map((member) => member.peerId);
     const direction = parsedRole === 'host' ? 'outbound' : 'inbound';
     const candidateLinks = stats.filter((row) => row.role === 'screenVideo' && row.direction === direction && expectedPeers.includes(row.peerId));
-    const shown = document.querySelector('#actual-stats')?.textContent ?? '';
+    const shown = await readActualStatsText();
     const uiMatchesReportedResolution = candidateLinks.some((row) => row.width > 0 && row.height > 0 && String(shown).includes(`${row.width}×${row.height}`));
     state.qualityDiagnostics = { ...state.qualityDiagnostics, stage: 'stats', stats: candidateLinks, aliases: new Map(), uiMatchesReportedResolution };
     updateEvidence();

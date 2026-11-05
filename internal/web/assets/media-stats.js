@@ -11,7 +11,7 @@ export function formatCaptureStats(track, rows = []) {
 
 export function formatVideoLinks(rows, memberName = () => '成员') {
   return rows.filter((row) => row.role === 'screenVideo' && row.width && row.height).map((row) => {
-    const direction = row.direction === 'outbound-rtp' ? `发送给${memberName(row.peerId)}` : `接收${memberName(row.peerId)}`;
+    const direction = row.localRelay ? '本机编码 → 房间转发（编码一次）' : row.direction === 'outbound-rtp' ? `发送给${memberName(row.peerId)}` : `接收${memberName(row.peerId)}`;
     const limit = { cpu: '编码性能限制', bandwidth: '带宽限制', other: '其他限制' }[row.qualityLimitationReason];
     const codec = row.codec ? ` · ${row.codec}` : '';
     return `${direction} · ${formatActualStats(row)}${codec}${limit ? ` · 浏览器报告：${limit}` : ''}`;
@@ -25,8 +25,8 @@ export function formatPerformanceHint(rows, targetFps) {
   if (outbound.some(row => Number.isFinite(row.sourceFps) && row.sourceFps < targetFps * 0.75)) {
     return '实际采集帧率也偏低。若持续运动的游戏画面仍如此，可比较独占全屏与无边框窗口（继续共享整个显示器），并复制媒体诊断；当前数据不能归因为网络。';
   }
-  if (outbound.some(row => row.qualityLimitationReason === 'cpu')) return '浏览器报告编码性能限制。可试 720p · 60 FPS，并复制媒体诊断比较实际采集与发送帧率。';
-  if (outbound.some(row => row.qualityLimitationReason === 'bandwidth')) return '浏览器报告带宽限制。可试 720p · 60 FPS，并比较每位成员的接收统计。';
+  if (outbound.some(row => row.qualityLimitationReason === 'cpu')) return '浏览器报告编码性能限制。请复制媒体诊断，比较编码格式、节能编码报告及本区间编码耗时。';
+  if (outbound.some(row => row.qualityLimitationReason === 'bandwidth')) return '浏览器报告带宽限制。请检查局域网连接，并比较实际码率与每位成员的接收统计。';
   return '实际发送未达到目标帧率，浏览器未提供明确限制原因。请复制媒体诊断，比较游戏全屏前后的实际采集与发送数据。';
 }
 
@@ -37,7 +37,8 @@ export function formatMediaDiagnostics({ track, rows = [], target = '', shareCur
     const source = Number.isFinite(row.sourceFps) ? row.sourceFps.toFixed(1) : '未报告';
     const encode = Number.isFinite(row.averageEncodeMs) ? row.averageEncodeMs.toFixed(2) : '未报告';
     const efficient = typeof row.powerEfficientEncoder === 'boolean' ? String(row.powerEfficientEncoder) : '未报告';
-    return `连接 ${index + 1}：实际采集 ${source} FPS；累计平均编码 ${encode} ms/帧；浏览器报告节能编码 ${efficient}`;
+    const interval = Number.isFinite(row.intervalEncodeMs) ? row.intervalEncodeMs.toFixed(2) : '未报告';
+    return `连接 ${index + 1}：实际采集 ${source} FPS；累计平均编码 ${encode} ms/帧；本区间编码 ${interval} ms/帧；浏览器报告节能编码 ${efficient}`;
   });
   return [`我的共享目标：${target}（设置值，非实测） · 页面：${['visible', 'hidden'].includes(visibility) ? visibility : '未报告'}`,
     formatCaptureStats(track, rows) || '当前没有本机共享画面',

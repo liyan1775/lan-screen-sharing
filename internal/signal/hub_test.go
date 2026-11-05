@@ -615,3 +615,46 @@ func TestDisconnectedPeerCannotSignal(t *testing.T) {
 		t.Fatal("disconnected peer signaled")
 	}
 }
+
+func TestScreenSignalsAreBoundToCurrentPresenterAndRoomMembership(t *testing.T) {
+	h := NewHub(room.NewManager())
+	r, _, _ := h.rooms.CreateHost()
+	a, _, _ := h.rooms.Join(r.Code, "")
+	b, _, _ := h.rooms.Join(r.Code, "")
+	hostID := r.Members[0].PeerID
+	if _, err := h.rooms.ClaimPresentation(r.ID, a.PeerID); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ kind, from, to, description, want string }{
+		{"screen.ready", a.PeerID, hostID, "", ""},
+		{"screen.ready", hostID, b.PeerID, "", "SHARE_NOT_OWNER"},
+		{"screen.description", hostID, a.PeerID, "offer", ""},
+		{"screen.description", a.PeerID, b.PeerID, "answer", ""},
+		{"screen.description", hostID, b.PeerID, "offer", "SHARE_NOT_OWNER"},
+		{"screen.description", b.PeerID, a.PeerID, "answer", "SHARE_NOT_OWNER"},
+		{"screen.ready", a.PeerID, "other-room-peer", "", "SIGNAL_TARGET_NOT_MEMBER"},
+	} {
+		payload := map[string]any{"toPeerId": tc.to, "epoch": "capture-1"}
+		if tc.description != "" {
+			payload["description"] = map[string]string{"type": tc.description, "sdp": "v=0"}
+		}
+		msg := protocol.Envelope{V: 1, Type: tc.kind, PeerID: "forged-envelope-peer", RequestID: "screen", Payload: mustJSON(payload)}
+		routed, err := h.RouteFrom(r.ID, tc.from, msg)
+		if got := protocol.ErrorCode(err); got != tc.want {
+			t.Fatalf("%s %s -> %s: %q, want %q", tc.kind, tc.from, tc.to, got, tc.want)
+		}
+		if err != nil {
+			continue
+		}
+		var received map[string]any
+		_ = json.Unmarshal(routed.Payload, &received)
+		if received["fromPeerId"] != tc.from || received["toPeerId"] != nil || routed.PeerID != tc.to {
+			t.Fatalf("screen sender was not bound to the authenticated connection: %#v", received)
+		}
+	}
+	h.rooms.Disconnect(r.ID, b.PeerID)
+	msg := protocol.Envelope{V: 1, Type: "screen.ready", RequestID: "screen", Payload: mustJSON(map[string]string{"toPeerId": b.PeerID, "epoch": "capture-1"})}
+	if _, err := h.RouteFrom(r.ID, a.PeerID, msg); protocol.ErrorCode(err) != "SIGNAL_TARGET_NOT_MEMBER" {
+		t.Fatalf("disconnected viewer received screen signaling: %v", err)
+	}
+}
