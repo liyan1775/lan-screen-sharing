@@ -45,12 +45,17 @@ powershell -NoProfile -File scripts/build.ps1 -OutputPath dist/局域网屏幕�
 $env:LANSW_EXE = (Resolve-Path 'dist/局域网屏幕共享-single-encode.exe').Path
 $env:LANSW_BROWSER_PATH = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'
 node --test tests/e2e/mesh.spec.js
+npm run test:encoding-performance
 node --test tests/e2e/performance.spec.js
 node --test tests/e2e/frontend-hig.spec.js
 node scripts/benchmark-encoding.mjs --baseline dist/局域网屏幕共享-0.4.1-game-priority.exe --candidate dist/局域网屏幕共享-single-encode.exe --browser 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe' --output dist/single-encode-comparison.json --seconds 20 --pairs 2
 ```
 
 运行编码对照时不同时执行其他浏览器回归、构建或 CPU 压力任务。构建在旁边生成同名 `.licenses.txt`，包含 Pion 及实际运行依赖的许可原文。早期测量用内部版本 0.4.1 的独立文件名，最终公测版为 0.5.0，三名成员须统一更新。
+
+`mesh.spec.js` 的常规功能回归始终检查实际 1080p 尺寸、60 FPS / 8 Mbps 参数、编码器数量及画面声音持续传输，并记录实际 FPS。`npm run test:encoding-performance` 另外强制开启三人的 **实际至少 57 FPS** 门槛；未通过时仍返回失败，不会自动放宽门槛。
+
+GitHub 的共享 Windows 虚拟机在[首次 CI 压力检查](https://github.com/liyan1775/lan-screen-sharing/actions/runs/42073499994)中实测约 51.75 FPS，实际尺寸仍为 1080p，其余十项功能用例和完整 UI 检查通过。虚拟机同时承担分享与两路解码，这个失败保留为硬件范围记录，不能说该虚拟机已经达到 60 FPS。固定硬件压力检查因此与普通功能 CI 分开；本机发行 EXE 的严格命令已经单独执行。此调整没有改变产品的采集、编码、码率或画质逻辑。
 
 ## 真实游戏验收
 
