@@ -10,7 +10,7 @@ export function syntheticToneFrequency(label, participantAlias) {
   return MICROPHONE_TONES[participantAlias] ?? 0;
 }
 
-export function installSyntheticMedia({ denyMicrophone = false, participantAlias = 'viewer-1', captureWidth = 1280, captureHeight = 720, captureFps = 30 } = {}) {
+export function installSyntheticMedia({ denyMicrophone = false, participantAlias = 'viewer-1', captureWidth = 1280, captureHeight = 720, captureFps = 30 } = {}, renderDisplayFrame) {
   // Playwright serializes this function without the module scope. Keep its
   // capture frequency lookup local as well as the exported test helper.
   const syntheticToneFrequency = (label, alias) => label === 'systemAudio' ? 440 : ({ host:523, 'viewer-1':617, 'viewer-2':733, 'viewer-extra':811 }[alias] ?? 0);
@@ -148,13 +148,18 @@ export function installSyntheticMedia({ denyMicrophone = false, participantAlias
     canvas.height = captureHeight;
     const context = canvas.getContext('2d');
     let frame = 0;
+    const startedAt = performance.now();
     const draw = () => {
       frame += 1;
-      context.fillStyle = `hsl(${(frame * 3) % 360} 70% 40%)`;
-      context.fillRect(0, 0, canvas.width, canvas.height);
-      context.fillStyle = 'white';
-      context.font = '48px sans-serif';
-      context.fillText(`synthetic screen ${frame}`, 40, 80);
+      if (renderDisplayFrame) {
+        renderDisplayFrame(context, captureWidth, captureHeight, performance.now() - startedAt, participantAlias);
+      } else {
+        context.fillStyle = `hsl(${(frame * 3) % 360} 70% 40%)`;
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.fillStyle = 'white';
+        context.font = '48px sans-serif';
+        context.fillText(`synthetic screen ${frame}`, 40, 80);
+      }
       if (frame < 100000) requestAnimationFrame(draw);
     };
     draw();

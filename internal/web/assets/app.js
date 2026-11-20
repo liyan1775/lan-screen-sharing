@@ -14,7 +14,7 @@ import { MediaDiagnosticsHistory } from './media-history.js';
 import { createMediaStatsPoller } from './media-stats-poller.js';
 import { createRoomExperience } from './room-experience.js';
 import { createRoomTextUI } from './room-text-ui.js';
-import { formatRoomInvite, parseRoomInvite } from './room-invite.js';
+import { formatRoomInvite, normalizeRoomInvite, parseRoomInvite } from './room-invite.js';
 
 const $ = (selector) => document.querySelector(selector);
 const ui = {
@@ -49,6 +49,7 @@ textUI = createRoomTextUI({ documentRef:document, transport:media.text, nameForP
 
 
 let activeRole = '';
+const shareStoppedStatus = '共享已停止。语音继续，其他成员可以接力。';
 let currentRoomName = '';
 let awaitingRecoveredPeers = false;
 let latestMediaRows = [];
@@ -72,8 +73,7 @@ const nearbyRooms = createRoomBrowser({
     try {
       if (!await chooseRole('viewer')) throw new Error('本机服务连接失败，请稍后再试。');
       ui.viewerPanel.hidden = true;
-      setJoinInvite(room);
-      await joinRoomFromInputs();
+      await joinRoom(normalizeRoomInvite(room));
     } catch (error) {
       showRoomList(); showError(error.message); throw error;
     }
@@ -117,12 +117,10 @@ function syncPresentationStage() {
   const watching = joined && !!client.room.screenSharing && !media.voiceOnly;
   textUI?.sync(joined ? client.room.roomId || client.room.id : '');
   ui.app.dataset.stage = joined ? (watching ? 'watch' : 'voice') : (ui.roomPanel.hidden ? 'entry' : 'setup');
-  $('#room-heading-title').textContent = joined ? (client.room?.name || currentRoomName || (activeRole === 'host' ? $('#room-name').value.trim() : '') || '房间') : (activeRole === 'host' ? '创建房间' : '手动加入');
+  $('#room-heading-title').textContent = joined ? (client.room?.name || currentRoomName || (activeRole === 'host' ? $('#room-name').value.trim() : '') || '房间') : (activeRole === 'host' ? '创建房间' : '粘贴邀请加入');
   $('#leave-room').hidden = !joined || activeRole !== 'viewer';
   $('#end-room').hidden = !joined || activeRole !== 'host';
   $('#voice-only-warning').hidden = !(media.screenVideoTrack || media.pendingScreenStream);
-  $('#voice-stage-message').textContent = media.voiceOnly && client.room?.screenSharing
-    ? '只聊语音中；你可以随时恢复观看。' : '先聊着，准备好时可以共享画面。';
   let invite = '';
   try { invite = formatRoomInvite({ hostIPv4: ui.hostAddress.value, hostPort: ui.hostPort.value, roomCode: ui.roomCode.textContent }); }
   catch { /* A complete invitation is available only after creating or joining a room. */ }
@@ -130,7 +128,8 @@ function syncPresentationStage() {
   experience.sync({ stage: ui.app.dataset.stage, roomName: $('#room-heading-title').textContent, memberCount: client.room?.members?.length || 0,
     roomId: client.room?.roomId || '',
     presenterPeerId: client.room?.presenterPeerId || '', presenterName: memberNames().find(member => member.peerId === client.room?.presenterPeerId)?.displayName,
-    microphone: !!media.microphoneTrack, voiceOnly: media.voiceOnly, screenSharing: !!client.room?.screenSharing });
+    microphone: !!media.microphoneTrack, voiceOnly: media.voiceOnly, screenSharing: !!client.room?.screenSharing,
+    hasSystemAudio: client.room?.hasSystemAudio === true });
   syncBackgroundWork();
 }
 function setStatus(text, state = 'neutral') { if (ui.status.textContent !== text) ui.status.textContent = text; ui.status.dataset.state = state; syncPresentationStage(); }
@@ -258,6 +257,13 @@ function updateSystemAudioUI() {
     : ui.shareMode.value === 'combined'
       ? '共享时将包含系统声音；请在浏览器选择显示器并允许共享系统音频。'
       : '当前选择不共享系统声音；画面与房间语音仍可正常共享。';
+  const shareHint = $('#sharing-permission');
+  shareHint.hidden = !client.room || !!(client.room.screenSharing || media.captureAttempt || media.pendingScreenStream || media.screenVideoTrack);
+  shareHint.textContent = shareHint.hidden ? '' : ui.shareMode.value === 'combined'
+    ? '在浏览器中选择整个显示器。如需共享电脑声音，请一并允许共享系统音频。'
+    : '在浏览器中选择整个显示器。当前已选仅共享画面与房间语音。';
+  if (shareHint.hidden) $('#start-share').removeAttribute('aria-describedby');
+  else $('#start-share').setAttribute('aria-describedby', shareHint.id);
 }
 
 function showPendingAudioChoice() {
@@ -292,10 +298,15 @@ async function chooseRole(role) {
   } catch (error) { showError(error.message); setStatus('连接失败', 'error'); return false; }
 }
 
-$('#choose-viewer').addEventListener('click', () => chooseRole('viewer'));
+async function openJoinForm() {
+  currentRoomName = '';
+  if (await chooseRole('viewer') && !ui.viewerPanel.hidden) $('#join-invite').focus();
+}
+
+$('#choose-viewer').addEventListener('click', openJoinForm);
 $('#quick-create-room').addEventListener('click', () => chooseRole('host'));
 $('#empty-create-room').addEventListener('click', () => chooseRole('host'));
-$('#quick-manual-join').addEventListener('click', () => { currentRoomName = ''; void chooseRole('viewer'); });
+$('#quick-manual-join').addEventListener('click', openJoinForm);
 $('#copy-discovery-diagnostics').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText($('#discovery-diagnostics').textContent); $('#copy-discovery-diagnostics').textContent = '已复制'; }
   catch { showError('无法自动复制，请选中查找诊断文字后手动复制。'); }
@@ -335,13 +346,11 @@ $('#copy-invite').addEventListener('click', async () => {
   }
 });
 
-function setJoinInvite(details) {
-  const invite = formatRoomInvite(details);
-  const normalized = parseRoomInvite(invite);
-  $('#join-invite').value = invite;
-  $('#join-address').value = normalized.hostIPv4;
-  $('#join-port').value = String(normalized.hostPort);
-  $('#join-code').value = normalized.roomCode;
+function showJoinInvite(invite) {
+  $('#join-invite').value = formatRoomInvite(invite);
+  $('#join-address').value = invite.hostIPv4;
+  $('#join-port').value = String(invite.hostPort);
+  $('#join-code').value = invite.roomCode;
   for (const id of ['join-invite', 'join-address', 'join-port', 'join-code']) $(`#${id}`).removeAttribute('aria-invalid');
 }
 $('#join-invite').addEventListener('input', () => { $('#join-invite').removeAttribute('aria-invalid'); });
@@ -357,26 +366,28 @@ $('#join-room').addEventListener('click', async event => {
   const pasted = $('#join-invite').value.trim();
   const manual = !pasted && $('#join-manual-fields').open;
   if (manual && !ui.viewerPanel.reportValidity()) return;
+  let invite;
   try {
-    setJoinInvite(manual
-      ? { hostIPv4: $('#join-address').value, hostPort: $('#join-port').value, roomCode: $('#join-code').value }
-      : parseRoomInvite(pasted));
+    invite = manual
+      ? normalizeRoomInvite({ hostIPv4: $('#join-address').value, hostPort: $('#join-port').value, roomCode: $('#join-code').value })
+      : parseRoomInvite(pasted);
+    showJoinInvite(invite);
   } catch (error) {
     showError(error.message);
     const field = manual ? $('#join-address') : $('#join-invite');
     field.setAttribute('aria-invalid', 'true'); field.focus();
     return;
   }
-  try { await joinRoomFromInputs(); } catch { /* The shared action already shows the error. */ }
+  try { await joinRoom(invite); } catch { /* The shared action already shows the error. */ }
 });
-async function joinRoomFromInputs() {
+async function joinRoom(invite) {
   $('#join-room').disabled = true;
   showError(''); setStatus('正在加入房间…', 'connecting');
   $('#browse-rooms').disabled = true;
   try {
-    const snapshot = await client.joinRoom({ hostIPv4: $('#join-address').value, hostPort: $('#join-port').value, roomCode: $('#join-code').value });
+    const snapshot = await client.joinRoom(invite);
     media.setIdentity(snapshot.peerId, 'viewer');
-    ui.roomCode.textContent = $('#join-code').value; ui.hostAddress.value = $('#join-address').value; ui.hostPort.value = $('#join-port').value;
+    ui.roomCode.textContent = invite.roomCode; ui.hostAddress.value = invite.hostIPv4; ui.hostPort.value = String(invite.hostPort);
     const inviteCard = ui.hostAddress.closest('.invite-card'); if (inviteCard) inviteCard.hidden = false;
     updateMembers({ ...snapshot, members: snapshot.members ?? [] });
     ui.sharePanel.hidden = false; ui.viewerPanel.hidden = true;
@@ -425,7 +436,7 @@ $('#start-share').addEventListener('click', async () => {
     setStatus('正在共享屏幕', 'connected');
   } catch (error) {
     if (error.code === 'CAPTURE_CANCELLED') return;
-    if (error.name === 'NotAllowedError') showError('已取消屏幕选择。');
+    if (error.name === 'NotAllowedError') showError('已取消选择或浏览器未授权屏幕共享。请再点一次共享按钮，在浏览器中选择整个显示器。');
     else showError(ERROR_TEXT[error.code] ?? '屏幕采集未能开始。');
   }
 });
@@ -444,7 +455,7 @@ $('#stop-share').addEventListener('click', async () => {
   await media.setScreenStream(null);
   setPreviewStream(ui.remoteScreen, null); document.querySelector('.screen-stage').classList.remove('has-video');
   ui.isolation.textContent = media.isolation.label; ui.manualCheck.hidden = false; $('#manual-checklist').hidden = true;
-  $('#stop-share').disabled = true; $('#start-share').disabled = false; $('#manual-verify-start').hidden = false; $('#manual-verify-start').disabled = false; setStatus('屏幕已停止，成员语音仍保持连接', 'connected');
+  $('#stop-share').disabled = true; $('#start-share').disabled = false; $('#manual-verify-start').hidden = false; $('#manual-verify-start').disabled = false; setStatus(shareStoppedStatus, 'connected');
   updateSystemAudioUI();
 });
 
@@ -653,10 +664,10 @@ function updatePresentation() {
   media.setPresenter(presenter);
   const own = presenter === client.peerId && !!presenter;
   const occupiedByOther = !!presenter && !own;
-  document.querySelectorAll('.audio-source').forEach((row) => { row.hidden = row.dataset.role === 'systemAudio' && row.dataset.peerId !== presenter; });
   const stream = !media.voiceOnly && client.room?.screenSharing
     ? (own ? media.screenStream : media.remoteScreens.get(presenter)) : null;
   const hasVideo = !!stream?.getVideoTracks?.().some((track) => track.readyState !== 'ended');
+  if (occupiedByOther && hasVideo && ui.status.textContent === shareStoppedStatus) setStatus('媒体已连接', 'connected');
   const pauseLocalPreview = own && media.pauseBackgroundPreview && (document.visibilityState === 'hidden' || document.hasFocus?.() === false);
   const playing = hasVideo && !pauseLocalPreview;
   if (ui.remoteScreen.srcObject !== (playing ? stream : null)) setPreviewStream(ui.remoteScreen, playing ? stream : null, () => showError('浏览器阻止画面播放，请点击“启用声音”后重试。'));
@@ -669,7 +680,6 @@ function updatePresentation() {
   $('#start-share').disabled = occupiedByOther || !!media.screenVideoTrack || !!media.captureAttempt;
   $('#stop-share').disabled = !media.screenVideoTrack && !media.pendingScreenStream;
   updateSystemAudioUI();
-  $('#sharing-permission').textContent = occupiedByOther ? '其他成员正在共享。等对方停止后，你就可以开始；现在仍可一起语音聊天。' : '任何成员都能共享；同一时间共享一块画面。停止共享后仍可继续语音。';
   $('#presentation-status').textContent = pauseLocalPreview ? '正在共享 · 已暂停本机预览' : media.voiceOnly ? '只聊语音 · 画面与游戏声音已在本机暂停' : occupiedByOther ? '正在连接成员共享的画面' : '语音房间 · 还没有人共享画面';
   syncPresentationStage();
 }

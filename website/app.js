@@ -24,12 +24,17 @@ for (const button of document.querySelectorAll('[data-compare]')) button.addEven
   flow.dataset.state = before ? 'before' : 'after';
   flow.setAttribute('aria-label', before ? '升级前为两位观众分别编码，共编码两次' : '0.5.0 只编码一次，将同一份编码画面发送给两位观众');
   document.getElementById('encoding-caption').textContent = before ? '分别为两位观众编码' : '同一份编码画面';
-  document.querySelector('.compare-description').textContent = before ? '两位观众，两路视频编码。相同的画面，被重复处理。' : '编码一次，将相同的画面分别发送给两位观众。不解码、不重新压缩。';
+  document.querySelector('.compare-description').textContent = before ? '两位观众各有一路视频编码。' : '编码一次，同一份画面送给两位观众。';
 });
-if ('IntersectionObserver' in window && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
-  document.documentElement.classList.add('motion-ready');
-  const observer = new IntersectionObserver(entries => {
-    for (const entry of entries) if (entry.isIntersecting) { entry.target.classList.add('is-visible'); observer.unobserve(entry.target); }
-  }, { threshold: 0.06 });
-  for (const node of document.querySelectorAll('.reveal')) observer.observe(node);
-}
+
+const demo = document.getElementById('demo-video');
+const playDemo = document.getElementById('play-demo');
+playDemo.hidden = false;
+playDemo.addEventListener('click', () => {
+  demo.play().catch(() => demo.focus({ preventScroll: true }));
+});
+demo.addEventListener('play', () => {
+  const hadFocus = document.activeElement === playDemo;
+  playDemo.hidden = true;
+  if (hadFocus) demo.focus({ preventScroll: true });
+}, { once: true });

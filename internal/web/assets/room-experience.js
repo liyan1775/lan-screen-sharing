@@ -31,7 +31,7 @@ export function createRoomExperience(documentRef = document) {
     let available = 0;
     for (const row of allRows()) {
       const system = row.dataset.role === 'systemAudio';
-      const valid = !system || row.dataset.peerId === current.presenterPeerId;
+      const valid = !system || (current.hasSystemAudio && row.dataset.peerId === current.presenterPeerId);
       row.hidden = !valid;
       if (valid) available++;
       const seat = seats.find(node => node.dataset.peerId === row.dataset.peerId);
@@ -119,7 +119,7 @@ export function createRoomExperience(documentRef = document) {
     $('#screen-source-label').textContent = state.presenterPeerId ? `${state.presenterName || '成员'}的共享画面` : '';
     $('#watch-title').textContent = state.presenterPeerId ? `正在观看${state.presenterName || '成员'}的共享画面` : '等待共享画面';
     $('#voice-activity-title').textContent = state.presenterPeerId ? `${state.presenterName || '成员'}正在共享` : '还没有人共享';
-    $('#voice-stage-message').textContent = state.presenterPeerId ? '画面由你决定是否观看，语音仍在房间里。' : '先聊着，任何人都可以开始共享。';
+    $('#voice-stage-message').textContent = state.presenterPeerId ? '画面由你决定是否观看，语音仍在房间里。' : '语音可以继续，任何成员都能接着分享屏幕。';
     const seats = [...$('#members').children].filter(node => node.classList.contains('member-seat'));
     if (state.stage === 'voice') {
       const left = seats.find(node => node.dataset.seat === 'left');

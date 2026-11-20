@@ -65,7 +65,7 @@ test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearan
   await host.evaluate(()=>{window.__qaStatusChanges=0;window.__qaStatusObserver=new MutationObserver(()=>window.__qaStatusChanges++);window.__qaStatusObserver.observe(document.querySelector('#discovery-status'),{childList:true,characterData:true,subtree:true});});await host.waitForTimeout(6500);assert.equal(await host.evaluate(()=>window.__qaStatusChanges),0,'unchanged discovery polls do not repeat live announcements');await host.evaluate(()=>window.__qaStatusObserver.disconnect());evidence.checks.push({check:'unchanged discovery status has no repeated DOM mutation across two polls',passed:true});
   await host.emulateMedia({colorScheme:'light'});await capture(host,'02-entry-light');await axe(host,'entry light');
   await host.emulateMedia({colorScheme:'dark'});
-  let fixtureRooms=[{id:'fixture-active',name:'测试 · 周末游戏',members:1,capacity:3,screenSharing:true,hostIPv4:lanIP,hostPort:Number(services[0].signalPort),roomCode:'ABCD2345'},{id:'fixture-full',name:'测试 · 已满房间',members:3,capacity:3,hostIPv4:lanIP,hostPort:Number(services[0].signalPort),roomCode:'BCDE2345'},{id:'fixture-idle',name:'测试 · 聊会儿',members:2,capacity:3,hostIPv4:lanIP,hostPort:Number(services[0].signalPort),roomCode:'CDEF2345'}];
+  const fixtureRooms=[{id:'fixture-active',name:'测试 · 周末游戏',members:1,capacity:3,screenSharing:true,hostIPv4:lanIP,hostPort:Number(services[0].signalPort),roomCode:'ABCD2345'},{id:'fixture-full',name:'测试 · 已满房间',members:3,capacity:3,hostIPv4:lanIP,hostPort:Number(services[0].signalPort),roomCode:'BCDE2345'},{id:'fixture-idle',name:'测试 · 聊会儿',members:2,capacity:3,hostIPv4:lanIP,hostPort:Number(services[0].signalPort),roomCode:'CDEF2345'}];
   await host.route('**/api/v1/rooms',route=>route.fulfill({json:{available:true,rooms:fixtureRooms}}));await host.locator('#refresh-rooms').click();await host.locator('.discovered-room').nth(2).waitFor();
   assert.equal(await host.locator('[data-room-id="fixture-full"] button').isDisabled(),true);await capture(host,'15-rooms-fixture');await axe(host,'discovery populated fixture');
   await host.emulateMedia({colorScheme:'light'});await capture(host,'15b-rooms-fixture-light');await axe(host,'discovery populated light');await host.emulateMedia({colorScheme:'dark'});
@@ -73,8 +73,21 @@ test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearan
   let releaseBootstrap;const heldBootstrap=new Promise(resolve=>releaseBootstrap=resolve);await host.route('**/api/v1/bootstrap',async route=>{await heldBootstrap;await route.continue();});
   await host.locator('[data-room-id="fixture-active"] button').click();await host.locator('[data-room-id="fixture-active"][aria-busy="true"]').waitFor();assert.equal(await host.locator('[data-room-id="fixture-active"] button').isDisabled(),true);await capture(host,'20-joining-fixture');releaseBootstrap();await host.unroute('**/api/v1/bootstrap');
   await host.locator('#error-message').waitFor({state:'visible'});await capture(host,'17-stale-room');await axe(host,'stale room failure');await ax(host,'stale room alert');
-  fixtureRooms=[];await host.unroute('**/api/v1/rooms');await host.locator('#refresh-rooms').click();
-  await host.locator('#quick-manual-join').click();
+  await host.unroute('**/api/v1/rooms');
+  let discoveryAvailable = true;
+  await host.route('**/api/v1/rooms', route => route.fulfill({json:{available:discoveryAvailable,rooms:[]}}));
+  await host.locator('#refresh-rooms').click();
+  await host.locator('#empty-rooms').waitFor({state:'visible'});
+  discoveryAvailable = false;
+  await host.locator('#refresh-rooms').click();
+  await host.locator('#discovery-status').filter({hasText:'自动发现暂不可用'}).waitFor();
+  assert.equal(await host.locator('#empty-rooms').isVisible(),false,'an unavailable discovery is distinct from an empty list');
+  await host.locator('#choose-viewer').click();
+  await host.waitForFunction(() => document.activeElement === document.querySelector('#join-invite'));
+  for (const field of ['join-invite', 'join-address', 'join-port', 'join-code']) {
+    assert.equal(await host.locator(`#${field}`).inputValue(), '', 'a failed discovery must not fill the manual form');
+  }
+  await host.unroute('**/api/v1/rooms');
   assert.equal(await host.locator('#join-manual-fields').getAttribute('open'),null,'individual connection fields start collapsed');
   await capture(host,'22-paste-invite-dark');await axe(host,'single invitation dark');
   await host.emulateMedia({colorScheme:'light'});await capture(host,'23-paste-invite-light');await axe(host,'single invitation light');
@@ -92,6 +105,7 @@ test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearan
   await host.locator('#invite-dialog [data-close-dialog]').click();
   for(const page of [viewer,other]){
     await page.locator('#quick-manual-join').click();
+    await page.waitForFunction(() => document.activeElement === document.querySelector('#join-invite'));
     await page.locator('#join-invite').fill(invite.text);
     await page.locator('#join-invite').press('Enter');await page.locator('body[data-stage="voice"]').waitFor();
     assert.equal(await page.locator('#topbar-room-name').textContent(),'周二游戏夜','manual join preserves actual room context');
@@ -124,10 +138,84 @@ test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearan
   assert.equal(await host.locator('#exit-program').evaluate(n=>document.activeElement===n),true);await closeSettings(host);
   await host.locator('#end-room').click();await host.locator('#confirm-dialog').waitFor({state:'visible'});await host.locator('#confirm-cancel').press('Escape');assert.equal(await host.locator('body').getAttribute('data-stage'),'voice');
   await settings(host);assert.equal(await host.locator('#share-mode').inputValue(),'combined','system audio is enabled by default');await closeSettings(host);
+  const shareButton = host.locator('#start-share');
+  const shareHint = host.locator('#sharing-permission');
+  assert.equal(await shareHint.isVisible(), true, 'capture help is visible in the voice room');
+  assert.match(await shareHint.textContent(), /整个显示器.*系统音频/);
+  assert.equal(await shareButton.getAttribute('aria-describedby'), 'sharing-permission');
+  await host.evaluate(() => {
+    const devices = navigator.mediaDevices;
+    const capture = devices.getDisplayMedia.bind(devices);
+    const outcomes = ['cancel', 'window', 'missing-audio'];
+    Object.defineProperty(devices, 'getDisplayMedia', {
+      configurable: true,
+      value: async constraints => {
+        const outcome = outcomes.shift();
+        if (outcome === 'cancel') throw new DOMException('Synthetic capture cancellation', 'NotAllowedError');
+        const stream = await capture(constraints);
+        if (outcome === 'window') {
+          const video = stream.getVideoTracks()[0];
+          const settings = video.getSettings();
+          video.getSettings = () => ({...settings,displaySurface:'window'});
+        }
+        if (outcome === 'missing-audio') {
+          for (const audio of stream.getAudioTracks()) {
+            stream.removeTrack(audio);
+            audio.stop();
+          }
+        }
+        return stream;
+      },
+    });
+  });
+  await shareButton.click();
+  await host.locator('#error-message').filter({hasText:'未授权屏幕共享'}).waitFor();
+  await shareButton.click();
+  await host.locator('#error-message').filter({hasText:'当前选的是窗口或标签页'}).waitFor();
+  assert.equal(await viewer.locator('body').getAttribute('data-stage'), 'voice', 'wrong source stays private');
+  await shareButton.click();
+  await host.locator('#error-message').filter({hasText:'画面尚未共享'}).waitFor();
+  assert.equal(await shareHint.isVisible(), false, 'pending audio choice has its own instructions');
+  assert.equal(await viewer.locator('body').getAttribute('data-stage'), 'voice', 'missing audio waits for explicit opt-in');
+  await shareButton.click();
+  for (const page of [viewer, other]) {
+    await page.waitForFunction(() => document.querySelector('#remote-screen').videoWidth > 0);
+    const systemAudioBytes = await page.evaluate(async () => {
+      const [screen] = document.querySelector('#remote-screen').srcObject.getVideoTracks();
+      const carrier = window.__lanScreenTest.pcs.find(pc => pc.getReceivers().some(receiver => receiver.track === screen));
+      if (!carrier) throw new Error('No native video receiver for the visible screen');
+      const stats = await carrier.getStats();
+      return [...stats.values()].filter(report => report.type === 'inbound-rtp' && report.kind === 'audio')
+        .reduce((bytes, report) => bytes + (report.bytesReceived || 0), 0);
+    });
+    assert.equal(systemAudioBytes, 0, 'a reserved receiver must not carry system audio in limited mode');
+    await page.locator('#watch-sound').click();
+    assert.equal(await page.locator('#sound-dialog .audio-source[data-role="systemAudio"]').count(), 0);
+    await page.locator('#sound-dialog [data-close-dialog]').click();
+  }
+  await host.locator('#stop-share').click();
+  await host.locator('#connection-status').filter({hasText:'其他成员可以接力'}).waitFor();
+  for (const page of [viewer, other]) {
+    await page.locator('body[data-stage="voice"]').waitFor();
+    assert.equal(await page.locator('#sharing-permission').isVisible(), true);
+  }
+  await viewer.locator('#start-share').click();
+  for (const page of [host, other]) {
+    await page.waitForFunction(() => document.body.dataset.stage === 'watch' &&
+      document.querySelector('#watch-source').textContent.startsWith('成员') &&
+      document.querySelector('#remote-screen').readyState >= 2);
+  }
+  assert.match(await host.locator('#connection-status').textContent(), /媒体已连接/);
+  await viewer.locator('#stop-share').click();
+  await Promise.all(pages.map(page => page.locator('body[data-stage="voice"]').waitFor()));
+  evidence.checks.push({check:'invite focus, discovery recovery, capture retry, explicit audio fallback and a ready handoff',passed:true});
+  await settings(host);await host.locator('#share-mode').selectOption('combined');await closeSettings(host);
   await settings(viewer);await viewer.locator('#quality-target').focus();await host.locator('#start-share').click();await viewer.locator('body[data-stage="watch"]').waitFor();assert.equal(await viewer.locator('#settings-dialog').isVisible(),true,'remote sharing preserves the current settings task');assert.equal(await viewer.locator('#quality-target').evaluate(n=>document.activeElement===n),true);await closeSettings(viewer);
   await viewer.locator('body[data-stage="watch"]').waitFor();await viewer.waitForFunction(()=>document.querySelector('#remote-screen').videoWidth>0);await capture(viewer,'08-watch');await axe(viewer,'watch');
   const video=await viewer.locator('#remote-screen').evaluateHandle(n=>n);
-  await viewer.locator('#watch-sound').click();await trap(viewer,'sound-dialog');await ax(viewer,'sound slider and mute state');await capture(viewer,'09-sound');await axe(viewer,'sound');
+  await viewer.locator('#watch-sound').click();
+  await viewer.locator('#sound-dialog .audio-source[data-role="systemAudio"]').waitFor();
+  await trap(viewer,'sound-dialog');await ax(viewer,'sound slider and mute state');await capture(viewer,'09-sound');await axe(viewer,'sound');
   const slider=viewer.locator('#sound-dialog .audio-source[data-role="microphone"] input').first();await slider.focus();await slider.press('ArrowLeft');const volume=await slider.inputValue();
   await settings(host);await host.locator('#quality-target').selectOption('720p30');await closeSettings(host);
   await other.locator('#leave-room').click();await viewer.waitForFunction(()=>document.querySelector('#topbar-room-count').textContent==='2 人');
