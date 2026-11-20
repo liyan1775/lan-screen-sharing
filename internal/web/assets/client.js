@@ -14,7 +14,7 @@ export const ERROR_TEXT = Object.freeze({
   SIGNAL_CONNECTION_LOST: '与房主的信令连接中断，正在尝试恢复房间。',
   MIC_PERMISSION_DENIED: '麦克风权限未授予；你仍可观看并听取房间语音。',
   CAPTURE_CANCELLED: '已取消屏幕选择。',
-  DISPLAY_NOT_MONITOR: '请选择整块显示器；窗口或浏览器标签页不能作为游戏画面。',
+  DISPLAY_NOT_MONITOR: '当前选的是窗口或标签页。请再点一次共享按钮，然后选择整个显示器。',
   SYSTEM_AUDIO_UNSUPPORTED: '当前浏览器无法提供所需的屏幕采集。请使用桌面版 Edge 或 Chrome，检查采集权限。',
   SYSTEM_AUDIO_UNVERIFIED: '声音隔离未确认；系统声音仍可共享，可能包含房间语音。',
   ICE_FAILED: '点对点连接失败；请确认设备位于同一局域网并允许浏览器本地连接。',

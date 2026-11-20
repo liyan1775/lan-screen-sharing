@@ -23,7 +23,7 @@ test('full rooms and my own rooms cannot be joined, and disappeared rooms are re
  const rooms=[room('full',{members:3}),room('mine',{own:true})];const f=fixture(rooms);await f.browser.refresh();
  assert.ok(f.list.children.every(card=>card.children.at(-1).disabled));
  await f.list.children[0].children.at(-1).click();assert.equal(f.joined.length,0);
- rooms.splice(0);await f.browser.refresh();assert.equal(f.list.children.length,0);assert.match(f.status.textContent,/还没有/);
+ rooms.splice(0);await f.browser.refresh();assert.equal(f.list.children.length,0);assert.match(f.status.textContent,/允许同网发现/);
 });
 test('automatic refresh is bounded by one in-flight request and stop clears the timer',async()=>{
  const f=fixture([]);f.browser.start();await new Promise(resolve=>setImmediate(resolve));assert.equal(typeof f.timer,'function');f.browser.stop();assert.equal(f.timer,null);
@@ -92,4 +92,5 @@ test('empty state is offered only for a successful available discovery with no r
  const browser=createRoomBrowser({list,status,refreshButton,documentRef:{createElement:()=>new Element()},load:async()=>result,onJoin:async()=>{},onRooms:state=>states.push(state)});
  await browser.refresh();result={available:true,rooms:[room('朋友')]};await browser.refresh();result={available:false,rooms:[]};await browser.refresh();
  assert.deepEqual(states,[{count:0,available:true},{count:1,available:true},{count:0,available:false}]);
+ assert.match(status.textContent,/自动发现暂不可用.*粘贴邀请加入/);
 });

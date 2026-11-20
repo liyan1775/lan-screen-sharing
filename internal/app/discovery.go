@@ -69,14 +69,14 @@ func (s *Server) serveDiscoveredRooms(w http.ResponseWriter, r *http.Request) {
 	}
 	message := "正在通过局域网广播和组播查找房间；朋友创建房间后会显示在这里。"
 	if !diagnostics.Running {
-		message = "房间查找暂不可用，可查看下方诊断，或使用“手动加入”。"
+		message = "自动发现暂不可用。如果已有邀请，请点“粘贴邀请加入”。"
 		switch diagnostics.LastError {
 		case "NO_PRIVATE_NETWORK", "NETWORK_INTERFACE_UNAVAILABLE":
 			message = "未找到可用的局域网连接，请确认电脑已连接 Wi-Fi 或网线后重新打开程序。"
 		case "NETWORK_PERMISSION_DENIED":
-			message = "系统拒绝了局域网查找，请检查本程序的网络通信权限，也可以手动加入。"
+			message = "系统拒绝了局域网查找。请检查本程序的网络通信权限，或粘贴邀请加入。"
 		case "DISCOVERY_PORT_IN_USE":
-			message = "房间查找端口被其他程序占用；可以先使用手动加入。"
+			message = "房间查找端口被其他程序占用。可以先粘贴邀请加入。"
 		case "":
 			message = "正在启动房间查找，请稍候…"
 		}
