@@ -9,6 +9,7 @@
   <meta name="description" content="在同一局域网共享屏幕、语音和文字。Windows x64 · 桌面版 Edge / Chrome。">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23146c7a'/%3E%3Cpath d='M13 22h-3a4 4 0 0 1 0-8h6m3-4h3a4 4 0 0 1 0 8h-6' fill='none' stroke='%23f2f6f9' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
+  <script>document.documentElement.classList.add('intro-pending');</script>
   <script src="app.js" defer></script>
 </head>
 <body id="top">
@@ -83,7 +84,7 @@
           <figure>
             <div class="titanium-frame gallery-frame">
               <div class="screen-preview">
-                <img src="assets/screen.png" alt="周末一起玩的三人房间，阿岚正在共享，媒体已连接。顶栏可打开文字、邀请朋友、设置或离开房间。" width="2880" height="1440">
+                <img src="assets/screen.png" alt="周末一起玩的三人房间，阿岚正在共享，媒体已连接。顶栏可打开文字、邀请朋友、设置或离开房间。" width="2880" height="1440" loading="lazy" decoding="async" fetchpriority="low">
                 <div class="live-screen-stage" role="group" aria-label="屏幕共享动态演示" hidden>
                   <canvas id="galleryScreenCanvas" aria-hidden="true"></canvas>
                   <div class="screen-hud screen-signal" role="group" aria-label="演示画质目标 1080p，每秒 60 帧">
@@ -117,8 +118,8 @@
             <figcaption><strong>画面由你摆布。</strong><span>试试放大、模拟截屏，或放飞一枚表情。</span></figcaption>
           </figure>
         </div>
-        <div id="panel-voice" role="tabpanel" tabindex="0" aria-labelledby="tab-voice" hidden><figure><div class="titanium-frame gallery-frame"><img src="assets/room.png" alt="三人语音房间展示自定义昵称、不同颜色的头像与麦克风控件。" width="2880" height="1440"></div><figcaption><strong>用熟悉的名字见面。</strong><span>选一个头像颜色，开自由麦，或按住说话。</span></figcaption></figure></div>
-        <div id="panel-text" role="tabpanel" tabindex="0" aria-labelledby="tab-text" hidden><figure><div class="titanium-frame gallery-frame"><img src="assets/text.png" alt="三人房间的聊天气泡带有可点开的网页链接和复制控件。" width="2880" height="1440"></div><figcaption><strong>有话就发，有链接就点。</strong><span>一键复制整条消息。离开或刷新后，本机聊天记录清空。</span></figcaption></figure></div>
+        <div id="panel-voice" role="tabpanel" tabindex="0" aria-labelledby="tab-voice" hidden><figure><div class="titanium-frame gallery-frame"><img src="assets/room.png" alt="三人语音房间展示自定义昵称、不同颜色的头像与麦克风控件。" width="2880" height="1440" loading="lazy" decoding="async" fetchpriority="low"></div><figcaption><strong>用熟悉的名字见面。</strong><span>选一个头像颜色，开自由麦，或按住说话。</span></figcaption></figure></div>
+        <div id="panel-text" role="tabpanel" tabindex="0" aria-labelledby="tab-text" hidden><figure><div class="titanium-frame gallery-frame"><img src="assets/text.png" alt="三人房间的聊天气泡带有可点开的网页链接和复制控件。" width="2880" height="1440" loading="lazy" decoding="async" fetchpriority="low"></div><figcaption><strong>有话就发，有链接就点。</strong><span>一键复制整条消息。离开或刷新后，本机聊天记录清空。</span></figcaption></figure></div>
       </div>
       <div class="bento">
         <article class="bento-card span-4 reveal"><div class="card-top"><div><p class="section-label">实时传输引擎</p><h3>同一份编码，两份清晰。</h3><p>只编码一次，再把画面分别发给两位观众。</p></div><div class="quality-metric"><strong class="optical-gradient">1080p60</strong><span class="signal-text"><i class="dot dot-green" aria-hidden="true"></i>单次编码 · 8 Mbps 目标</span></div></div><div class="oscilloscope"><canvas id="encodingWaveCanvas" aria-hidden="true"></canvas><span>LAN DIRECT · 波形演示</span></div></article>
@@ -166,7 +167,7 @@
         </div>
       </div>
     </section>
-    <section class="connection section" id="privacy" aria-labelledby="connection-title"><div class="connection-art" aria-hidden="true"><img src="assets/hero-flow.png" alt="" width="1672" height="941"></div><div class="wrap connection-inner"><div class="connection-copy reveal"><p class="section-label">局域网直连</p><h2 id="connection-title">共享留在<br>你们的局域网。</h2><p>画面、声音和文字在成员的设备之间传输，无需云端中转或注册账号。请在你信任、且电脑能互相访问的私有 IPv4 局域网使用。</p></div></div></section>
+    <section class="connection section" id="privacy" aria-labelledby="connection-title"><div class="connection-art" aria-hidden="true"><img src="assets/hero-flow.png" alt="" width="1672" height="941" loading="lazy" decoding="async" fetchpriority="low"></div><div class="wrap connection-inner"><div class="connection-copy reveal"><p class="section-label">局域网直连</p><h2 id="connection-title">共享留在<br>你们的局域网。</h2><p>画面、声音和文字在成员的设备之间传输，无需云端中转或注册账号。请在你信任、且电脑能互相访问的私有 IPv4 局域网使用。</p></div></div></section>
     <section class="section wrap specs" id="specifications" aria-labelledby="specs-title">
       <div class="section-heading reveal"><h2 id="specs-title">技术规格</h2></div>
       <table class="spec-table reveal" aria-labelledby="specs-title">

@@ -298,19 +298,24 @@ const beamBranches = selectAll('.beam-branch').map((branch, index) => ({
 }));
 const replay = select('#heroReplay');
 let introStart;
+let introArmed = false;
 function playIntro() {
+  introArmed = true;
   heroLeftView = false;
+  document.documentElement.classList.remove('intro-pending');
   delete hero.dataset.intro;
   // Flush the old animation state so a second click can restart it mid-play.
   void heroStage.offsetWidth;
   introStart = performance.now() / 1000;
   hero.dataset.intro = 'playing';
   drawBeams(0);
+  queueAnimation();
 }
 heroStage.addEventListener('animationend', event => {
   if (event.target === heroStage && event.animationName === 'stage-rise') {
     hero.dataset.intro = 'complete';
-    drawBeams(Math.max(2, performance.now() / 1000 - introStart));
+    compareBox.dataset.ready = 'true';
+    drawBeams(Math.max(2, performance.now() / 1000 - (introStart ?? 0)));
   }
 });
 replay.hidden = false;
@@ -319,7 +324,6 @@ replay.addEventListener('click', () => {
   updateScroll();
   playIntro();
 });
-playIntro();
 
 function resizeBeams() {
   const stacked = hostDevice.offsetTop < beamBranches[0].viewer.offsetTop &&
@@ -343,7 +347,7 @@ function resizeBeams() {
     branch.length = path.getTotalLength();
     track.style.strokeDasharray = path.style.strokeDasharray = `${branch.length}`;
   }
-  drawBeams(performance.now() / 1000 - introStart);
+  drawBeams(introArmed ? Math.max(0, performance.now() / 1000 - introStart) : 0);
 }
 function drawBeams(elapsed) {
   const sending = clamp((elapsed - .7) / .45, 0, 1);
@@ -364,91 +368,118 @@ const dust = Array.from({length: 76}, (_, index) => ({
   angle: index * 2.39996, distance: .3 + (index * .38197 % 1) * 1.42,
   phase: index * 1.73, size: index % 8 ? .65 : 1.25,
 }));
+const ringTicks = [.76, .89, 1].map((scale, index) => {
+  const count = index === 2 ? 144 : 96;
+  const ticks = Array.from({length: count}, (_, tick) => {
+    const theta = tick * turn / count;
+    return [Math.cos(theta), Math.sin(theta), tick % 12 ? 2 : 9];
+  });
+  return {scale, index, ticks};
+});
+function makeGlowSprite(size, paint) {
+  const sprite = document.createElement('canvas');
+  sprite.width = sprite.height = size;
+  paint(sprite.getContext('2d'), size / 2);
+  return sprite;
+}
+// Keep soft atmospheric glow sprites tiny (<=384px) so GPU upload is <1.5 MB instead of 88 MB.
+const auraSprites = {
+  nucleus: makeGlowSprite(256, (ctx, center) => {
+    const grad = ctx.createRadialGradient(center, center, 0, center, center, center * .92);
+    grad.addColorStop(0, '#ddfaff');
+    grad.addColorStop(.06, ice);
+    grad.addColorStop(.30, '#27555c86');
+    grad.addColorStop(.76, '#42346438');
+    grad.addColorStop(1, '#42346400');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, center * 2, center * 2);
+  }),
+  petalLayers: [[6, .66, ice], [8, .91, violet]].map(([count, scale, tone]) => makeGlowSprite(384, (ctx, center) => {
+    const baseRadius = center / 1.4;
+    const petalLen = baseRadius * .47;
+    ctx.translate(center, center);
+    for (let petal = 0; petal < count; petal++) {
+      ctx.save();
+      ctx.rotate(petal * turn / count);
+      ctx.translate(baseRadius * scale, 0);
+      ctx.scale(1, .37);
+      const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, petalLen);
+      grad.addColorStop(0, `${tone}55`);
+      grad.addColorStop(.42, `${tone}22`);
+      grad.addColorStop(1, `${tone}00`);
+      ctx.fillStyle = grad;
+      ctx.fillRect(-petalLen, -petalLen, petalLen * 2, petalLen * 2);
+      ctx.restore();
+    }
+  })),
+};
 function drawAura(time) {
   const context = auraContext;
   const width = aura.clientWidth;
   const height = aura.clientHeight;
   if (!width || !height) return;
-  const elapsed = Math.max(0, time - introStart);
+  const elapsed = introArmed ? Math.max(0, time - introStart) : 0;
   const bloom = 1 - (1 - clamp(elapsed / 1.2, 0, 1)) ** 3;
   const core = (1 - bloom) ** 2;
   const radius = Math.min(width * (width < 701 ? .65 : .37), height * .65, 530);
+  const dpr = aura.width / width;
   const centerY = height * (width < 701 ? .58 : .53);
   const expansion = (.64 + .36 * bloom) * (1 + heroScroll * .22);
-  context.setTransform(aura.width / width, 0, 0, aura.height / height, 0, 0);
+  context.setTransform(dpr, 0, 0, dpr, 0, 0);
   context.clearRect(0, 0, width, height);
   context.save();
   context.translate(width / 2, centerY - heroScroll * 34);
   context.scale(expansion, expansion * .79);
   const fade = 1 - heroScroll * .94;
 
-  const nucleus = context.createRadialGradient(0, 0, 0, 0, 0, radius * .86);
-  nucleus.addColorStop(0, '#ddfaff');
-  nucleus.addColorStop(.05, ice);
-  nucleus.addColorStop(.27, '#27555c86');
-  nucleus.addColorStop(.75, '#42346438');
-  nucleus.addColorStop(1, '#42346400');
+  const coreHalf = radius * .94;
   context.globalAlpha = fade * (.28 + .71 * core);
-  context.fillStyle = nucleus;
-  context.fillRect(-radius, -radius, radius * 2, radius * 2);
+  context.drawImage(auraSprites.nucleus, -coreHalf, -coreHalf, coreHalf * 2, coreHalf * 2);
 
-  // Six and eight soft caustics sit inside the etched metal rings.
-  for (const [count, scale, tone, drift] of [[6, .66, ice, .048], [8, .91, violet, -.032]]) {
-    for (let petal = 0; petal < count; petal++) {
-      const angle = petal * turn / count + time * drift;
-      const breath = .55 + .45 * Math.sin(time * .72 + petal * 1.7);
-      context.save();
-      context.rotate(angle);
-      context.translate(radius * scale, 0);
-      context.scale(1, .37);
-      const length = radius * .47;
-      const light = context.createRadialGradient(0, 0, 0, 0, 0, length);
-      light.addColorStop(0, `${tone}52`);
-      light.addColorStop(.42, `${tone}20`);
-      light.addColorStop(1, `${tone}00`);
-      context.globalAlpha = fade * (.4 + breath * .49) * (.55 + bloom * .45);
-      context.fillStyle = light;
-      context.fillRect(-length, -length, length * 2, length * 2);
-      context.restore();
-    }
+  // Two pre-baked caustic rings replace 14 per-frame radial gradients.
+  const petalHalf = radius * 1.4;
+  for (const [layerIndex, drift] of [.048, -.032].entries()) {
+    const breath = .68 + .32 * Math.sin(time * .72 + layerIndex * 1.9);
+    context.save();
+    context.rotate(time * drift);
+    context.globalAlpha = fade * (.42 + breath * .44) * (.55 + bloom * .45);
+    context.drawImage(auraSprites.petalLayers[layerIndex], -petalHalf, -petalHalf, petalHalf * 2, petalHalf * 2);
+    context.restore();
   }
 
-  for (const [index, scale] of [.76, .89, 1].entries()) {
+  for (const {scale, index, ticks} of ringTicks) {
     const distance = radius * scale;
     const angle = time * (index % 2 ? -.058 : .037) + index * .64;
     context.save();
     context.rotate(angle);
-    const metal = context.createConicGradient(index * .9, 0, 0);
-    metal.addColorStop(0, '#bce7ed12');
-    metal.addColorStop(.18, '#a2e4edba');
-    metal.addColorStop(.38, '#bce7ed19');
-    metal.addColorStop(.63, '#c7b8f9a1');
-    metal.addColorStop(.79, '#e9fafc98');
-    metal.addColorStop(1, '#bce7ed12');
+    const metal = context.createLinearGradient(-distance, -distance * .6, distance, distance * .6);
+    metal.addColorStop(0, '#bce7ed20');
+    metal.addColorStop(.24, '#a2e4edbe');
+    metal.addColorStop(.48, '#bce7ed24');
+    metal.addColorStop(.74, '#c7b8f9a8');
+    metal.addColorStop(.92, '#e9fafc98');
+    metal.addColorStop(1, '#bce7ed18');
     context.globalAlpha = fade * (.45 + bloom * .55);
     context.strokeStyle = metal;
     context.lineWidth = index === 1 ? .7 : 1.1;
     context.beginPath();
     context.arc(0, 0, distance, 0, turn);
-    context.stroke();
-    const ticks = index === 2 ? 144 : 96;
-    context.beginPath();
-    for (let tick = 0; tick < ticks; tick++) {
-      const theta = tick * turn / ticks;
-      const x = Math.cos(theta);
-      const y = Math.sin(theta);
-      const length = tick % 12 ? 2 : 9;
+    for (const [x, y, length] of ticks) {
       context.moveTo(x * (distance + 4), y * (distance + 4));
       context.lineTo(x * (distance + 4 + length), y * (distance + 4 + length));
     }
     context.stroke();
     if (index === 2) {
-      context.fillStyle = ruby;
-      context.shadowColor = ruby;
-      context.shadowBlur = 10;
       for (const theta of [2.84, 3.95]) {
+        const rx = Math.cos(theta) * distance;
+        const ry = Math.sin(theta) * distance;
+        context.fillStyle = '#e03c5844';
         context.beginPath();
-        context.arc(Math.cos(theta) * distance, Math.sin(theta) * distance, 2, 0, turn);
+        context.arc(rx, ry, 6, 0, turn);
+        context.fill();
+        context.fillStyle = ruby;
+        context.beginPath();
+        context.arc(rx, ry, 2.1, 0, turn);
         context.fill();
       }
     }
@@ -467,7 +498,7 @@ function drawAura(time) {
 }
 
 const canvasGroups = [hero, wave.canvas.parentElement, sim];
-const activeCanvases = new Set(canvasGroups);
+const activeCanvases = new Set([hero]);
 if ('IntersectionObserver' in window) {
   const canvasObserver = new IntersectionObserver(entries => {
     for (const {target, isIntersecting} of entries) {
@@ -477,6 +508,16 @@ if ('IntersectionObserver' in window) {
     queueAnimation();
   }, {rootMargin: '100px'});
   canvasGroups.forEach(group => canvasObserver.observe(group));
+}
+
+function sizeCanvas(canvas) {
+  const ratio = Math.min(devicePixelRatio || 1, 2);
+  const width = Math.max(1, Math.round(canvas.clientWidth * ratio));
+  const height = Math.max(1, Math.round(canvas.clientHeight * ratio));
+  if (width !== canvas.width || height !== canvas.height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
 }
 
 const canvasResize = new ResizeObserver(entries => {
@@ -489,10 +530,13 @@ const canvasResize = new ResizeObserver(entries => {
       target.height = height;
     }
   }
-  drawAura(performance.now() / 1000);
-  drawHero(performance.now() / 1000);
-  drawWave(performance.now() / 1000);
-  drawSimulator(performance.now() / 1000, 0);
+  const now = performance.now() / 1000;
+  if (activeCanvases.has(hero)) {
+    drawAura(now);
+    drawHero(now);
+  }
+  if (activeCanvases.has(wave.canvas.parentElement)) drawWave(now);
+  if (activeCanvases.has(sim)) drawSimulator(now, 0);
 });
 surfaces.forEach(({canvas}) => canvasResize.observe(canvas));
 canvasResize.observe(aura);
@@ -690,7 +734,7 @@ function animate(now) {
   const time = now / 1000;
   if (time + .001 >= nextDraw) {
     const delta = Math.min(.08, time - lastDraw);
-    if (activeCanvases.has(hero)) {
+    if (activeCanvases.has(hero) && introArmed) {
       drawAura(time);
       drawHero(time);
       drawBeams(time - introStart);
@@ -703,7 +747,50 @@ function animate(now) {
   queueAnimation();
 }
 document.addEventListener('visibilitychange', queueAnimation);
-queueAnimation();
+
+function startIntroWhenReady() {
+  const loaded = document.readyState === 'complete'
+    ? Promise.resolve()
+    : new Promise(resolve => addEventListener('load', resolve, {once: true}));
+  const fonts = document.fonts?.ready?.catch(() => {}) ?? Promise.resolve();
+  const ready = Promise.race([
+    Promise.all([loaded, fonts]),
+    new Promise(resolve => setTimeout(resolve, 900)),
+  ]);
+  ready.then(() => {
+    // Size and pre-bake Hero canvases & rosette sprites before launching frame 1.
+    sizeCanvas(aura);
+    sizeCanvas(heroHost.canvas);
+    sizeCanvas(heroA.canvas);
+    sizeCanvas(heroB.canvas);
+    resizeBeams();
+    const warmup = performance.now() / 1000;
+    drawAura(warmup);
+    drawHero(warmup);
+    // Let one frame upload the pre-baked GPU layers, then wait for 3 smooth frames (<=28ms)
+    // before launching the opening reveal so cold-load bursts never stutter frame 1.
+    requestAnimationFrame(() => {
+      const gateStart = performance.now();
+      let prev = 0;
+      let steadyFrames = 0;
+      let totalFrames = 0;
+      function waitSettled(now) {
+        totalFrames++;
+        if (prev && now - prev <= 28) steadyFrames++;
+        else steadyFrames = 0;
+        prev = now;
+        if (steadyFrames >= 3 || (totalFrames >= 10 && now - gateStart > 1100) || now - gateStart > 1600) {
+          if (!introArmed) playIntro();
+          queueAnimation();
+          return;
+        }
+        requestAnimationFrame(waitSettled);
+      }
+      requestAnimationFrame(waitSettled);
+    });
+  });
+}
+startIntroWhenReady();
 
 function setupGalleryScreen() {
   const panel = select('#panel-screen');
