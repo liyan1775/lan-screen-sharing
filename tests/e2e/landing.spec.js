@@ -273,6 +273,7 @@ test('offline Apple Pro landing: synchronized stage, keyboard, simulator and acc
   });
   await page.context().grantPermissions(['clipboard-read','clipboard-write']);
   await page.locator('#copyInviteBtn').click();
+  await page.waitForFunction(()=>document.querySelector('#copyInviteBtn').textContent==='已复制');
   assert.equal(await page.locator('#copyInviteBtn').textContent(),'已复制');
   assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),'192.168.1.20:45678  房间码 ABCD2345');
   await share.click();
