@@ -6,7 +6,8 @@
   [string]$OutputRoot = ''
 )
 $ErrorActionPreference = 'Stop'
-if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw 'Version must have the form 0.3.0.' }
+. (Join-Path $PSScriptRoot 'release-version.ps1')
+Assert-SemVer $Version
 if ($ExpectedSha256 -notmatch '^[a-fA-F0-9]{64}$') { throw 'ExpectedSha256 must be a SHA-256 hex digest.' }
 $exe = (Resolve-Path -LiteralPath $ExePath).Path
 $guide = (Resolve-Path -LiteralPath $GuideRoot).Path

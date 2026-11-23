@@ -13,6 +13,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"lan-screen-sharing/internal/protocol"
 )
 
 const ReconnectWindow = 30 * time.Second
@@ -70,20 +72,21 @@ func (m *Manager) SetExpirationHandler(handler func(RoomSnapshot)) {
 }
 
 type room struct {
-	id                   string
-	code                 string
-	expires              time.Time
-	hostID               string
-	peers                map[string]*peer
-	ended                bool
-	timer                *time.Timer
-	presenterPeerID      string
-	screenSharing        bool
-	hasSystemAudio       bool
-	isolationStatus      string
-	presentationRevision uint64
-	name                 string
-	discoverable         bool
+	id                       string
+	code                     string
+	expires                  time.Time
+	hostID                   string
+	peers                    map[string]*peer
+	ended                    bool
+	timer                    *time.Timer
+	presenterPeerID          string
+	presentationStartPending bool
+	screenSharing            bool
+	hasSystemAudio           bool
+	isolationStatus          string
+	presentationRevision     uint64
+	name                     string
+	discoverable             bool
 }
 type peer struct {
 	id             string
@@ -91,17 +94,15 @@ type peer struct {
 	resumeHash     [32]byte
 	connected      bool
 	reconnectUntil time.Time
+	seatIndex      int
+	profile        protocol.ProfileUpdate
 }
 
 func (r *room) expired(now time.Time) bool {
 	return !r.expires.IsZero() && !now.Before(r.expires)
 }
 
-type PeerSnapshot struct {
-	PeerID string `json:"peerId"`
-	Role   string `json:"role"`
-	State  string `json:"state"`
-}
+type PeerSnapshot = protocol.Member
 type RoomSnapshot struct {
 	ID                   string         `json:"roomId"`
 	Code                 string         `json:"roomCode"`
@@ -111,6 +112,7 @@ type RoomSnapshot struct {
 	ScreenSharing        bool           `json:"screenSharing"`
 	HasSystemAudio       bool           `json:"hasSystemAudio"`
 	IsolationStatus      string         `json:"isolationStatus"`
+	PresentationStarted  bool           `json:"-"`
 	PresentationRevision uint64         `json:"presentationRevision"`
 	Name                 string         `json:"name"`
 	Discoverable         bool           `json:"discoverable"`
@@ -130,6 +132,10 @@ func (m *Manager) CreateHost() (RoomSnapshot, HostCredential, error) {
 }
 
 func (m *Manager) CreateHostWithOptions(name string, discoverable bool) (RoomSnapshot, HostCredential, error) {
+	return m.CreateHostWithProfile(name, discoverable, protocol.Profile{})
+}
+
+func (m *Manager) CreateHostWithProfile(name string, discoverable bool, profile protocol.Profile) (RoomSnapshot, HostCredential, error) {
 	name = strings.TrimSpace(name)
 	if !utf8.ValidString(name) || utf8.RuneCountInString(name) > 32 {
 		return RoomSnapshot{}, HostCredential{}, errors.New("INVALID_ROOM_NAME")
@@ -161,7 +167,10 @@ func (m *Manager) CreateHostWithOptions(name string, discoverable bool) (RoomSna
 		return RoomSnapshot{}, HostCredential{}, err
 	}
 	h := sha256.Sum256([]byte(token))
-	r := &room{id: id, code: code, hostID: hostID, peers: map[string]*peer{hostID: {id: hostID, role: "host", connected: true}}}
+	r := &room{id: id, code: code, hostID: hostID, peers: map[string]*peer{hostID: {
+		id: hostID, role: "host", connected: true, seatIndex: 1,
+		profile: protocol.ProfileUpdate{Profile: profile.Normalized(), ProfileRevision: 1},
+	}}}
 	if name == "" {
 		name = "朋友的房间 " + id[:4]
 	}
@@ -184,6 +193,10 @@ func (m *Manager) CreateHostWithOptions(name string, discoverable bool) (RoomSna
 }
 
 func (m *Manager) Join(roomCode, resumeToken string) (PeerSession, RoomSnapshot, error) {
+	return m.JoinWithProfile(roomCode, resumeToken, protocol.Profile{})
+}
+
+func (m *Manager) JoinWithProfile(roomCode, resumeToken string, profile protocol.Profile) (PeerSession, RoomSnapshot, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	id, ok := m.byCode[strings.ToUpper(strings.TrimSpace(roomCode))]
@@ -213,18 +226,23 @@ func (m *Manager) Join(roomCode, resumeToken string) (PeerSession, RoomSnapshot,
 				p.connected = true
 				p.reconnectUntil = time.Time{}
 				p.resumeHash = sha256.Sum256([]byte(token))
+				if r.presenterPeerID == p.id {
+					r.presentationStartPending = false
+				}
 				return PeerSession{PeerID: p.id, ResumeToken: token}, snapshot(r), nil
 			}
 		}
 		return PeerSession{}, RoomSnapshot{}, errors.New("INVALID_INVITE")
 	}
-	viewers := 0
+	var used [4]bool
 	for _, p := range r.peers {
-		if p.role == "viewer" {
-			viewers++
-		}
+		used[p.seatIndex] = true
 	}
-	if viewers >= 2 {
+	seat := 2
+	for seat < len(used) && used[seat] {
+		seat++
+	}
+	if seat == len(used) {
 		return PeerSession{}, RoomSnapshot{}, errors.New("ROOM_FULL")
 	}
 	peerID, err := randomID(16)
@@ -235,7 +253,8 @@ func (m *Manager) Join(roomCode, resumeToken string) (PeerSession, RoomSnapshot,
 	if err != nil {
 		return PeerSession{}, RoomSnapshot{}, err
 	}
-	r.peers[peerID] = &peer{id: peerID, role: "viewer", connected: true, resumeHash: sha256.Sum256([]byte(token))}
+	r.peers[peerID] = &peer{id: peerID, role: "viewer", connected: true, resumeHash: sha256.Sum256([]byte(token)), seatIndex: seat,
+		profile: protocol.ProfileUpdate{Profile: profile.Normalized(), ProfileRevision: 1}}
 	return PeerSession{PeerID: peerID, ResumeToken: token}, snapshot(r), nil
 }
 
@@ -289,6 +308,9 @@ func (m *Manager) Disconnect(roomID, peerID string) {
 	}
 	p.connected = false
 	p.reconnectUntil = m.now().Add(ReconnectWindow)
+	if r.presenterPeerID == peerID {
+		r.presentationStartPending = false
+	}
 }
 
 // ResumeHost is called only after the local host control token has been authenticated.
@@ -305,6 +327,9 @@ func (m *Manager) ResumeHost(roomID string) (RoomSnapshot, error) {
 	}
 	p.connected = true
 	p.reconnectUntil = time.Time{}
+	if r.presenterPeerID == p.id {
+		r.presentationStartPending = false
+	}
 	return snapshot(r), nil
 }
 
@@ -403,6 +428,27 @@ func (m *Manager) Get(roomID string) (RoomSnapshot, bool) {
 	return snapshot(r), true
 }
 
+func (m *Manager) HasActiveRooms() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.rooms) != 0
+}
+
+func (m *Manager) UpdateProfile(roomID, peerID string, profile protocol.Profile) (protocol.ProfileUpdate, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, err := m.presentationMember(roomID, peerID)
+	if err != nil {
+		return protocol.ProfileUpdate{}, err
+	}
+	p := r.peers[peerID]
+	if normalized := profile.Normalized(); normalized != p.profile.Profile {
+		p.profile.Profile = normalized
+		p.profile.ProfileRevision++
+	}
+	return p.profile, nil
+}
+
 func (m *Manager) DiscoverableRooms() []RoomSnapshot {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -445,6 +491,9 @@ func (m *Manager) ClaimPresentation(roomID, peerID string) (RoomSnapshot, error)
 	if r.presenterPeerID != "" && r.presenterPeerID != peerID {
 		return RoomSnapshot{}, errors.New("SHARE_BUSY")
 	}
+	if r.presenterPeerID == "" {
+		r.presentationStartPending = true
+	}
 	r.presenterPeerID = peerID
 	r.presentationRevision++
 	return snapshot(r), nil
@@ -474,6 +523,9 @@ func (m *Manager) UpdatePresentation(roomID, peerID string, sharing, systemAudio
 	if r.presenterPeerID != peerID {
 		return RoomSnapshot{}, errors.New("SHARE_NOT_OWNER")
 	}
+	// Only a fresh claim can announce a start. Reconnecting preserves ownership and media state.
+	started := sharing && !r.screenSharing && r.presentationStartPending
+	r.presentationStartPending = false
 	if !sharing {
 		clearPresentation(r)
 	} else {
@@ -482,12 +534,15 @@ func (m *Manager) UpdatePresentation(roomID, peerID string, sharing, systemAudio
 		r.isolationStatus = isolation
 		r.presentationRevision++
 	}
-	return snapshot(r), nil
+	snap := snapshot(r)
+	snap.PresentationStarted = started
+	return snap, nil
 }
 
 func clearPresentation(r *room) {
 	r.presentationRevision++
 	r.presenterPeerID = ""
+	r.presentationStartPending = false
 	r.screenSharing = false
 	r.hasSystemAudio = false
 	r.isolationStatus = "unverified"
@@ -557,13 +612,10 @@ func snapshot(r *room) RoomSnapshot {
 		if !p.connected {
 			state = "reconnecting"
 		}
-		s.Members = append(s.Members, PeerSnapshot{PeerID: p.id, Role: p.role, State: state})
+		s.Members = append(s.Members, PeerSnapshot{PeerID: p.id, Role: p.role, State: state, SeatIndex: p.seatIndex, ProfileUpdate: p.profile})
 	}
 	sort.Slice(s.Members, func(i, j int) bool {
-		if s.Members[i].Role != s.Members[j].Role {
-			return s.Members[i].Role < s.Members[j].Role
-		}
-		return s.Members[i].PeerID < s.Members[j].PeerID
+		return s.Members[i].SeatIndex < s.Members[j].SeatIndex
 	})
 	return s
 }

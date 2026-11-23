@@ -70,3 +70,17 @@ test('leaving during a sample drops queued refreshes and leaves no timers', asyn
   finish(); await settle();
   assert.equal(f.calls, 1); assert.equal(f.timers.size, 0);
 });
+
+test('watching samples only in the foreground, even with diagnostics open in the background', async () => {
+  const f = fixture();
+  f.state.watching = true; f.poller.sync(); await settle();
+  assert.equal(f.calls, 1);
+  assert.equal([...f.timers.values()][0].delay, 2000);
+  f.state.hidden = true; f.state.diagnosticsVisible = true; f.poller.sync(); await settle();
+  assert.equal(f.calls, 1);
+  assert.equal(f.timers.size, 0);
+  f.state.hidden = false; f.poller.sync(); await settle();
+  assert.equal(f.calls, 2);
+  f.state.watching = false; f.poller.sync();
+  assert.equal(f.timers.size, 0);
+});

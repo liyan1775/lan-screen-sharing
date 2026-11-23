@@ -24,6 +24,28 @@ func TestEnvelopeRoundTrip(t *testing.T) {
 	}
 }
 
+func TestScreenCodecSignalsAcceptOnlyStructuredNoticesAndViewerReports(t *testing.T) {
+	for _, tc := range []struct {
+		kind, payload string
+		valid         bool
+	}{
+		{"screen.ready", `{"toPeerId":"viewer","epoch":"new","codecMode":"vp8","codecChange":"peer","codecPeerId":"viewer"}`, true},
+		{"screen.ready", `{"fromPeerId":"presenter","epoch":"new","codecMode":"h264","codecChange":"restored","codecPeerId":"departed"}`, true},
+		{"screen.ready", `{"toPeerId":"viewer","epoch":"new","codecMode":"vp8","codecChange":"sharer","codecPeerId":"viewer"}`, false},
+		{"screen.ready", `{"toPeerId":"viewer","epoch":"new","codecMode":"vp8","codecChange":"restored","codecPeerId":"viewer"}`, false},
+		{"screen.ready", `{"toPeerId":"viewer","epoch":"new","codecMode":"vp8","codecChange":"peer","codecPeerId":"viewer","displayName":"forged"}`, false},
+		{"screen.description", `{"toPeerId":"presenter","epoch":"old","codecMismatch":true,"description":{"type":"offer","sdp":""}}`, true},
+		{"screen.description", `{"toPeerId":"viewer","epoch":"old","codecMismatch":true,"description":{"type":"answer","sdp":""}}`, false},
+		{"screen.description", `{"toPeerId":"presenter","epoch":"old","description":{"type":"offer","sdp":""}}`, false},
+	} {
+		var message Envelope
+		wire := []byte(`{"v":1,"type":"` + tc.kind + `","requestId":"test","payload":` + tc.payload + `}`)
+		if err := Decode(wire, &message); (err == nil) != tc.valid {
+			t.Errorf("%s: got %v, expected valid=%t", tc.payload, err, tc.valid)
+		}
+	}
+}
+
 func TestPresentationMessagesRejectClientAssignedPresenter(t *testing.T) {
 	for _, messageType := range []string{"share.claim", "share.release"} {
 		var e Envelope

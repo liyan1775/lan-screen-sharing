@@ -30,7 +30,7 @@ var version = "dev"
 func parseLaunchOptions(args []string) (launchOptions, error) {
 	var options launchOptions
 	fs := flag.NewFlagSet("lan-screen-sharing", flag.ContinueOnError)
-	fs.StringVar(&options.lanIP, "lan-ip", "", "selected private IPv4 used only for /signal/v1 (default: first available)")
+	fs.StringVar(&options.lanIP, "lan-ip", "", "override the preferred or automatically recommended private IPv4")
 	fs.IntVar(&options.signalPort, "signal-port", 0, "LAN signaling port; 0 selects an ephemeral port")
 	fs.IntVar(&options.port, "port", 0, "localhost UI port; 0 selects an available port")
 	fs.BoolVar(&options.openBrowser, "open-browser", true, "open the local page in the default browser")
@@ -75,14 +75,9 @@ func main() {
 		fmt.Println(version)
 		return
 	}
-	lanIP := options.lanIP
-	if lanIP == "" {
-		lanIP = app.FirstPrivateIPv4()
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	srv := app.New(app.Config{LANIPv4: lanIP, SignalPort: options.signalPort})
+	srv := app.New(app.Config{LANIPv4: options.lanIP, SignalPort: options.signalPort})
 	local, err := srv.StartAtPort(ctx, options.port, 10)
 	if err != nil {
 		log.Printf("本机页面启动失败：%v", err)

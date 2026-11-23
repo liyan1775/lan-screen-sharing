@@ -56,7 +56,7 @@ func TestHostRoomCreationStartsLANListener(t *testing.T) {
 	if err := json.Unmarshal(preRoomResponse.Body.Bytes(), &before); err != nil {
 		t.Fatal(err)
 	}
-	if before.LANIPv4 != "" || before.SignalPort != 0 {
+	if before.LANIPv4 != ip || before.SignalPort != 0 {
 		t.Fatalf("LAN listener started before a room existed: %#v", before)
 	}
 	conn := dialAppLocal(t, "ws://"+local.Addr().String()+"/ws/v1", origin)

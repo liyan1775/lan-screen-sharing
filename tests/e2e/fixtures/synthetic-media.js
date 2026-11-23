@@ -10,11 +10,12 @@ export function syntheticToneFrequency(label, participantAlias) {
   return MICROPHONE_TONES[participantAlias] ?? 0;
 }
 
-export function installSyntheticMedia({ denyMicrophone = false, participantAlias = 'viewer-1', captureWidth = 1280, captureHeight = 720, captureFps = 30 } = {}, renderDisplayFrame) {
+export function installSyntheticMedia({ denyMicrophone = false, participantAlias = 'viewer-1', captureWidth = 1280, captureHeight = 720, captureFps = 30, artworkPNG = '', microphones = null, hideMicrophoneDevicesUntilCapture = false } = {}) {
   // Playwright serializes this function without the module scope. Keep its
   // capture frequency lookup local as well as the exported test helper.
   const syntheticToneFrequency = (label, alias) => label === 'systemAudio' ? 440 : ({ host:523, 'viewer-1':617, 'viewer-2':733, 'viewer-extra':811 }[alias] ?? 0);
   const state = { pcs: [], sent: [], incoming: [], received: [], localDescriptions: [], remoteDescriptions: [], captures: [], sources: [], sockets: [], localSockets: [], nextSocketId: 1, denyMicrophone, participantAlias, network: { httpErrors: 0, wsErrors: 0, wsCloses: [], externalResources: 0, pageErrors: 0, unhandledRejections: 0, policyViolations: 0 } };
+  state.microphones = microphones;
   Object.defineProperty(window, '__lanScreenTest', { value: state, configurable: false });
 
   const safeLocalURL = (value) => {
@@ -125,6 +126,12 @@ export function installSyntheticMedia({ denyMicrophone = false, participantAlias
   const originalGetDisplayMedia = navigator.mediaDevices.getDisplayMedia?.bind(navigator.mediaDevices);
   const originalGetSupportedConstraints = navigator.mediaDevices.getSupportedConstraints?.bind(navigator.mediaDevices);
   const originalTrackSettings = MediaStreamTrack.prototype.getSettings;
+  if (microphones) Object.defineProperty(navigator.mediaDevices, 'enumerateDevices', {
+    configurable: true,
+    value: async () => hideMicrophoneDevicesUntilCapture && !state.sources.some(source => source.label === 'microphone')
+      ? [{kind:'audioinput', deviceId:'', label:''}]
+      : state.microphones.map(({deviceId, label}) => ({kind:'audioinput', deviceId, label})),
+  });
 
   function oscillatorTrack(label) {
     const audio = new AudioContext();
@@ -142,17 +149,22 @@ export function installSyntheticMedia({ denyMicrophone = false, participantAlias
     return track;
   }
 
-  function screenStream() {
+  async function screenStream() {
     const canvas = document.createElement('canvas');
     canvas.width = captureWidth;
     canvas.height = captureHeight;
     const context = canvas.getContext('2d');
+    const artwork = artworkPNG
+      ? await createImageBitmap(new Blob([Uint8Array.from(atob(artworkPNG), byte => byte.charCodeAt(0))], { type: 'image/png' }))
+      : null;
     let frame = 0;
-    const startedAt = performance.now();
     const draw = () => {
       frame += 1;
-      if (renderDisplayFrame) {
-        renderDisplayFrame(context, captureWidth, captureHeight, performance.now() - startedAt, participantAlias);
+      if (artwork) {
+        context.drawImage(artwork, 0, 0, canvas.width, canvas.height);
+        context.fillStyle = '#e8efff';
+        context.font = '25px "Microsoft YaHei UI", sans-serif';
+        context.fillText('演示画面', 28, canvas.height - 30);
       } else {
         context.fillStyle = `hsl(${(frame * 3) % 360} 70% 40%)`;
         context.fillRect(0, 0, canvas.width, canvas.height);
@@ -192,7 +204,13 @@ export function installSyntheticMedia({ denyMicrophone = false, participantAlias
         const error = new DOMException('Synthetic microphone denial', 'NotAllowedError');
         throw error;
       }
-      return new MediaStream([oscillatorTrack('microphone')]);
+      const id = constraints.audio?.deviceId?.exact;
+      if (id && state.microphones && !state.microphones.some(device => device.deviceId === id)) {
+        throw new DOMException('Synthetic microphone disconnected', 'NotFoundError');
+      }
+      const track = oscillatorTrack('microphone');
+      track.getSettings = () => ({...originalTrackSettings.call(track), deviceId:id || 'default'});
+      return new MediaStream([track]);
     },
   });
 

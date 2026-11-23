@@ -1,0 +1,15 @@
+LAN / 分享（局域网屏幕共享）
+Copyright 2026 liyan1775
+
+Source repository: https://github.com/liyan1775/lan-screen-sharing
+Project website: https://liyan1775.github.io/lan-screen-sharing/
+
+When redistributing this project or a derivative work, retain a readable copy
+of the applicable attribution notices in this file in accordance with Section
+4(d) of the Apache License, Version 2.0. See LICENSE for the full terms.
+
+再分发本项目或分发衍生作品时，须按 Apache-2.0 第 4(d) 条保留本文件中
+适用署名声明的可读副本。完整条款见 LICENSE。
+
+Third-party notices are in docs/third-party-notices.txt in the source tree
+and 开源组件许可.txt in the Windows distribution.

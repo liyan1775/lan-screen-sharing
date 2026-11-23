@@ -223,12 +223,12 @@ func (w *visibleHarnessResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, er
 }
 
 func registerVisibleHarnessRoutes(s *Server, recorder *bridgeSocketRecorder, role, alias string) {
-	productionLANHandler := s.lanHandler
-	s.lanHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		wrapped := &visibleHarnessResponseWriter{ResponseWriter: w, recorder: recorder, marker: r.Header.Get(visibleHarnessOwnerHeader)}
-		// Keep the actual production signal handler and request intact.
-		productionLANHandler.ServeHTTP(wrapped, r)
-	})
+	s.wrapLANHandler = func(productionLANHandler http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			wrapped := &visibleHarnessResponseWriter{ResponseWriter: w, recorder: recorder, marker: r.Header.Get(visibleHarnessOwnerHeader)}
+			productionLANHandler.ServeHTTP(wrapped, r)
+		})
+	}
 	s.localMux.HandleFunc("/__visible_test__/", serveVisibleHarnessPage(role))
 	s.localMux.HandleFunc("/__visible_test__/bootstrap.js", serveVisibleHarnessBootstrap(role, alias))
 	s.localMux.HandleFunc("/__visible_test__/controller.js", serveVisibleHarnessAsset("tests/e2e/visible-harness/controller.js"))

@@ -7,11 +7,12 @@ import { startOwnedService, shutdownOwnedServices } from './fixtures/services.js
 
 // Count product work, not the calls made by the test's own transport assertions.
 function observeBackgroundWork() {
-  const work = { stats: 0, roomRequests: 0, diagnosticsMutations: 0 };
+  const work = { stats: 0, voiceLinkStats: 0, roomRequests: 0, diagnosticsMutations: 0 };
   window.__performanceWork = work;
   const nativeStats = RTCPeerConnection.prototype.getStats;
   RTCPeerConnection.prototype.getStats = function (...args) {
     work.stats++;
+    if (!this.getTransceivers().some(transceiver => transceiver.receiver.track.kind === 'video')) work.voiceLinkStats++;
     return nativeStats.apply(this, args);
   };
   const nativeFetch = window.fetch;
@@ -37,7 +38,9 @@ test('idle, voice and screen sessions only perform the background work they need
     try { await browser?.close(); }
     finally { await shutdownOwnedServices(services); }
   });
-  browser = await chromium.launch({ headless: true, executablePath: process.env.LANSW_BROWSER_PATH, args: ['--mute-audio'] });
+  const args = ['--mute-audio'];
+  if (process.env.LANSW_TEST_DISABLE_MDNS === '1') args.push('--disable-features=WebRtcHideLocalIpsWithMdns');
+  browser = await chromium.launch({ headless: true, executablePath: process.env.LANSW_BROWSER_PATH, args });
   for (let i = 0; i < 3; i++) {
     const service = await startOwnedService();
     services.push(service);
@@ -86,7 +89,8 @@ test('idle, voice and screen sessions only perform the background work they need
     assert.deepEqual(measurements.activePlayers, [1, 1, 1], 'each participant plays the screen in one video element');
     assert.ok(sharing.every(row => row.roomRequests === 0 && row.diagnosticsMutations === 0));
     assert.ok(sharing[0].stats > 0 && sharing[0].stats <= 2, 'host samples its one encoding connection at low frequency');
-    assert.ok(sharing.slice(1).every(row => row.stats > 0 && row.stats <= 2), 'viewers sample only the presenter link');
+    assert.ok(sharing.slice(1).every(row => row.stats >= 4 && row.stats <= 6 && row.voiceLinkStats === 0),
+      `visible viewers refresh their incoming quality capsule every two seconds without sampling voice links: ${JSON.stringify(sharing)}`);
   }
   await Promise.all(pages.map(async page => {
     await page.locator('#open-settings').click();
@@ -96,7 +100,7 @@ test('idle, voice and screen sessions only perform the background work they need
   const diagnostics = await measure('sharingDiagnosticsOpen');
   if (!baseline) {
     assert.ok(diagnostics[0].stats >= 2 && diagnostics[0].stats <= 4, 'open diagnostics keep responsive two-second sampling');
-    assert.ok(diagnostics.slice(1).every(row => row.stats >= 2 && row.stats <= 4));
+    assert.ok(diagnostics.slice(1).every(row => row.stats >= 2 && row.stats <= 4 && row.voiceLinkStats === 0));
   }
   await Promise.all(pages.map(page => page.locator('#settings-dialog [data-close-dialog]').click()));
   await host.locator('#stop-share').click();

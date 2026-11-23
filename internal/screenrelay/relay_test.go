@@ -3,6 +3,9 @@ package screenrelay
 import (
 	"bytes"
 	"context"
+	"errors"
+	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,6 +32,15 @@ func offer(t *testing.T, ctx context.Context, pc *webrtc.PeerConnection) webrtc.
 }
 
 func TestOneUpstreamForwardsIdenticalPayloadAndClockToTwoReceivers(t *testing.T) {
+	for _, codec := range []webrtc.RTPCodecCapability{
+		{MimeType: webrtc.MimeTypeVP8, ClockRate: 90000},
+		{MimeType: webrtc.MimeTypeH264, ClockRate: 90000, SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"},
+	} {
+		t.Run(codec.MimeType, func(t *testing.T) { verifyFanout(t, codec) })
+	}
+}
+
+func verifyFanout(t *testing.T, codec webrtc.RTPCodecCapability) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	m := New("")
@@ -38,7 +50,7 @@ func TestOneUpstreamForwardsIdenticalPayloadAndClockToTwoReceivers(t *testing.T)
 		t.Fatal(err)
 	}
 	defer source.Close()
-	track, err := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8, ClockRate: 90000}, "screenVideo", "screen")
+	track, err := webrtc.NewTrackLocalStaticRTP(codec, "screenVideo", "screen")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,6 +65,9 @@ func TestOneUpstreamForwardsIdenticalPayloadAndClockToTwoReceivers(t *testing.T)
 		t.Fatal(err)
 	}
 	payload := []byte{0x10, 0x00, 0x9d, 0x01, 0x2a, 0x80, 0x07, 0x38, 0x04, 0x12, 0x34}
+	if codec.MimeType == webrtc.MimeTypeH264 {
+		payload[0] = 0x65
+	}
 	go func() {
 		ticker := time.NewTicker(10 * time.Millisecond)
 		defer ticker.Stop()
@@ -70,6 +85,7 @@ func TestOneUpstreamForwardsIdenticalPayloadAndClockToTwoReceivers(t *testing.T)
 		}
 	}()
 	packets := []chan *rtp.Packet{make(chan *rtp.Packet, 20), make(chan *rtp.Packet, 20)}
+	var reconnect webrtc.SessionDescription
 	for i := 0; i < 2; i++ {
 		pc, createErr := m.api.NewPeerConnection(webrtc.Configuration{})
 		if createErr != nil {
@@ -79,6 +95,9 @@ func TestOneUpstreamForwardsIdenticalPayloadAndClockToTwoReceivers(t *testing.T)
 		pc.OnTrack(func(remote *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
 			if remote.Kind() != webrtc.RTPCodecTypeVideo {
 				return
+			}
+			if remote.Codec().MimeType != codec.MimeType {
+				t.Errorf("forwarded codec %s, want %s", remote.Codec().MimeType, codec.MimeType)
 			}
 			for {
 				packet, _, readErr := remote.ReadRTP()
@@ -97,7 +116,8 @@ func TestOneUpstreamForwardsIdenticalPayloadAndClockToTwoReceivers(t *testing.T)
 				t.Fatal(err)
 			}
 		}
-		answer, err = m.Answer(ctx, id, []string{"one", "two"}[i], offer(t, ctx, pc))
+		reconnect = offer(t, ctx, pc)
+		answer, err = m.Answer(ctx, id, []string{"one", "two"}[i], reconnect)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -147,6 +167,38 @@ func TestOneUpstreamForwardsIdenticalPayloadAndClockToTwoReceivers(t *testing.T)
 	if _, err = m.Answer(ctx, id, "third", offer(t, ctx, third)); err == nil || err.Error() != "SCREEN_RELAY_FULL" {
 		t.Fatalf("third receiver was accepted: %v", err)
 	}
+	s, err := m.session(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	old := s.receivers["two"]
+	s.mu.Unlock()
+	invalidICE := reconnect
+	invalidICE.SDP = strings.ReplaceAll(invalidICE.SDP, "a=ice-ufrag:", "a=ignored-ufrag:")
+	if _, err = m.Answer(ctx, id, "two", invalidICE); err == nil || errors.Is(err, ErrCodecMismatch) {
+		t.Fatalf("expected compatible offer to fail during negotiation, got %v", err)
+	}
+	if codec.MimeType == webrtc.MimeTypeH264 {
+		for _, tc := range []struct{ name, rtpmap, fmtp, direction string }{
+			{"high", "H264", "packetization-mode=1;profile-level-id=640c1f", "recvonly"},
+			{"mode 0", "H264", "packetization-mode=0;profile-level-id=42e01f", "recvonly"},
+			{"lower level", "H264", "packetization-mode=1;profile-level-id=42e014;level-asymmetry-allowed=1", "recvonly"},
+			{"VP8 only", "VP8", "", "recvonly"},
+			{"send only", "H264", "packetization-mode=1;profile-level-id=42e01f", "sendonly"},
+		} {
+			incompatible := webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=mid:0\r\na=" + tc.direction + "\r\na=rtpmap:96 " + tc.rtpmap + "/90000\r\na=fmtp:96 " + tc.fmtp + "\r\n"}
+			if _, err = m.Answer(ctx, id, "two", incompatible); !errors.Is(err, ErrCodecMismatch) {
+				t.Errorf("%s returned %v, want codec mismatch", tc.name, err)
+			}
+		}
+	}
+	s.mu.Lock()
+	current := s.receivers["two"]
+	s.mu.Unlock()
+	if current != old || old.pc.ConnectionState() != webrtc.PeerConnectionStateConnected {
+		t.Fatal("failed reconnection replaced or closed the connected receiver")
+	}
 	m.RemoveReceiver(id, "one")
 	var lastSequence uint16
 	for sequence := range seen[1] {
@@ -170,6 +222,30 @@ func TestOneUpstreamForwardsIdenticalPayloadAndClockToTwoReceivers(t *testing.T)
 	m.Stop(id)
 	if _, err = m.session(id); err == nil {
 		t.Fatal("publisher survived stop")
+	}
+}
+
+func TestMalformedRTPBetweenValidPacketsDoesNotInterruptStream(t *testing.T) {
+	good := func(sequence uint16) []byte {
+		packet := &rtp.Packet{Header: rtp.Header{Version: 2, PayloadType: 96, SequenceNumber: sequence}, Payload: []byte{0x65}}
+		encoded, err := packet.Marshal()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return encoded
+	}
+	input := [][]byte{good(1), {0x80, 0x60, 0x00}, good(3)}
+	var received []uint16
+	readPackets(func(buffer []byte) (int, error) {
+		if len(input) == 0 {
+			return 0, io.EOF
+		}
+		n := copy(buffer, input[0])
+		input = input[1:]
+		return n, nil
+	}, func(packet *rtp.Packet) { received = append(received, packet.SequenceNumber) })
+	if len(received) != 2 || received[0] != 1 || received[1] != 3 {
+		t.Fatalf("packets forwarded: %v", received)
 	}
 }
 

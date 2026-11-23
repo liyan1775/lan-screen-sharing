@@ -1,1 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="b" x2="1" y2="1"><stop stop-color="#70adff"/><stop offset="1" stop-color="#0065df"/></linearGradient></defs><rect width="64" height="64" rx="18" fill="url(#b)"/><path d="M23 16v32h23v-6H29V16z" fill="white"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="blue" x1="0" y1="0" x2=".7" y2="1" gradientUnits="objectBoundingBox">
+      <stop stop-color="#48afff"/><stop offset=".59" stop-color="#0071e3"/><stop offset="1" stop-color="#0049b5"/>
+    </linearGradient>
+    <radialGradient id="glass" cx=".42" cy="0" r=".68">
+      <stop stop-color="#fff" stop-opacity=".49"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+    <path id="tile" d="M32 1C58 1 63 6 63 32S58 63 32 63 1 58 1 32 6 1 32 1Z"/>
+  </defs>
+  <use href="#tile" fill="url(#blue)"/>
+  <use href="#tile" fill="url(#glass)" stroke="#fff" stroke-width=".7" stroke-opacity=".34"/>
+  <g transform="translate(12 12) scale(1.67)" fill="none" stroke="#fff" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 15.8h-.2A2.3 2.3 0 0 1 1.5 13.5V5.8a2.3 2.3 0 0 1 2.3-2.3h12.4a2.3 2.3 0 0 1 2.3 2.3v.4"/>
+    <rect x="6.5" y="8.6" width="16" height="10.8" rx="2.2"/>
+    <path d="M12.2 21.8h4.6"/>
+  </g>
+</svg>

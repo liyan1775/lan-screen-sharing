@@ -43,13 +43,13 @@ function readTrackRoleMap(transceivers) {
 }
 
 export class MeshMedia extends EventTarget {
-  constructor(roomClient, { onRemoteTrack = () => {}, onState = () => {}, onAudioSource = () => {}, onText = () => {} } = {}) {
+  constructor(roomClient, { onRemoteTrack = () => {}, onState = () => {}, onAudioSource = () => {}, onText = () => {}, onReaction = () => {} } = {}) {
     super();
     this.client = roomClient;
     this.onRemoteTrack = onRemoteTrack;
     this.onState = onState;
     this.onAudioSource = onAudioSource;
-    this.text = new RoomText({onMessage:onText, onChange:() => this.onState({state:'text_connection'})});
+    this.text = new RoomText({onMessage:onText, onReaction, onChange:() => this.onState({state:'text_connection'})});
     this.selfPeerId = '';
     this.selfRole = '';
     this.peers = new Map();
@@ -58,6 +58,9 @@ export class MeshMedia extends EventTarget {
     this.screenVideoTrack = null;
     this.systemAudioTrack = null;
     this.microphoneTrack = null;
+    this.microphoneGeneration = 0;
+    this.microphoneQueue = Promise.resolve();
+    this.pendingMicrophones = new Set();
     this.captureMode = 'limited';
     this.isolation = isolationStatus({ supported: false });
     this.quality = '1080p60';
@@ -76,7 +79,7 @@ export class MeshMedia extends EventTarget {
     this.shareCursor = false;
     this.relay = new ScreenRelay(roomClient, {
       peerIds:() => [...this.peers.keys()], presenter:() => this.presenterPeerId,
-      applyQuality:sender => this.applyVideoQuality(sender), onTrack:(id,role,track) => this.receiveTrack(id,role,track),
+      applyQuality:(sender, options) => this.applyVideoQuality(sender, options), onTrack:(id,role,track) => this.receiveTrack(id,role,track),
       onViewClosed:id => {
         this.remoteScreens.delete(id);
         const audio=this.audioElements.get(`${id}:systemAudio`); audio?.pause(); audio?.remove(); this.audioElements.delete(`${id}:systemAudio`);
@@ -84,6 +87,7 @@ export class MeshMedia extends EventTarget {
         this.onState({state:'remote_screen_ended',peerId:id});
       },
       onError:error => this.onState({state:'screen_relay_error',message:error.message}),
+      onCodecChange:change => this.onState({state:'screen_codec_change', ...change}),
     });
   }
 
@@ -123,7 +127,7 @@ export class MeshMedia extends EventTarget {
       peer.voiceSender = voice.sender;
       peer.screenSender = [...peer.localRoles].find(([, trackRole]) => trackRole === 'screenVideo')?.[0].sender ?? null;
       peer.systemAudioSender = [...peer.localRoles].find(([, trackRole]) => trackRole === 'systemAudio')?.[0].sender ?? null;
-      void peer.voiceSender.replaceTrack(this.microphoneTrack).catch(() => {});
+      void this.syncMicrophoneSender(peer, peer.voiceSender).catch(() => {});
       {
         void peer.screenSender.replaceTrack(this.usesScreenRelay ? null : this.screenVideoTrack).catch(() => {});
         void peer.systemAudioSender.replaceTrack(!this.usesScreenRelay && this.captureMode === 'combined' ? this.systemAudioTrack : null).catch(() => {});
@@ -184,7 +188,8 @@ export class MeshMedia extends EventTarget {
     // Remote role metadata identifies a negotiated media slot; local role
     // decides which local track, if any, is allowed to use that sender.
     await Promise.all([...localRoles].map(([transceiver, role]) => {
-      const track = role === 'microphone' ? this.microphoneTrack : this.usesScreenRelay ? null
+      if (role === 'microphone') return this.syncMicrophoneSender(peer, transceiver.sender);
+      const track = this.usesScreenRelay ? null
         : role === 'screenVideo' ? this.screenVideoTrack
           : role === 'systemAudio' && this.captureMode === 'combined' ? this.systemAudioTrack
             : null;
@@ -342,27 +347,123 @@ export class MeshMedia extends EventTarget {
     }
   }
 
-  async setMicrophoneTrack(track) {
-    this.microphoneTrack = track;
-    await Promise.all([...this.peers.values()].map((peer) => peer.voiceSender?.replaceTrack(track)));
-    this.publishMediaState();
+  queueMicrophoneUpdate(update) {
+    const result = this.microphoneQueue.then(update);
+    this.microphoneQueue = result.catch(() => {});
+    return result;
   }
 
-  async setMicrophoneFromCapture(capturePromise) {
-    const captureGeneration = this.captureGeneration;
+  syncMicrophoneSender(peer, sender) {
+    return this.queueMicrophoneUpdate(() => {
+      if (this.peers.get(peer.peerId) === peer && peer.voiceSender === sender && sender.track !== this.microphoneTrack) {
+        return sender.replaceTrack(this.microphoneTrack);
+      }
+    });
+  }
+
+  assertMicrophoneGeneration(generation) {
+    if (generation !== this.microphoneGeneration) {
+      throw Object.assign(new Error('麦克风采集已取消。'), { code: 'CAPTURE_CANCELLED' });
+    }
+  }
+
+  cancelMicrophoneCapture() {
+    this.microphoneGeneration += 1;
+    for (const pending of this.pendingMicrophones) pending.release();
+  }
+
+  async setMicrophoneTrack(track, { generation = this.microphoneGeneration, sending = () => true, onCommit = () => {} } = {}) {
+    if (track && track !== this.microphoneTrack) track.enabled = false;
+    return this.queueMicrophoneUpdate(async () => {
+      const previous = this.microphoneTrack;
+      const replaced = new Map();
+      const isCurrent = (sender, peer) => this.peers.get(peer.peerId) === peer && peer.voiceSender === sender;
+      try {
+        for (;;) {
+          this.assertMicrophoneGeneration(generation);
+          if (track?.readyState === 'ended') throw new Error('所选麦克风已停止工作。');
+          const waiting = [...this.peers.values()].filter(peer => peer.voiceSender && !replaced.has(peer.voiceSender));
+          if (!waiting.length) break;
+          const results = await Promise.allSettled(waiting.map(async peer => {
+            const sender = peer.voiceSender;
+            try {
+              await sender.replaceTrack(track);
+              replaced.set(sender, peer);
+            } catch (error) {
+              if (isCurrent(sender, peer)) throw error;
+            }
+          }));
+          this.assertMicrophoneGeneration(generation);
+          if (results.some(result => result.status === 'rejected')) {
+            throw Object.assign(new Error('部分成员未能切换麦克风，已恢复原来的麦克风状态。'), { code: 'MIC_SWITCH_FAILED' });
+          }
+        }
+      } catch (error) {
+        // A cancelled room or explicit mute may already have cleared the old track.
+        const restore = this.microphoneTrack;
+        let lostPeer = false;
+        await Promise.all([...replaced].map(async ([sender, peer]) => {
+          if (!isCurrent(sender, peer)) return;
+          try { await sender.replaceTrack(restore); }
+          catch {
+            if (!isCurrent(sender, peer)) return;
+            lostPeer = true;
+            void this.closePeer(peer.peerId).catch(() => {});
+          }
+        }));
+        if (lostPeer && error.code !== 'CAPTURE_CANCELLED') {
+          throw Object.assign(new Error('切换失败，已保留原麦克风。部分成员连接未能恢复，请重新加入房间。'), { code: 'MIC_SWITCH_FAILED' });
+        }
+        throw error;
+      }
+      this.microphoneTrack = track;
+      if (previous !== track) previous?.stop?.();
+      if (track) track.enabled = sending();
+      onCommit();
+      this.publishMediaState();
+    });
+  }
+
+  stopMicrophone() {
+    this.cancelMicrophoneCapture();
+    const previous = this.microphoneTrack;
+    this.microphoneTrack = null;
+    if (previous) {
+      previous.enabled = false;
+      previous.stop();
+    }
+    this.publishMediaState();
+    for (const peer of this.peers.values()) {
+      if (peer.voiceSender) void this.syncMicrophoneSender(peer, peer.voiceSender).catch(() => {});
+    }
+  }
+
+  async setMicrophoneFromCapture(capturePromise, sending) {
+    const generation = this.microphoneGeneration;
     const stream = await capturePromise;
-    if (captureGeneration !== this.captureGeneration) {
-      stream.getTracks?.().forEach((track) => track.stop());
-      throw Object.assign(new Error('本机信令已关闭，麦克风捕获已取消。'), { code: 'CAPTURE_CANCELLED' });
-    }
     const track = stream.getAudioTracks?.()[0];
-    if (!track) throw new Error('麦克风没有返回音频轨道。');
-    await this.setMicrophoneTrack(track);
-    if (captureGeneration !== this.captureGeneration) {
-      stream.getTracks?.().forEach((item) => item.stop());
-      throw Object.assign(new Error('本机信令已关闭，麦克风捕获已取消。'), { code: 'CAPTURE_CANCELLED' });
+    let released = false, committed = false;
+    const pending = { release() {
+      if (released) return;
+      released = true;
+      stream.getTracks?.().forEach(item => item.stop());
+    } };
+    try {
+      this.assertMicrophoneGeneration(generation);
+      if (!track || track.readyState === 'ended') throw new Error('麦克风没有返回可用的音频轨道。');
+      this.pendingMicrophones.add(pending);
+      await this.setMicrophoneTrack(track, { generation, sending, onCommit: () => {
+        committed = true;
+        this.pendingMicrophones.delete(pending);
+      } });
+      this.assertMicrophoneGeneration(generation);
+      return { stream, track };
+    } catch (error) {
+      if (!committed) pending.release();
+      throw error;
+    } finally {
+      this.pendingMicrophones.delete(pending);
     }
-    return { stream, track };
   }
 
   setAudioIsolationState(state) { this.isolation = state; this.publishMediaState(); }
@@ -450,7 +551,7 @@ export class MeshMedia extends EventTarget {
     this.onState({ state: 'quality', target: this.quality, targetText: `目标 ${this.quality} · 初始发送参数，实际效果以统计为准` });
   }
 
-  async applyVideoQuality(sender) {
+  async applyVideoQuality(sender, { confirm = false } = {}) {
     if (!sender?.getParameters || !sender?.setParameters) return false;
     try {
       const target = QUALITY[this.quality];
@@ -474,7 +575,9 @@ export class MeshMedia extends EventTarget {
         await sender.setParameters(fallback);
         this.onState({ state: 'quality_preference_unsupported', message: '浏览器未接受帧率优先策略，已保留基本画质设置；请以实际统计为准。' });
       }
-      return true;
+      if (!confirm) return true;
+      const applied = sender.getParameters().encodings?.[0];
+      return applied?.maxBitrate === target.bitrate && applied.maxFramerate === target.fps;
     } catch {
       this.onState({ state: 'quality_unsupported', message: '浏览器不支持应用部分发送质量目标；仍显示实际统计。' });
       return false;
@@ -565,7 +668,7 @@ export class MeshMedia extends EventTarget {
     for (const stream of this.remoteScreens.values()) for (const track of stream.getVideoTracks()) track.enabled = !this.voiceOnly;
   }
 
-  async getStatsSnapshot({ peerIds = null, videoOnly = false } = {}) {
+  async getStatsSnapshot({ peerIds = null, videoOnly = false, isCurrent = () => true } = {}) {
     const snapshots = [];
     const currentPeers = () => this.usesScreenRelay && videoOnly ? this.relay.statsPeers() : this.peers;
     const available = currentPeers();
@@ -574,6 +677,7 @@ export class MeshMedia extends EventTarget {
       try { return { peerId, peer, reports: await peer.pc.getStats() }; }
       catch (error) { if (currentPeers().get(peerId) !== peer) return null; throw error; }
     }));
+    if (!isCurrent()) return snapshots;
     for (const reading of readings) {
       if (!reading || currentPeers().get(reading.peerId) !== reading.peer) continue;
       const { peerId, reports } = reading;
@@ -601,11 +705,16 @@ export class MeshMedia extends EventTarget {
         const codec = report.codecId ? reports.get(report.codecId) : null;
         const transport = report.transportId ? reports.get(report.transportId) : null;
         const pair = transport?.selectedCandidatePairId ? reports.get(transport.selectedCandidatePairId) : null;
+        const outbound = report.type === 'outbound-rtp';
+        const mime = codec?.mimeType?.toUpperCase();
         snapshots.push({ peerId, localRelay:reading.peer.localRelay === true, direction: report.type, role, width: report.frameWidth, height: report.frameHeight, fps: report.framesPerSecond ?? measuredFps, bitrate, droppedFrames: report.framesDropped ?? report.framesDiscarded,
           sourceFps: source?.framesPerSecond ?? sourceDelta,
           intervalFps: measuredFps, sourceIntervalFps: sourceDelta, sampleIntervalSeconds: elapsed,
-          codec: ['video/VP8', 'video/VP9', 'video/H264', 'video/AV1'].includes(codec?.mimeType) ? codec.mimeType.slice(6) : null,
-          powerEfficientEncoder: typeof report.powerEfficientEncoder === 'boolean' ? report.powerEfficientEncoder : null,
+          codec: ['VIDEO/VP8', 'VIDEO/VP9', 'VIDEO/H264', 'VIDEO/AV1'].includes(mime) ? mime.slice(6) : null,
+          encoderImplementation: outbound && typeof report.encoderImplementation === 'string' ? report.encoderImplementation : undefined,
+          decoderImplementation: !outbound && typeof report.decoderImplementation === 'string' ? report.decoderImplementation : undefined,
+          powerEfficientEncoder: outbound && typeof report.powerEfficientEncoder === 'boolean' ? report.powerEfficientEncoder : undefined,
+          powerEfficientDecoder: !outbound && typeof report.powerEfficientDecoder === 'boolean' ? report.powerEfficientDecoder : undefined,
           averageEncodeMs: Number.isFinite(report.totalEncodeTime) && report.framesEncoded > 0 ? report.totalEncodeTime * 1000 / report.framesEncoded : null,
           encodedFramesDelta, intervalEncodeMs: encodedFramesDelta > 0 && encodeTimeDelta !== null ? encodeTimeDelta * 1000 / encodedFramesDelta : null,
           encodeTimeRatio: elapsed && encodeTimeDelta !== null ? encodeTimeDelta / elapsed : null,
@@ -619,13 +728,18 @@ export class MeshMedia extends EventTarget {
   }
 
   async closePeer(peerId) {
+    // Media reconnects close the transport while the member still owns a seat.
+    const departed = !this.client.room?.members?.some(member => member.peerId === peerId);
     const peer = this.peers.get(peerId);
-    if (!peer) return;
+    if (!peer) {
+      if (this.usesScreenRelay && departed) this.relay.removePeer(peerId);
+      return;
+    }
     this.text.removePeer(peerId);
     peer.pc.close();
     this.peers.delete(peerId);
     let sourceClosed;
-    if (this.usesScreenRelay) { this.relay.removePeer(peerId); if (!this.peers.size) sourceClosed = this.relay.stopSource(); }
+    if (this.usesScreenRelay) { this.relay.removePeer(peerId, departed); if (!this.peers.size) sourceClosed = this.relay.stopTransport(); }
     this.remoteScreens.delete(peerId);
     for (const key of this.statsPrevious.keys()) if (key.startsWith(`${peerId}:`)) this.statsPrevious.delete(key);
     for (const key of [`${peerId}:microphone`, `${peerId}:systemAudio`]) {
@@ -638,6 +752,7 @@ export class MeshMedia extends EventTarget {
 
   async closeAll() {
     this.captureGeneration += 1;
+    this.cancelMicrophoneCapture();
     const relayClosed = this.relay.close();
     this.statsPrevious.clear();
     const captured = new Set([this.claimingStream,this.preparingScreenStream,this.screenStream,this.pendingScreenStream].flatMap(stream => stream?.getTracks?.() ?? []));

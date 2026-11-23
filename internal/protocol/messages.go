@@ -59,16 +59,20 @@ type SignalDescriptionPayload struct {
 }
 
 type ScreenReadyPayload struct {
-	ToPeerID   string `json:"toPeerId,omitempty"`
-	FromPeerID string `json:"fromPeerId,omitempty"`
-	Epoch      string `json:"epoch"`
+	ToPeerID    string `json:"toPeerId,omitempty"`
+	FromPeerID  string `json:"fromPeerId,omitempty"`
+	Epoch       string `json:"epoch"`
+	CodecMode   string `json:"codecMode,omitempty"`
+	CodecChange string `json:"codecChange,omitempty"`
+	CodecPeerID string `json:"codecPeerId,omitempty"`
 }
 
 type ScreenDescriptionPayload struct {
-	ToPeerID    string      `json:"toPeerId,omitempty"`
-	FromPeerID  string      `json:"fromPeerId,omitempty"`
-	Epoch       string      `json:"epoch"`
-	Description Description `json:"description"`
+	ToPeerID      string      `json:"toPeerId,omitempty"`
+	FromPeerID    string      `json:"fromPeerId,omitempty"`
+	Epoch         string      `json:"epoch"`
+	Description   Description `json:"description"`
+	CodecMismatch bool        `json:"codecMismatch,omitempty"`
 }
 
 type SignalCandidatePayload struct {
@@ -77,8 +81,22 @@ type SignalCandidatePayload struct {
 }
 
 type JoinPayload struct {
+	Profile
 	HostIPv4     string `json:"hostIPv4"`
 	HostPort     int    `json:"hostPort"`
+	RoomCode     string `json:"roomCode"`
+	ResumeToken  string `json:"resumeToken,omitempty"`
+	RestartMedia bool   `json:"restartMedia,omitempty"`
+}
+
+type CreateRoomPayload struct {
+	Profile
+	Name         string `json:"name,omitempty"`
+	Discoverable *bool  `json:"discoverable,omitempty"`
+}
+
+type SignalJoinPayload struct {
+	Profile
 	RoomCode     string `json:"roomCode"`
 	ResumeToken  string `json:"resumeToken,omitempty"`
 	RestartMedia bool   `json:"restartMedia,omitempty"`
@@ -96,7 +114,7 @@ var knownTypes = map[string]bool{
 	"rtc.candidate": true, "media.state": true, "heartbeat": true,
 	"signal.join": true, "signal.leave": true,
 	"room.created": true, "room.joined": true, "room.state": true,
-	"peer.joined": true, "peer.left": true, "peer.state": true,
+	"peer.joined": true, "peer.left": true, "peer.state": true, "peer.profile": true,
 	"room.ended": true, "error": true,
 	"share.claim": true, "share.release": true,
 	"screen.ready": true, "screen.description": true,
@@ -161,7 +179,7 @@ func Decode(data []byte, target *Envelope) error {
 
 func requiresRequestID(messageType string) bool {
 	switch messageType {
-	case "screen.ready", "screen.description":
+	case "screen.ready", "screen.description", "peer.profile":
 		return true
 	case "auth.hello", "host.createRoom", "host.endRoom", "viewer.join", "viewer.leave", "rtc.description", "rtc.candidate", "media.state", "heartbeat", "signal.join", "signal.leave", "share.claim", "share.release":
 		return true
@@ -180,13 +198,41 @@ func validatePayload(e Envelope) error {
 		if (p.ToPeerID == "") == (p.FromPeerID == "") || len(p.Epoch) < 1 || len(p.Epoch) > 64 {
 			return errors.New("invalid screen readiness")
 		}
+		if p.CodecMode != "" && p.CodecMode != "h264" && p.CodecMode != "vp8" {
+			return errors.New("invalid screen codec mode")
+		}
+		switch p.CodecChange {
+		case "":
+			if p.CodecPeerID != "" {
+				return errors.New("unexpected codec peer")
+			}
+		case "peer", "restored":
+			expected := "vp8"
+			if p.CodecChange == "restored" {
+				expected = "h264"
+			}
+			if !validCodecPeerID(p.CodecPeerID) || p.CodecMode != expected {
+				return errors.New("invalid screen codec notice")
+			}
+		case "sharer":
+			if p.CodecMode != "vp8" || p.CodecPeerID != "" {
+				return errors.New("invalid screen codec notice")
+			}
+		default:
+			return errors.New("invalid screen codec notice")
+		}
 		return nil
 	case "screen.description":
 		var p ScreenDescriptionPayload
 		if err := decodePayload(e.Payload, &p); err != nil {
 			return err
 		}
-		if (p.ToPeerID == "") == (p.FromPeerID == "") || len(p.Epoch) < 1 || len(p.Epoch) > 64 || p.Description.SDP == "" || (p.Description.Type != "offer" && p.Description.Type != "answer") {
+		valid := p.Description.SDP != "" && (p.Description.Type == "offer" || p.Description.Type == "answer")
+		if p.CodecMismatch {
+			// Uses the existing authenticated viewer-to-presenter offer route.
+			valid = p.Description.Type == "offer" && p.Description.SDP == ""
+		}
+		if (p.ToPeerID == "") == (p.FromPeerID == "") || len(p.Epoch) < 1 || len(p.Epoch) > 64 || !valid {
 			return errors.New("invalid screen description")
 		}
 		return nil
@@ -256,20 +302,16 @@ func validatePayload(e Envelope) error {
 			return errors.New("join address and room code are required")
 		}
 	case "host.createRoom":
-		var p struct {
-			Name         string `json:"name,omitempty"`
-			Discoverable *bool  `json:"discoverable,omitempty"`
-		}
+		var p CreateRoomPayload
+		return decodePayload(e.Payload, &p)
+	case "peer.profile":
+		var p ProfileUpdate
 		return decodePayload(e.Payload, &p)
 	case "host.endRoom", "viewer.leave", "signal.leave", "heartbeat", "share.claim", "share.release":
 		var p struct{}
 		return decodePayload(e.Payload, &p)
 	case "signal.join":
-		var p struct {
-			RoomCode     string `json:"roomCode"`
-			ResumeToken  string `json:"resumeToken,omitempty"`
-			RestartMedia bool   `json:"restartMedia,omitempty"`
-		}
+		var p SignalJoinPayload
 		if err := decodePayload(e.Payload, &p); err != nil {
 			return err
 		}
@@ -301,54 +343,45 @@ func validatePayload(e Envelope) error {
 		}
 	case "room.created":
 		var p struct {
-			Name         string `json:"name,omitempty"`
-			Discoverable bool   `json:"discoverable,omitempty"`
-			RoomID       string `json:"roomId"`
-			HostPeerID   string `json:"hostPeerId"`
-			RoomCode     string `json:"roomCode"`
-			ExpiresAt    string `json:"expiresAt"`
+			Name         string   `json:"name,omitempty"`
+			Discoverable bool     `json:"discoverable,omitempty"`
+			RoomID       string   `json:"roomId"`
+			HostPeerID   string   `json:"hostPeerId"`
+			RoomCode     string   `json:"roomCode"`
+			ExpiresAt    string   `json:"expiresAt"`
+			Members      []Member `json:"members,omitempty"`
 		}
 		return decodePayload(e.Payload, &p)
 	case "room.joined":
 		var p struct {
-			Name                 string `json:"name,omitempty"`
-			RoomID               string `json:"roomId"`
-			PeerID               string `json:"peerId"`
-			ResumeToken          string `json:"resumeToken"`
-			PresenterPeerID      string `json:"presenterPeerId,omitempty"`
-			PresentationRevision uint64 `json:"presentationRevision,omitempty"`
-			ScreenSharing        bool   `json:"screenSharing,omitempty"`
-			HasSystemAudio       bool   `json:"hasSystemAudio,omitempty"`
-			IsolationStatus      string `json:"isolationStatus,omitempty"`
-			Members              []struct {
-				PeerID string `json:"peerId"`
-				Role   string `json:"role"`
-				State  string `json:"state"`
-			} `json:"members"`
+			Name                 string   `json:"name,omitempty"`
+			RoomID               string   `json:"roomId"`
+			PeerID               string   `json:"peerId"`
+			ResumeToken          string   `json:"resumeToken"`
+			PresenterPeerID      string   `json:"presenterPeerId,omitempty"`
+			PresentationRevision uint64   `json:"presentationRevision,omitempty"`
+			ScreenSharing        bool     `json:"screenSharing,omitempty"`
+			HasSystemAudio       bool     `json:"hasSystemAudio,omitempty"`
+			IsolationStatus      string   `json:"isolationStatus,omitempty"`
+			Members              []Member `json:"members"`
 		}
 		return decodePayload(e.Payload, &p)
 	case "room.state":
 		var p struct {
-			Name     string `json:"name,omitempty"`
-			RoomCode string `json:"roomCode,omitempty"`
-			Resumed  bool   `json:"resumed,omitempty"`
-			Members  []struct {
-				PeerID string `json:"peerId"`
-				Role   string `json:"role"`
-				State  string `json:"state"`
-			} `json:"members,omitempty"`
-			ScreenSharing        *bool  `json:"screenSharing,omitempty"`
-			PresentationRevision uint64 `json:"presentationRevision,omitempty"`
-			PresenterPeerID      string `json:"presenterPeerId,omitempty"`
-			HasSystemAudio       bool   `json:"hasSystemAudio,omitempty"`
-			IsolationStatus      string `json:"isolationStatus,omitempty"`
+			Name                 string   `json:"name,omitempty"`
+			RoomCode             string   `json:"roomCode,omitempty"`
+			Resumed              bool     `json:"resumed,omitempty"`
+			PresentationStarted  bool     `json:"presentationStarted,omitempty"`
+			Members              []Member `json:"members,omitempty"`
+			ScreenSharing        *bool    `json:"screenSharing,omitempty"`
+			PresentationRevision uint64   `json:"presentationRevision,omitempty"`
+			PresenterPeerID      string   `json:"presenterPeerId,omitempty"`
+			HasSystemAudio       bool     `json:"hasSystemAudio,omitempty"`
+			IsolationStatus      string   `json:"isolationStatus,omitempty"`
 		}
 		return decodePayload(e.Payload, &p)
 	case "peer.joined":
-		var p struct {
-			PeerID string `json:"peerId"`
-			Role   string `json:"role"`
-		}
+		var p Member
 		return decodePayload(e.Payload, &p)
 	case "peer.left":
 		var p struct {
@@ -370,6 +403,18 @@ func validatePayload(e Envelope) error {
 		return decodePayload(e.Payload, &p)
 	}
 	return nil
+}
+
+func validCodecPeerID(value string) bool {
+	if len(value) == 0 || len(value) > 128 {
+		return false
+	}
+	for _, c := range value {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 func decodePayload(data []byte, target any) error {

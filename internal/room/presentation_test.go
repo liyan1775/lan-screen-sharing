@@ -28,12 +28,16 @@ func TestMembersCanTakeTurnsPresentingWithoutChangingRoomOwnership(t *testing.T)
 		t.Fatal("non-presenter published media state")
 	}
 	active, err := m.UpdatePresentation(initial.ID, first.PeerID, true, true, "browser_reported")
-	if err != nil || !active.ScreenSharing || !active.HasSystemAudio {
+	if err != nil || !active.ScreenSharing || !active.HasSystemAudio || !active.PresentationStarted {
 		t.Fatalf("presenter update: %v", err)
 	}
 	current, _ := m.Get(initial.ID)
-	if !current.ScreenSharing {
-		t.Fatal("roster snapshot lost presentation state")
+	if !current.ScreenSharing || current.PresentationStarted {
+		t.Fatal("roster snapshot must keep presentation state without repeating the start event")
+	}
+	update, err := m.UpdatePresentation(initial.ID, first.PeerID, true, false, "unverified")
+	if err != nil || update.PresentationStarted {
+		t.Fatalf("routine media update repeated the start event: %v", err)
 	}
 	m.Leave(initial.ID, first.PeerID)
 	idle, _ := m.Get(initial.ID)
@@ -83,5 +87,29 @@ func TestPresentationClaimIsAtomicAndRejectsUnauthenticatedMembers(t *testing.T)
 	snap, _ := m.Get(initial.ID)
 	if snap.PresenterPeerID != winner {
 		t.Fatal("temporary signaling loss should retain active media during resume window")
+	}
+}
+
+func TestPresentationRecoveryDoesNotAnnounceStart(t *testing.T) {
+	m := NewManager()
+	initial, _, err := m.CreateHost()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.EndAll()
+	viewer, _, err := m.Join(initial.Code, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = m.ClaimPresentation(initial.ID, viewer.PeerID); err != nil {
+		t.Fatal(err)
+	}
+	m.Disconnect(initial.ID, viewer.PeerID)
+	if _, _, err = m.Join(initial.Code, viewer.ResumeToken); err != nil {
+		t.Fatal(err)
+	}
+	active, err := m.UpdatePresentation(initial.ID, viewer.PeerID, true, false, "unverified")
+	if err != nil || !active.ScreenSharing || active.PresentationStarted {
+		t.Fatalf("recovery should restore sharing silently: %+v %v", active, err)
 	}
 }

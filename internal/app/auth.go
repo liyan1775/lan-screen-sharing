@@ -43,7 +43,7 @@ func validLocalBrowserRequest(r *http.Request) bool {
 		return false
 	}
 	u, err := url.Parse(origin)
-	if err != nil || u.Scheme != "http" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+	if err != nil || u.Scheme != "http" || u.User != nil || u.Path != "" || u.ForceQuery || u.RawQuery != "" || u.Fragment != "" {
 		return false
 	}
 	if !strings.EqualFold(requestHost(u.Host), host) {

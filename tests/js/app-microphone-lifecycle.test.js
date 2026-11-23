@@ -180,7 +180,9 @@ test('member UI joins a discovered room in one click and preserves mic across sh
   assert.equal(secondJoin.payload.hostPort, 45678);
   assert.equal(secondJoin.payload.roomCode, 'ABCD2345', 'one pasted invitation supplies all three connection fields');
   assert.equal(document.querySelector('#join-address').hasAttribute('aria-invalid'), false, 'a valid invitation clears errors left by the manual fallback');
-  socket.respond({ v: 1, type: 'room.joined', requestId: secondJoin.requestId, roomId: 'room-two', peerId: 'viewer-one', payload: { members: [], peerId: 'viewer-one', resumeToken: 'resume-two' } });
+  socket.respond({ v: 1, type: 'room.joined', requestId: secondJoin.requestId, roomId: 'room-two', peerId: 'viewer-one', payload: {
+    members: [{peerId:'viewer-one', role:'viewer', seatIndex:2}], peerId: 'viewer-one', resumeToken: 'resume-two',
+  } });
   await rejoin;
   assert.equal(globalThis.navigator.mediaDevices.calls, 1, 'rejoining must not implicitly recapture the microphone');
   assert.equal(mediaInstance.microphoneTrack, null);
@@ -195,6 +197,21 @@ test('member UI joins a discovered room in one click and preserves mic across sh
   assert.equal(mediaInstance.microphoneTrack, secondMicrophone);
   assert.equal(toggle.textContent, '关闭麦克风');
   assert.equal(toggle.dataset.enabled, 'true');
+  const micMode = document.querySelector('#mic-mode');
+  const ownSeat = document.querySelector('#members [data-self="true"]');
+  micMode.value = 'ptt';
+  micMode.dispatchEvent(new window.Event('change'));
+  assert.equal(secondMicrophone.enabled,false);
+  const space = type => document.body.dispatchEvent(Object.assign(new window.Event(type,{bubbles:true,cancelable:true}),{code:'Space'}));
+  space('keydown');
+  assert.equal(secondMicrophone.enabled,true);
+  assert.equal(ownSeat.dataset.speaking,'true','the local seat glows on the same keydown as the send track');
+  assert.equal(ownSeat.querySelector('.member-status').textContent,'正在说话');
+  space('keyup');
+  assert.equal(secondMicrophone.enabled,false);
+  assert.equal(ownSeat.dataset.speaking,'false');
+  micMode.value = 'open';
+  micMode.dispatchEvent(new window.Event('change'));
 
   const sharedAudio = {kind:'audio',readyState:'live',stopped:false,getSettings:()=>({restrictOwnAudio:false}),stop(){this.stopped=true;},addEventListener(){}};
   nextSystemAudio = sharedAudio;
@@ -260,6 +277,38 @@ test('member UI joins a discovered room in one click and preserves mic across sh
   socket.respond({v:1,type:'room.state',roomId:'room-two',payload:{members:[],presenterPeerId:'viewer-one',screenSharing:true,presentationRevision:2}});
   assert.equal(appClient.room.screenSharing,false,'a late old snapshot cannot resurrect the stopped presentation');
   assert.equal(appClient.room.presenterPeerId,'');
+
+  await document.querySelector('#voice-only').click();
+  const readings = [];
+  mediaInstance.peers.set('remote-presenter',{pc:{close(){}}});
+  mediaInstance.getStatsSnapshot = options => new Promise(resolve => readings.push({options, resolve}));
+  const sharing = presentationRevision => socket.respond({v:1,type:'room.state',roomId:'room-two',payload:{
+    members:[],presenterPeerId:'remote-presenter',screenSharing:true,presentationRevision,
+  }});
+  const quality = document.querySelector('#quality-received');
+  sharing(4);
+  assert.equal(quality.textContent,'测量中…');
+  await until(() => readings.length === 1);
+  assert.deepEqual(readings[0].options.peerIds,['remote-presenter']);
+  sharing(5);
+  assert.equal(readings[0].options.isCurrent(),false,'even a new share from the same presenter invalidates the prior read');
+  const inbound = {peerId:'remote-presenter',direction:'inbound-rtp',role:'screenVideo',width:1280,height:720};
+  readings[0].resolve([{...inbound,fps:60}]);
+  await until(() => readings.length === 2);
+  assert.equal(quality.textContent,'测量中…','the previous share cannot populate the new capsule');
+  readings[1].resolve([ {...inbound,peerId:'another-member',fps:60}, {...inbound,direction:'outbound-rtp',fps:60}, inbound ]);
+  await until(() => quality.textContent === '720p');
+  document.visibilityState = 'hidden';
+  document.dispatchEvent(new window.Event('visibilitychange'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(readings.length,2,'watching in the background does not sample');
+  document.visibilityState = 'visible';
+  document.dispatchEvent(new window.Event('visibilitychange'));
+  await until(() => readings.length === 3);
+  readings[2].resolve([{...inbound,fps:29.97}]);
+  await until(() => quality.textContent === '720p · 30fps');
+  mediaInstance.getStatsSnapshot = originalGetStats;
+  mediaInstance.peers.delete('remote-presenter');
 
   socket.respond({ v: 1, type: 'error', payload: { code: 'SIGNAL_CONNECTION_LOST', retryable: true, message: 'private bridge diagnostic' } });
   assert.equal(mediaInstance.microphoneTrack, secondMicrophone);

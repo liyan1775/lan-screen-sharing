@@ -27,6 +27,7 @@ import (
 
 type Config struct {
 	LANIPv4                  string
+	PreferencesPath          string
 	SignalPort               int
 	RoomTTL                  time.Duration // Optional hard lifetime; zero keeps rooms until explicit end or host recovery expires.
 	PageLeaseTTL             time.Duration
@@ -59,11 +60,19 @@ type Server struct {
 	runContext          context.Context
 	stopped             bool
 	localMux            *http.ServeMux
-	lanHandler          http.Handler
+	wrapLANHandler      func(http.Handler) http.Handler
 	lanMu               sync.RWMutex
+	lanIP               string
+	lanAutoSelected     bool
 	lanPort             int
 	lanActive           bool
 	lanListener         net.Listener
+	lanServer           *http.Server
+	cancelLAN           context.CancelFunc
+	preferences         *preferenceStore
+	listLANInterfaces   func() []LANInterface
+	listenLAN           func(string, int) (net.Listener, error)
+	startDiscovery      func(context.Context, string, func() []discovery.Advertisement) (lanDiscovery, error)
 	pageLeaseMu         sync.Mutex
 	pageLeases          map[string]time.Time
 	pageLeaseEverSeen   bool
@@ -73,21 +82,19 @@ type Server struct {
 	activePageSessions  int
 	pagePresenceConns   map[*websocket.Conn]struct{}
 	pagePresenceIDs     map[string]int
-	discoveryMu         sync.Mutex
-	discoveryService    *discovery.Service
-	discoveryStopping   bool
+	discoveryService    lanDiscovery
 	discoveryError      string
 }
 
 type Bootstrap struct {
-	ScreenRelay       bool     `json:"screenRelay"`
-	ServiceID         string   `json:"serviceId"`
-	LocalWSPath       string   `json:"localWsPath"`
-	RoleOptions       []string `json:"roleOptions"`
-	HostControlToken  string   `json:"hostControlToken,omitempty"`
-	LocalControlToken string   `json:"localControlToken,omitempty"`
-	LANIPv4           string   `json:"lanIPv4,omitempty"`
-	SignalPort        int      `json:"signalPort,omitempty"`
+	lanState
+	ScreenRelay       bool         `json:"screenRelay"`
+	ServiceID         string       `json:"serviceId"`
+	LocalWSPath       string       `json:"localWsPath"`
+	RoleOptions       []string     `json:"roleOptions"`
+	HostControlToken  string       `json:"hostControlToken,omitempty"`
+	LocalControlToken string       `json:"localControlToken,omitempty"`
+	Preferences       *Preferences `json:"preferences,omitempty"`
 }
 
 func New(config Config) *Server {
@@ -116,9 +123,17 @@ func New(config Config) *Server {
 		managerOptions = append(managerOptions, room.WithRoomTTL(config.RoomTTL))
 	}
 	controlToken, _ := newHostToken()
-	s := &Server{config: config, rooms: room.NewManager(managerOptions...), serviceID: serviceID, hostToken: token, localControlToken: controlToken, shutdownRequested: make(chan struct{}), shutdownDone: make(chan struct{}), lanPort: config.SignalPort, pageLeases: make(map[string]time.Time), pagePresenceConns: make(map[*websocket.Conn]struct{}), pagePresenceIDs: make(map[string]int)}
+	store := openPreferences(config.PreferencesPath)
+	preferred := store.snapshot().PreferredLANIPv4
+	lanIP := selectLANIPv4(config.LANIPv4, preferred, rankLANInterfaces(enumerateLANInterfaces()))
+	s := &Server{config: config, rooms: room.NewManager(managerOptions...), serviceID: serviceID, hostToken: token, localControlToken: controlToken, shutdownRequested: make(chan struct{}), shutdownDone: make(chan struct{}), pageLeases: make(map[string]time.Time), pagePresenceConns: make(map[*websocket.Conn]struct{}), pagePresenceIDs: make(map[string]int),
+		preferences: store, lanIP: lanIP, lanAutoSelected: config.LANIPv4 == "" && lanIP != preferred, listLANInterfaces: enumerateLANInterfaces, listenLAN: ListenLAN,
+		startDiscovery: func(ctx context.Context, ip string, advertise func() []discovery.Advertisement) (lanDiscovery, error) {
+			return discovery.Start(ctx, ip, advertise)
+		},
+	}
 	s.hub = signal.NewHub(s.rooms)
-	s.screens = screenrelay.New(config.LANIPv4)
+	s.screens = screenrelay.New(lanIP)
 	s.hub.SetHostCreatedHandler(func() error {
 		s.lifecycleMu.Lock()
 		ctx := s.runContext
@@ -141,25 +156,25 @@ func New(config Config) *Server {
 	assetFS, _ := fs.Sub(web.Assets, "assets")
 	s.localMux.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(assetFS))))
 	s.localMux.HandleFunc("/api/v1/bootstrap", s.serveBootstrap)
+	s.localMux.HandleFunc("/api/v1/network", s.serveNetwork)
+	s.localMux.HandleFunc("/api/v1/preferences", s.servePreferences)
 	s.localMux.HandleFunc("/api/v1/rooms", s.serveDiscoveredRooms)
 	s.localMux.HandleFunc("/api/v1/shutdown", s.serveShutdown)
 	s.localMux.HandleFunc("/api/v1/page-lease", s.servePageLease)
 	s.localMux.HandleFunc("/api/v1/screen-relay", s.serveScreenRelay)
 	s.localMux.HandleFunc("/ws/page", s.servePagePresence)
 	s.localMux.HandleFunc("/ws/v1", s.serveLocalWS)
-	s.lanHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/signal/v1" {
-			http.NotFound(w, r)
-			return
-		}
-		s.serveSignalWS(w, r)
-	})
 	return s
 }
 
-func (s *Server) Handler() http.Handler    { return s.localMux }
-func (s *Server) LANHandler() http.Handler { return s.lanHandler }
-func (s *Server) Rooms() *room.Manager     { return s.rooms }
+func (s *Server) Handler() http.Handler { return s.localMux }
+func (s *Server) Rooms() *room.Manager  { return s.rooms }
+
+func (s *Server) LANHandler() http.Handler {
+	s.lanMu.RLock()
+	defer s.lanMu.RUnlock()
+	return s.lanHandlerFor(s.lanIP)
+}
 
 func (s *Server) servePage(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
@@ -191,28 +206,24 @@ func (s *Server) serveBootstrap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b := Bootstrap{ServiceID: s.serviceID, LocalWSPath: "/ws/v1", RoleOptions: []string{"host", "viewer"}}
-	if validLocalBootstrapRequest(r) {
+	local := validLocalBootstrapRequest(r)
+	if local {
 		b.LocalControlToken = s.localControlToken
 		b.ScreenRelay = true
+		s.lanMu.RLock()
+		b.lanState = s.networkStateLocked()
+		prefs := s.preferences.snapshot()
+		b.Preferences = &prefs
+		s.lanMu.RUnlock()
 	}
 	if role == "host" {
-		if !validLocalBootstrapRequest(r) {
+		if !local {
 			writeError(w, http.StatusForbidden, "AUTH_REQUIRED", "主播控制仅限本机页面", false)
 			return
 		}
 		b.HostControlToken = s.hostToken
-		if s.config.LANIPv4 != "" {
-			s.lanMu.RLock()
-			if s.lanActive {
-				b.LANIPv4 = s.config.LANIPv4
-				b.SignalPort = s.lanPort
-			}
-			s.lanMu.RUnlock()
-		}
 	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	_ = json.NewEncoder(w).Encode(b)
+	writeJSON(w, b)
 }
 
 func (s *Server) serveShutdown(w http.ResponseWriter, r *http.Request) {
@@ -429,23 +440,32 @@ func (s *Server) serveLocalWS(w http.ResponseWriter, r *http.Request) {
 	s.hub.ServeLocal(r.Context(), conn, s.hostToken)
 }
 
-func (s *Server) serveSignalWS(w http.ResponseWriter, r *http.Request) {
-	if !s.validSignalRequest(r) {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
+func (s *Server) lanHandlerFor(ip string) http.Handler {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/signal/v1" {
+			http.NotFound(w, r)
+			return
+		}
+		if !validSignalRequest(r, ip) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		conn, err := signal.Accept(w, r)
+		if err == nil {
+			s.hub.ServeLAN(r.Context(), conn)
+		}
+	})
+	if s.wrapLANHandler != nil {
+		return s.wrapLANHandler(handler)
 	}
-	conn, err := signal.Accept(w, r)
-	if err != nil {
-		return
-	}
-	s.hub.ServeLAN(r.Context(), conn)
+	return handler
 }
 
-func (s *Server) validSignalRequest(r *http.Request) bool {
+func validSignalRequest(r *http.Request, lanIP string) bool {
 	if r.URL.Path != "/signal/v1" || r.URL.RawQuery != "" || r.Method != "GET" || r.Header.Get("Origin") != "" {
 		return false
 	}
-	if s.config.LANIPv4 != "" && requestHost(r.Host) != strings.ToLower(s.config.LANIPv4) {
+	if lanIP == "" || requestHost(r.Host) != strings.ToLower(lanIP) {
 		return false
 	}
 	ipText, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -510,8 +530,10 @@ func (s *Server) StartAtPort(ctx context.Context, initialPort, attempts int) (ne
 	s.listeners = append(s.listeners, ln)
 	s.httpServers = append(s.httpServers, hs)
 	s.lifecycleMu.Unlock()
+	s.lanMu.Lock()
+	_ = s.startDiscoveryLocked(ctx)
+	s.lanMu.Unlock()
 	go func() { _ = hs.Serve(ln) }()
-	go s.startRoomDiscovery(ctx)
 	go s.watchPageLeases(ctx)
 	go func() {
 		select {
@@ -559,49 +581,6 @@ func (s *Server) watchPageLeases(ctx context.Context) {
 	}
 }
 
-func (s *Server) StartLAN(ctx context.Context) (net.Listener, error) {
-	if s.config.LANIPv4 == "" {
-		return nil, errors.New("INVALID_HOST_ADDRESS")
-	}
-	select {
-	case <-ctx.Done():
-		return nil, errors.New("SERVICE_STOPPING")
-	default:
-	}
-	s.lanMu.Lock()
-	if s.lanActive && s.lanListener != nil {
-		ln := s.lanListener
-		s.lanMu.Unlock()
-		return ln, nil
-	}
-	ln, err := ListenLAN(s.config.LANIPv4, s.config.SignalPort)
-	if err != nil {
-		s.lanMu.Unlock()
-		return nil, err
-	}
-	s.lanPort = ln.Addr().(*net.TCPAddr).Port
-	s.lanActive = true
-	s.lanListener = ln
-	s.lanMu.Unlock()
-	hs := &http.Server{Handler: s.LANHandler(), ReadHeaderTimeout: 5 * time.Second}
-	s.lifecycleMu.Lock()
-	if s.stopped {
-		s.lifecycleMu.Unlock()
-		s.lanMu.Lock()
-		s.lanActive = false
-		s.lanListener = nil
-		s.lanMu.Unlock()
-		_ = ln.Close()
-		return nil, errors.New("SERVICE_STOPPING")
-	}
-	s.listeners = append(s.listeners, ln)
-	s.httpServers = append(s.httpServers, hs)
-	s.lifecycleMu.Unlock()
-	go func() { _ = hs.Serve(ln) }()
-	go func() { <-ctx.Done(); _ = s.Shutdown(context.Background()) }()
-	return ln, nil
-}
-
 func ListenLAN(ip string, port int) (net.Listener, error) {
 	addr, err := netip.ParseAddr(ip)
 	if err != nil || !addr.Is4() || !addr.IsPrivate() || addr.IsLoopback() || addr.IsLinkLocalUnicast() || addr.IsUnspecified() || addr.IsMulticast() {
@@ -633,42 +612,6 @@ func isPortInUse(err error) bool {
 	}
 	return false
 }
-
-func firstPrivateIPv4() string {
-	interfaces, err := net.Interfaces()
-	if err != nil {
-		return ""
-	}
-	for _, iface := range interfaces {
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-			continue
-		}
-		addrs, _ := iface.Addrs()
-		for _, a := range addrs {
-			var ip net.IP
-			switch v := a.(type) {
-			case *net.IPNet:
-				ip = v.IP
-			case *net.IPAddr:
-				ip = v.IP
-			}
-			if ip == nil {
-				continue
-			}
-			v4 := ip.To4()
-			if v4 == nil {
-				continue
-			}
-			addr, ok := netip.AddrFromSlice(v4)
-			if ok && addr.IsPrivate() && !addr.IsLoopback() && !addr.IsLinkLocalUnicast() {
-				return addr.String()
-			}
-		}
-	}
-	return ""
-}
-
-func FirstPrivateIPv4() string { return firstPrivateIPv4() }
 
 func writeError(w http.ResponseWriter, status int, code, message string, retryable bool) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -715,15 +658,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 }
 
 func (s *Server) shutdown(ctx context.Context) error {
+	s.lanMu.RLock()
 	s.screens.Close()
-	s.discoveryMu.Lock()
-	s.discoveryStopping = true
-	discoveryService := s.discoveryService
-	s.discoveryService = nil
-	s.discoveryMu.Unlock()
-	if discoveryService != nil {
-		discoveryService.Close()
-	}
+	s.lanMu.RUnlock()
 	s.pageLeaseMu.Lock()
 	pageConnections := make([]*websocket.Conn, 0, len(s.pagePresenceConns))
 	for conn := range s.pagePresenceConns {
@@ -754,8 +691,7 @@ func (s *Server) shutdown(ctx context.Context) error {
 		_ = ln.Close()
 	}
 	s.lanMu.Lock()
-	s.lanActive = false
-	s.lanListener = nil
+	s.stopLANLocked(ctx)
 	s.lanMu.Unlock()
 	return first
 }

@@ -9,6 +9,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"net"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,15 +18,18 @@ import (
 	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
+	"github.com/pion/sdp/v3"
 	"github.com/pion/webrtc/v4"
 )
 
 var ErrSession = errors.New("SCREEN_RELAY_SESSION_GONE")
+var ErrCodecMismatch = errors.New("SCREEN_RELAY_CODEC_MISMATCH")
 
 type Manager struct {
 	mu       sync.Mutex
 	api      *webrtc.API
 	localAPI *webrtc.API
+	settings webrtc.SettingEngine
 	sessions map[string]*session
 	closed   bool
 }
@@ -40,6 +45,7 @@ type session struct {
 	ssrc                 atomic.Uint32
 	mu                   sync.Mutex
 	receivers            map[string]*receiver
+	negotiating          map[string]*receiver
 	fanout               atomic.Pointer[[]*receiver]
 	lastPLI              time.Time
 }
@@ -75,7 +81,7 @@ func New(localIPv4 string) *Manager {
 	if err := webrtc.ConfigureStatsInterceptor(registry); err != nil {
 		panic(err)
 	}
-	return &Manager{sessions: map[string]*session{}, api: webrtc.NewAPI(webrtc.WithSettingEngine(settings)), localAPI: webrtc.NewAPI(webrtc.WithSettingEngine(local), webrtc.WithMediaEngine(engine), webrtc.WithInterceptorRegistry(registry))}
+	return &Manager{sessions: map[string]*session{}, settings: settings, api: webrtc.NewAPI(webrtc.WithSettingEngine(settings)), localAPI: webrtc.NewAPI(webrtc.WithSettingEngine(local), webrtc.WithMediaEngine(engine), webrtc.WithInterceptorRegistry(registry))}
 }
 
 func (m *Manager) Start(ctx context.Context, offer webrtc.SessionDescription) (string, webrtc.SessionDescription, error) {
@@ -97,33 +103,35 @@ func (m *Manager) Start(ctx context.Context, offer webrtc.SessionDescription) (s
 		_ = pc.Close()
 		return "", webrtc.SessionDescription{}, err
 	}
-	s := &session{id: hex.EncodeToString(random[:]), up: pc, ready: make(chan struct{}), done: make(chan struct{}), receivers: map[string]*receiver{}}
+	s := &session{id: hex.EncodeToString(random[:]), up: pc, ready: make(chan struct{}), done: make(chan struct{}), receivers: map[string]*receiver{}, negotiating: map[string]*receiver{}}
 	s.publishReceivers()
 	pc.OnTrack(func(track *webrtc.TrackRemote, _ *webrtc.RTPReceiver) {
 		video := track.Kind() == webrtc.RTPCodecTypeVideo
+		payloadType := track.PayloadType()
 		if video {
+			locked := false
 			s.readyOnce.Do(func() {
+				locked = true
 				s.codec = track.Codec().RTPCodecCapability
 				s.ssrc.Store(uint32(track.SSRC()))
 				close(s.ready)
 			})
+			if !locked {
+				return
+			}
 		} else if track.Codec().MimeType != webrtc.MimeTypeOpus {
 			return
 		}
 		// ReadRTP allocates a receive buffer for every packet. Forwarding is
 		// synchronous, so one full datagram buffer can be reused for this track.
-		buffer := make([]byte, 64<<10)
-		packet := &rtp.Packet{}
-		for {
-			n, _, readErr := track.Read(buffer)
-			if readErr != nil {
-				return
+		readPackets(func(buffer []byte) (int, error) {
+			n, _, err := track.Read(buffer)
+			return n, err
+		}, func(packet *rtp.Packet) {
+			if webrtc.PayloadType(packet.PayloadType) == payloadType {
+				s.forward(packet, video)
 			}
-			if packet.Unmarshal(buffer[:n]) != nil {
-				return
-			}
-			s.forward(packet, video)
-		}
+		})
 	})
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 		if state == webrtc.PeerConnectionStateConnected {
@@ -183,41 +191,54 @@ func (m *Manager) Answer(ctx context.Context, id, peerID string, offer webrtc.Se
 	case <-ctx.Done():
 		return webrtc.SessionDescription{}, ctx.Err()
 	}
-	pc, err := m.api.NewPeerConnection(webrtc.Configuration{})
+	if offer.Type != webrtc.SDPTypeOffer {
+		return webrtc.SessionDescription{}, errors.New("SCREEN_RELAY_INVALID_OFFER")
+	}
+	codec, err := receiverCodec(offer.SDP, s.codec)
 	if err != nil {
 		return webrtc.SessionDescription{}, err
 	}
-	video, err := webrtc.NewTrackLocalStaticRTP(s.codec, "screenVideo", "screen")
+	engine := &webrtc.MediaEngine{}
+	opus := webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2}
+	if err = engine.RegisterCodec(codec, webrtc.RTPCodecTypeVideo); err != nil {
+		return webrtc.SessionDescription{}, err
+	}
+	if err = engine.RegisterCodec(webrtc.RTPCodecParameters{RTPCodecCapability: opus, PayloadType: 111}, webrtc.RTPCodecTypeAudio); err != nil {
+		return webrtc.SessionDescription{}, err
+	}
+	registry := &interceptor.Registry{}
+	if err = webrtc.RegisterDefaultInterceptors(engine, registry); err != nil {
+		return webrtc.SessionDescription{}, err
+	}
+	pc, err := webrtc.NewAPI(webrtc.WithSettingEngine(m.settings), webrtc.WithMediaEngine(engine), webrtc.WithInterceptorRegistry(registry)).NewPeerConnection(webrtc.Configuration{})
+	if err != nil {
+		return webrtc.SessionDescription{}, err
+	}
+	video, err := webrtc.NewTrackLocalStaticRTP(codec.RTPCodecCapability, "screenVideo", "screen")
 	if err != nil {
 		_ = pc.Close()
 		return webrtc.SessionDescription{}, err
 	}
-	audio, err := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2}, "systemAudio", "screen")
+	audio, err := webrtc.NewTrackLocalStaticRTP(opus, "systemAudio", "screen")
 	if err != nil {
 		_ = pc.Close()
 		return webrtc.SessionDescription{}, err
 	}
 	r := &receiver{pc: pc, video: video, audio: audio}
 	s.mu.Lock()
-	select {
-	case <-s.done:
-		s.mu.Unlock()
-		_ = pc.Close()
-		return webrtc.SessionDescription{}, ErrSession
-	default:
-	}
-	old := s.receivers[peerID]
-	if old == nil && len(s.receivers) >= 2 {
-		s.mu.Unlock()
-		_ = pc.Close()
-		return webrtc.SessionDescription{}, errors.New("SCREEN_RELAY_FULL")
-	}
-	s.receivers[peerID] = r
-	s.publishReceivers()
+	s.negotiating[peerID] = r
 	s.mu.Unlock()
-	if old != nil {
-		_ = old.pc.Close()
-	}
+	published := false
+	defer func() {
+		s.mu.Lock()
+		if s.negotiating[peerID] == r {
+			delete(s.negotiating, peerID)
+		}
+		s.mu.Unlock()
+		if !published {
+			_ = pc.Close()
+		}
+	}()
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 		if state == webrtc.PeerConnectionStateConnected {
 			s.requestKeyframe()
@@ -229,7 +250,6 @@ func (m *Manager) Answer(ctx context.Context, id, peerID string, offer webrtc.Se
 	for _, track := range []webrtc.TrackLocal{video, audio} {
 		sender, addErr := pc.AddTrack(track)
 		if addErr != nil {
-			s.removeReceiver(peerID, r)
 			return webrtc.SessionDescription{}, addErr
 		}
 		go func() {
@@ -247,19 +267,207 @@ func (m *Manager) Answer(ctx context.Context, id, peerID string, offer webrtc.Se
 			}
 		}()
 	}
-	answer, err := answerOffer(ctx, pc, offer)
+	answer, err := answerOffer(ctx, pc, offer, codec)
 	if err != nil {
-		s.removeReceiver(peerID, r)
+		return webrtc.SessionDescription{}, err
 	}
-	return answer, err
+	s.mu.Lock()
+	select {
+	case <-s.done:
+		s.mu.Unlock()
+		return webrtc.SessionDescription{}, ErrSession
+	default:
+	}
+	if err = ctx.Err(); err != nil {
+		s.mu.Unlock()
+		return webrtc.SessionDescription{}, err
+	}
+	if s.negotiating[peerID] != r {
+		s.mu.Unlock()
+		return webrtc.SessionDescription{}, ErrSession
+	}
+	if state := pc.ConnectionState(); state == webrtc.PeerConnectionStateFailed || state == webrtc.PeerConnectionStateClosed {
+		s.mu.Unlock()
+		return webrtc.SessionDescription{}, ErrSession
+	}
+	old := s.receivers[peerID]
+	if old == nil && len(s.receivers) >= 2 {
+		s.mu.Unlock()
+		return webrtc.SessionDescription{}, errors.New("SCREEN_RELAY_FULL")
+	}
+	s.receivers[peerID] = r
+	s.publishReceivers()
+	published = true
+	s.mu.Unlock()
+	if old != nil {
+		_ = old.pc.Close()
+	}
+	return answer, nil
 }
 
-func answerOffer(ctx context.Context, pc *webrtc.PeerConnection, offer webrtc.SessionDescription) (webrtc.SessionDescription, error) {
+func readPackets(read func([]byte) (int, error), forward func(*rtp.Packet)) {
+	buffer := make([]byte, 64<<10)
+	packet := &rtp.Packet{}
+	for {
+		n, err := read(buffer)
+		if err != nil {
+			if n > 0 {
+				continue
+			}
+			return
+		}
+		if packet.Unmarshal(buffer[:n]) != nil {
+			continue
+		}
+		forward(packet)
+	}
+}
+
+func receiverCodec(raw string, upstream webrtc.RTPCodecCapability) (webrtc.RTPCodecParameters, error) {
+	var offer sdp.SessionDescription
+	var codec webrtc.RTPCodecParameters
+	if err := offer.UnmarshalString(raw); err != nil {
+		return codec, err
+	}
+	videoSections := 0
+	found := false
+	for _, media := range offer.MediaDescriptions {
+		if media.MediaName.Media != "video" || media.MediaName.Port.Value == 0 {
+			continue
+		}
+		videoSections++
+		if direction, _ := media.Attribute("mid"); direction == "" {
+			continue
+		}
+		canReceive := true
+		for _, direction := range []string{"inactive", "sendonly"} {
+			_, blocked := media.Attribute(direction)
+			_, sessionBlocked := offer.Attribute(direction)
+			_, recv := media.Attribute("recvonly")
+			_, both := media.Attribute("sendrecv")
+			canReceive = canReceive && !blocked && (!sessionBlocked || recv || both)
+		}
+		if !canReceive {
+			continue
+		}
+		for _, format := range media.MediaName.Formats {
+			pt, err := strconv.ParseUint(format, 10, 7)
+			if err != nil {
+				continue
+			}
+			// Resolve the payload within this media section, not by scanning
+			// matching strings elsewhere in the offer.
+			part := sdp.SessionDescription{MediaDescriptions: []*sdp.MediaDescription{media}}
+			offered, err := part.GetCodecForPayloadType(uint8(pt))
+			if err != nil || !strings.EqualFold("video/"+offered.Name, upstream.MimeType) || offered.ClockRate != upstream.ClockRate {
+				continue
+			}
+			if !compatibleConfig(upstream, offered.Fmtp) {
+				continue
+			}
+			codec = webrtc.RTPCodecParameters{RTPCodecCapability: upstream, PayloadType: webrtc.PayloadType(pt)}
+			codec.SDPFmtpLine = offered.Fmtp
+			found = true
+			break
+		}
+	}
+	if !found || videoSections != 1 {
+		return webrtc.RTPCodecParameters{}, ErrCodecMismatch
+	}
+	return codec, nil
+}
+
+func compatibleConfig(upstream webrtc.RTPCodecCapability, offered string) bool {
+	a, b := fmtpParams(upstream.SDPFmtpLine), fmtpParams(offered)
+	switch strings.ToLower(upstream.MimeType) {
+	case "video/h264":
+		profile := func(value string) ([]byte, bool) {
+			profile, err := hex.DecodeString(value)
+			if err != nil || len(profile) != 3 {
+				return nil, false
+			}
+			switch profile[2] {
+			case 10, 11, 12, 13, 20, 21, 22, 30, 31, 32, 40, 41, 42, 50, 51, 52, 60, 61, 62:
+				return profile, true
+			default:
+				return nil, false
+			}
+		}
+		mode := func(params map[string]string) string {
+			if value, ok := params["packetization-mode"]; ok {
+				return value
+			}
+			return "0"
+		}
+		profileID := func(params map[string]string) string {
+			if value, ok := params["profile-level-id"]; ok {
+				return value
+			}
+			return "42e01f"
+		}
+		x, validX := profile(profileID(a))
+		y, validY := profile(profileID(b))
+		if !validX || !validY || x[0] != y[0] || x[1] != y[1] || mode(a) != mode(b) || (mode(a) != "0" && mode(a) != "1") {
+			return false
+		}
+		// Level 1b (constraint_set3_flag) sorts between levels 1 and 1.1.
+		level := func(profile []byte) int {
+			if profile[2] == 11 && profile[1]&0x10 != 0 {
+				return 21
+			}
+			return int(profile[2]) * 2
+		}
+		if max, ok := b["max-recv-level"]; ok {
+			extended, valid := profile(max)
+			if !valid || extended[0] != y[0] || extended[1] != y[1] || level(extended) <= level(y) {
+				return false
+			}
+			y = extended
+		}
+		return level(y) >= level(x)
+	case "video/vp9", "video/av1":
+		profile := func(params map[string]string, key string) string {
+			if value, ok := params[key]; ok {
+				return value
+			}
+			return "0"
+		}
+		key := "profile-id"
+		if strings.EqualFold(upstream.MimeType, "video/av1") {
+			key = "profile"
+		}
+		return profile(a, key) == profile(b, key)
+	default:
+		return true
+	}
+}
+
+func fmtpParams(line string) map[string]string {
+	params := map[string]string{}
+	for _, entry := range strings.Split(strings.ToLower(line), ";") {
+		key, value, ok := strings.Cut(entry, "=")
+		if ok {
+			params[strings.TrimSpace(key)] = strings.TrimSpace(value)
+		}
+	}
+	return params
+}
+
+func answerOffer(ctx context.Context, pc *webrtc.PeerConnection, offer webrtc.SessionDescription, codecs ...webrtc.RTPCodecParameters) (webrtc.SessionDescription, error) {
 	if offer.Type != webrtc.SDPTypeOffer {
 		return webrtc.SessionDescription{}, errors.New("SCREEN_RELAY_INVALID_OFFER")
 	}
 	if err := pc.SetRemoteDescription(offer); err != nil {
 		return webrtc.SessionDescription{}, err
+	}
+	if len(codecs) > 0 {
+		for _, transceiver := range pc.GetTransceivers() {
+			if transceiver.Kind() == webrtc.RTPCodecTypeVideo {
+				if err := transceiver.SetCodecPreferences(codecs); err != nil {
+					return webrtc.SessionDescription{}, err
+				}
+			}
+		}
 	}
 	answer, err := pc.CreateAnswer(nil)
 	if err != nil {
@@ -350,10 +558,15 @@ func (m *Manager) RemoveReceiver(id, peerID string) {
 		return
 	}
 	s.mu.Lock()
+	delete(s.negotiating, peerID)
 	r := s.receivers[peerID]
+	if r != nil {
+		delete(s.receivers, peerID)
+		s.publishReceivers()
+	}
 	s.mu.Unlock()
 	if r != nil {
-		s.removeReceiver(peerID, r)
+		_ = r.pc.Close()
 	}
 }
 

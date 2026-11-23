@@ -271,7 +271,7 @@ func interfaceFor(ip netip.Addr) (*net.Interface, netip.Prefix, error) {
 		return nil, netip.Prefix{}, err
 	}
 	for _, iface := range list {
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+		if iface.Flags&net.FlagUp == 0 {
 			continue
 		}
 		addresses, _ := iface.Addrs()

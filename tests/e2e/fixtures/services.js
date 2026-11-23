@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { mkdir, mkdtemp, rmdir, unlink } from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -17,10 +18,26 @@ export function selectedLANIPv4(explicit = process.env.LANSW_LAN_IP) {
     if (!isPrivateIPv4(explicit)) throw new Error('LANSW_LAN_IP must be an RFC1918 IPv4 address.');
     return explicit;
   }
-  for (const addresses of Object.values(os.networkInterfaces())) {
-    for (const address of addresses ?? []) if (address.family === 'IPv4' && !address.internal && isPrivateIPv4(address.address)) return address.address;
-  }
+  const [address] = availableLANIPv4s();
+  if (address) return address;
   throw new Error('No RFC1918 IPv4 address found; set LANSW_LAN_IP for the isolated test services.');
+}
+
+export function availableLANIPv4s() {
+  return [...new Set(Object.values(os.networkInterfaces()).flatMap(addresses => (addresses ?? [])
+    .filter(address => address.family === 'IPv4' && !address.internal && isPrivateIPv4(address.address))
+    .map(address => address.address)))];
+}
+
+export async function createTestPreferences() {
+  const testRoot = path.join(projectRoot, '.superpowers', 'sdd', 'lan-screen-sharing', 'build');
+  await mkdir(testRoot, {recursive: true});
+  const dir = await mkdtemp(path.join(testRoot, 'test-preferences-'));
+  const preferencesPath = path.join(dir, 'preferences.json');
+  return {preferencesPath, async cleanup() {
+    try { await unlink(preferencesPath); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    await rmdir(dir);
+  }};
 }
 
 async function availablePort(host) {
@@ -47,12 +64,20 @@ async function waitForBootstrap(baseURL, child, log) {
   throw new Error(`Timed out waiting for the test-owned service bootstrap: ${log.join('')}`);
 }
 
-export async function startOwnedService({ lanIP, signalPort, executablePath } = {}) {
+export async function startOwnedService({ lanIP = selectedLANIPv4(), autoLAN = false, signalPort, executablePath, preferencesPath, excludePort } = {}) {
   const exePath = path.resolve(executablePath ?? process.env.LANSW_EXE ?? path.join(projectRoot, 'dist', '局域网屏幕共享.exe'));
-  const port = await availablePort('127.0.0.1');
-  const args = ['--open-browser=false', `--port=${port}`, `--lan-ip=${lanIP ?? selectedLANIPv4()}`, `--signal-port=${signalPort ?? await availablePort(lanIP ?? selectedLANIPv4())}`];
-  const child = spawn(exePath, args, { cwd: projectRoot, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  let port;
+  do { port = await availablePort('127.0.0.1'); } while (port === excludePort);
+  const args = ['--open-browser=false', `--port=${port}`, ...(!autoLAN ? [`--lan-ip=${lanIP}`] : []), `--signal-port=${signalPort ?? await availablePort(lanIP)}`];
+  const ownPreferences = preferencesPath ? null : await createTestPreferences();
+  const child = spawn(exePath, args, { cwd: projectRoot, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+    env: {...process.env, LANSW_PREFERENCES_PATH: preferencesPath ?? ownPreferences.preferencesPath} });
+  const exited = new Promise(resolve => {
+    child.once('exit', resolve);
+    child.once('error', () => resolve(null));
+  });
   const log = [];
+  child.on('error', error => log.push(error.message));
   child.stdout.setEncoding('utf8').on('data', (chunk) => log.push(chunk));
   child.stderr.setEncoding('utf8').on('data', (chunk) => log.push(chunk));
   const baseURL = `http://localhost:${port}`;
@@ -65,6 +90,7 @@ export async function startOwnedService({ lanIP, signalPort, executablePath } = 
       await Promise.race([new Promise((resolve) => child.once('exit', resolve)), new Promise((resolve) => setTimeout(resolve, 3000))]);
       if (child.exitCode === null) child.kill();
     }
+    await ownPreferences?.cleanup();
     throw error;
   }
   let stopped = false;
@@ -73,19 +99,22 @@ export async function startOwnedService({ lanIP, signalPort, executablePath } = 
     async shutdown() {
       if (stopped) return { status: 202, exitCode: child.exitCode, pid: child.pid };
       stopped = true;
-      let status = 0;
-      try {
-        const response = await fetch(`${baseURL}/api/v1/shutdown`, {
-          method: 'POST',
-          headers: { Origin: baseURL, 'X-Local-Control-Token': bootstrap.localControlToken },
-        });
-        status = response.status;
-      } catch { /* exact child PID below is the only fallback target */ }
-      const exited = await Promise.race([
-        new Promise((resolve) => child.once('exit', () => resolve(true))),
-        new Promise((resolve) => setTimeout(() => resolve(false), 3000)),
-      ]);
-      if (!exited && child.exitCode === null) child.kill();
+      let status = child.exitCode === 0 ? 202 : 0;
+      if (child.exitCode === null) {
+        try {
+          const response = await fetch(`${baseURL}/api/v1/shutdown`, {
+            method: 'POST', signal: AbortSignal.timeout(1500),
+            headers: { Origin: baseURL, 'X-Local-Control-Token': bootstrap.localControlToken },
+          });
+          status = response.status;
+        } catch { /* exact child PID below is the only fallback target */ }
+        const finished = await Promise.race([exited.then(() => true), new Promise(resolve => setTimeout(() => resolve(false), 3000))]);
+        if (!finished && child.exitCode === null) {
+          child.kill();
+          await exited;
+        }
+      }
+      await ownPreferences?.cleanup();
       return { status, exitCode: child.exitCode, pid: child.pid };
     },
   };

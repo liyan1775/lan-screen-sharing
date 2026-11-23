@@ -2,6 +2,7 @@ import { icon } from './icons.js';
 
 export function createRoomBrowser({ documentRef = document, list, status, refreshButton, load, onJoin, onDiagnostics = () => {}, onRooms = () => {}, setIntervalImpl = setInterval, clearIntervalImpl = clearInterval }) {
   let timer = null, loading = false, joining = false, stopped = false, started = false, active = true;
+  let networkGeneration = 0;
   const cards = new Map();
   const setStatus = text => { if (status.textContent !== text) status.textContent = text; };
   function roomCard(room) {
@@ -25,7 +26,7 @@ export function createRoomBrowser({ documentRef = document, list, status, refres
         if (join.disabled || joining || stopped) return;
         joining = true; entry.rendered = null; join.disabled = true; join.textContent = '正在加入…'; card.dataset.joining = 'true'; card.setAttribute('aria-busy', 'true');
         try { await onJoin(entry.room); }
-        catch { setStatus('未能加入。请刷新列表，或请房主发来完整邀请后点“粘贴邀请加入”。'); }
+        catch { setStatus('未能加入，请刷新房间列表后再试，也可以手动加入。'); }
         finally { joining = false; card.dataset.joining = 'false'; card.setAttribute('aria-busy', 'false'); updateCard(entry, entry.room); }
       });
       card.append(name, details, activity, join);
@@ -51,12 +52,19 @@ export function createRoomBrowser({ documentRef = document, list, status, refres
     join.textContent = label; join.className = `button ${room.screenSharing && count < 3 && !room.own ? 'button-primary' : ''}`;
     join.setAttribute('aria-label', `${label} ${title}`); join.disabled = own || count >= 3;
   }
-  async function refresh() {
+  async function refresh({reset = false} = {}) {
+    if (reset) {
+      networkGeneration++;
+      loading = false;
+      cards.clear();
+      list.replaceChildren();
+    }
     if (stopped || !active || loading || joining) return;
+    const generation = networkGeneration;
     loading = true; refreshButton.disabled = true;
     try {
       const result = await load();
-      if (stopped || !active) return;
+      if (stopped || !active || generation !== networkGeneration) return;
       onDiagnostics(formatDiscoveryDiagnostics(result.diagnostics));
       const rooms = Array.isArray(result.rooms) ? result.rooms.slice(0, 64) : [];
       onRooms({ count: rooms.length, available: !!result.available });
@@ -69,10 +77,10 @@ export function createRoomBrowser({ documentRef = document, list, status, refres
       }
       for (const [key, entry] of cards) if (!nextCards.includes(entry.card)) cards.delete(key);
       setStatus(rooms.length ? `发现 ${rooms.length} 个房间` : result.available
-        ? '请让朋友确认已创建房间并允许同网发现，再刷新列表。'
-        : result.message || '自动发现暂不可用。如果已有邀请，请点“粘贴邀请加入”。');
-    } catch { if (!stopped && active) { onRooms({ count: 0, available: false }); setStatus('暂时无法读取房间列表。请稍后刷新，或粘贴邀请加入。'); } }
-    finally { loading = false; refreshButton.disabled = false; }
+        ? '还没有发现房间。请让朋友先创建房间，稍等几秒或点击刷新。'
+        : result.message || '自动发现暂不可用，可以使用手动加入。');
+    } catch { if (!stopped && active && generation === networkGeneration) { onRooms({ count: 0, available: false }); setStatus('暂时无法读取房间列表，请稍后刷新或使用手动加入。'); } }
+    finally { if (generation === networkGeneration) { loading = false; refreshButton.disabled = false; } }
   }
   refreshButton.addEventListener('click', refresh);
   function startTimer() {

@@ -1,21 +1,35 @@
 # 验证与限制
 
-## 宣传页与首次上手 2026-11-20
+## v1.0.0 正式版
 
-本轮基于 GitHub `main` 的 `dde9979`。宣传页提供已发布的 0.5.0 完整 ZIP 和校验附件。验证机请求 GitHub 直链时超时，链接通过 Release 附件清单核对，现有 ZIP 的 SHA-256 与发布记录相符。新版上手流程构建为 `dist/lan-screen-sharing-0.5.0-first-run-candidate.exe`，使用 Go 1.27.3 Windows amd64，SHA-256 为 `40786904f6b9f185a39947e0685f1e032b413e722a67fe7e4a27c2d3989acbaa`。
+验证环境为 Windows x64、Go 1.27.3 与本机 Edge 158.0.4370.33。浏览器回归使用隔离配置和同一份最终 EXE，设置 `LANSW_TEST_DISABLE_MDNS=1`，让同机测试可使用私有 IPv4 地址建立 WebRTC 连接。三张实机界面图来自该 EXE，使用合成媒体，以 2× 比例拍摄为 2880 × 1440。
 
-| 检查 | 覆盖范围 |
+| 检查 | 结果 |
 | --- | --- |
-| 宣传页 | Edge 和 Chrome 均通过 1440、768、390、320 px 回归。首屏可见运行条件、下载和未签名提示。验证了键盘操作、减少动态效果、视频按需播放、7 段中文字幕及拖动进度。axe 在四种宽度均报告 0 项自动识别的违规。另核算了工具标记为需人工复核的渐变和流程图文字对比度。 |
-| 候选版首次进房与共享 | 区分附近暂无房间和自动发现不可用。自动加入失败后，手动表单保留用户自己的输入。两处粘贴邀请入口都聚焦输入框。覆盖取消选屏、误选窗口、缺少系统音频时的主动确认。两位观众收到画面，接收端无系统音频数据，声音面板隐藏对应的控制。重新选择共享系统声音后，对应控件恢复显示。 |
-| 候选版接力与回归 | 停止后语音继续，另一位成员能接力，房主与其余成员都收到画面。完整前端回归通过，覆盖 30 张截图、21 个 axe 检查状态及 17 个嵌入资源哈希。Go 全包、164 项 Node 测试、11 项三人媒体回归及后台开销检查通过。 |
-| 0.5.0 发行版演示 | 28.5 秒。用三个程序实例录下建房、粘贴邀请、两端收看、文字对话、停播与接力。使用同机原生 WebRTC、项目自制画面和合成声音。演示及上述回归的范围为同机环境。三台物理设备、真实屏幕和麦克风、游戏帧时间需单独验证。 |
+| `go test ./... -count=1` | 所有包含测试的 Go 包通过 |
+| `npm test` | 188 项通过 |
+| `npm run lab:test` | 源码与单文件各 23 项通过 |
+| `npm run experience:test` | 源码与单文件各 38 项通过 |
+| `node --test tests/e2e/frontend-hig.spec.js` | 39 项检查、40 张截图、25 个嵌入资源哈希。33 个状态的 axe 自动检查报告 0 项违规，页面错误和外部请求为 0 |
+| `node --test tests/e2e/mesh.spec.js` | 11 项通过。三人同时开麦时，单路 1920 × 1080 VP8 编码实测约 59.52 FPS，两位观众分别约 59.41 与 59.52 FPS |
+| `node --test tests/e2e/performance.spec.js` | 语音与停播阶段无媒体统计查询。共享且诊断收起时，11 秒内分享端采样 1 次，两个观看端各采样 5 次，均未查询独立语音连接 |
+| `node --test tests/e2e/landing.spec.js` | 1440、768、390、320 px 布局、键盘／触摸、离线文件、舞台同步、动效与毛玻璃通过。页面错误和外部请求为 0 |
+| Windows 发布包 | `--version` 输出 `1.0.0`。ZIP 的六个文件、包内 EXE 和独立 EXE 的一致性、两份 SHA-256 与第三方许可证均已核对。包内指南在 Edge 的 1440、390、320 px 视口离线打开通过 |
 
-本机单独运行严格 1080p60 合成媒体检查时，分享端编码 59.94 FPS，两位观众解码 59.76 和 59.87 FPS，均通过 57 FPS 门槛。曾在连续执行整套媒体用例时启用同一门槛，分享端当轮为 56.59 FPS，画面尺寸保持 1920×1080。
+最终 EXE 的 SHA-256 为 `842004b581a257328488ee0539d44f602e4c9de43f66a14f141d28eb031678aa`。测试用的是原生 WebRTC 加合成屏幕和麦克风。真实游戏帧时间、三台物理设备、实际屏幕／麦克风采集、响度和回声等听感留待实测。 [版本说明](releases/v1.0.0.md) · [宽屏长图](design-research/apple-upgrade/site-dark-wide.png) · [窄屏长图](design-research/apple-upgrade/site-dark-narrow.png)
 
-在工作树运行 `node scripts/preview-site.mjs` 可查看宣传页。宣传页和候选版回归的截图及报告在 `.superpowers/sdd/lan-screen-sharing/build/` 的 `landing-first-run`、`hig-evidence` 目录。
+在构建与打包后，可在项目根目录复现 Edge 检查与截图。 [构建与打包](versioning.md)
 
-复录时先安装 Node 依赖和 Playwright 的 FFmpeg 组件，并在 PATH 中提供可编码 H.264 的 FFmpeg。将 `LANSW_EXE` 指向已发布的 0.5.0 EXE，将 `LANSW_BROWSER_PATH` 指向已安装的 Edge，然后运行 `node scripts/capture-intro-demo.mjs`。脚本按发布哈希校验 EXE，更新宣传页截图与视频，并在 `build/intro-demo` 下生成录制证据。
+```powershell
+$env:LANSW_EXE = (Resolve-Path 'dist/release-1.0.0/局域网屏幕共享-1.0.0.exe').Path
+$env:LANSW_BROWSER_PATH = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'
+$env:LANSW_TEST_DISABLE_MDNS = '1'
+node scripts/capture-intro-screenshots.mjs
+node --test tests/e2e/frontend-hig.spec.js
+node --test tests/e2e/mesh.spec.js
+node --test tests/e2e/performance.spec.js
+node --test tests/e2e/landing.spec.js
+```
 
 ## 工作区性能优化（2026-11-05 至 2026-11-06）
 
@@ -53,7 +67,7 @@
 
 ## 已执行的检查
 
-以下表格保留 0.3.0 的历史范围；0.5.0 的当前检查和硬件性能门槛见本文开头及本轮性能记录。
+以下表格保留 0.3.0 的历史范围。0.5.0 与 v1.0.0 的检查见各版本的记录。
 
 | 检查 | 当前结果 | 验证范围 |
 | --- | --- | --- |

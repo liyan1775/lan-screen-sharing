@@ -3,11 +3,13 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"time"
 
 	"github.com/pion/webrtc/v4"
+	"lan-screen-sharing/internal/screenrelay"
 )
 
 func (s *Server) serveScreenRelay(w http.ResponseWriter, r *http.Request) {
@@ -33,24 +35,31 @@ func (s *Server) serveScreenRelay(w http.ResponseWriter, r *http.Request) {
 	var answer webrtc.SessionDescription
 	var err error
 	id := request.SessionID
+	s.lanMu.RLock()
+	screens := s.screens
+	s.lanMu.RUnlock()
 	switch request.Action {
 	case "start":
-		id, answer, err = s.screens.Start(ctx, request.Description)
+		id, answer, err = screens.Start(ctx, request.Description)
 	case "receiver":
 		if !relayPeerID(request.PeerID) {
 			writeError(w, 400, "INVALID_MESSAGE", "成员标识无效", false)
 			return
 		}
-		answer, err = s.screens.Answer(ctx, id, request.PeerID, request.Description)
+		answer, err = screens.Answer(ctx, id, request.PeerID, request.Description)
 	case "remove":
-		s.screens.RemoveReceiver(id, request.PeerID)
+		screens.RemoveReceiver(id, request.PeerID)
 	case "stop":
-		s.screens.Stop(id)
+		screens.Stop(id)
 	default:
 		writeError(w, 400, "INVALID_MESSAGE", "媒体操作无效", false)
 		return
 	}
 	if err != nil {
+		if errors.Is(err, screenrelay.ErrCodecMismatch) {
+			writeError(w, 409, screenrelay.ErrCodecMismatch.Error(), "当前看屏端不支持共享所用的视频编码。", false)
+			return
+		}
 		writeError(w, 409, "SCREEN_RELAY_UNAVAILABLE", "本机媒体连接未能建立，请停止共享后重试", true)
 		return
 	}

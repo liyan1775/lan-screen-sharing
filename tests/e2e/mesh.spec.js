@@ -16,7 +16,7 @@ function auditLocalRequests(context, externalRequests) {
   context.on('websocket', (socket) => checkURL(socket.url()));
 }
 
-async function createScenario({ denyViewerMic = false, captureWidth = 1280, captureHeight = 720, captureFps = 30, separateSender = false } = {}) {
+async function createScenario({ denyViewerMic = false, captureWidth = 1280, captureHeight = 720, captureFps = 30, separateSender = false, lateVP8Viewer = false } = {}) {
   if (!process.env.LANSW_EXE) throw new Error('Set LANSW_EXE to the built test executable before running BrowserE2E.');
   if (!browserPath) throw new Error('Set LANSW_BROWSER_PATH to an installed Chromium or Edge executable before running BrowserE2E.');
   const lanIP = selectedLANIPv4();
@@ -33,8 +33,10 @@ async function createScenario({ denyViewerMic = false, captureWidth = 1280, capt
       signalPorts.add(signalPort);
       services.push(service);
     }
-    browser = await chromium.launch({ headless: true, executablePath: browserPath, args:['--mute-audio'] });
-    if (separateSender) senderBrowser = await chromium.launch({ headless: true, executablePath: browserPath, args:['--mute-audio'] });
+    const args = ['--mute-audio'];
+    if (process.env.LANSW_TEST_DISABLE_MDNS === '1') args.push('--disable-features=WebRtcHideLocalIpsWithMdns');
+    browser = await chromium.launch({ headless: true, executablePath: browserPath, args });
+    if (separateSender) senderBrowser = await chromium.launch({ headless: true, executablePath: browserPath, args });
     const context = async (denyMicrophone = false, sender = false) => {
       const value = await (sender && senderBrowser ? senderBrowser : browser).newContext();
       contexts.push(value);
@@ -45,6 +47,19 @@ async function createScenario({ denyViewerMic = false, captureWidth = 1280, capt
     const hostContext = await context(false, true);
     const viewer1Context = await context(denyViewerMic);
     const viewer2Context = await context();
+    if (lateVP8Viewer) await viewer2Context.addInitScript(() => {
+      const addTransceiver = RTCPeerConnection.prototype.addTransceiver;
+      RTCPeerConnection.prototype.addTransceiver = function (kind, init) {
+        const transceiver = addTransceiver.call(this, kind, init);
+        if (kind === 'video' && init.direction === 'recvonly') {
+          const vp8 = RTCRtpReceiver.getCapabilities('video').codecs.filter(codec => codec.mimeType.toLowerCase() === 'video/vp8');
+          const setPreferences = transceiver.setCodecPreferences.bind(transceiver);
+          transceiver.setCodecPreferences = () => setPreferences(vp8);
+          transceiver.setCodecPreferences();
+        }
+        return transceiver;
+      };
+    });
     const host = await hostContext.newPage();
     const viewer1 = await viewer1Context.newPage();
     const viewer2 = await viewer2Context.newPage();
@@ -73,10 +88,13 @@ async function createScenario({ denyViewerMic = false, captureWidth = 1280, capt
       await page.locator('#toggle-mic').waitFor({ state: 'visible' });
     }
     await join(viewer1, services[1]);
-    await join(viewer2, services[2]);
-    await Promise.all([host, viewer1, viewer2].map((page) => page.waitForFunction(() => document.querySelectorAll('#members .member-seat:not([data-empty="true"])').length === 3)));
+    const joinSecondViewer = () => join(viewer2, services[2]);
+    if (!lateVP8Viewer) {
+      await joinSecondViewer();
+      await Promise.all([host, viewer1, viewer2].map((page) => page.waitForFunction(() => document.querySelectorAll('#members .member-seat:not([data-empty="true"])').length === 3)));
+    }
     return {
-      browser, contexts, services, host, viewers: [viewer1, viewer2], invite, externalRequests, auditContext: (value) => auditLocalRequests(value, externalRequests),
+      browser, contexts, services, host, viewers: [viewer1, viewer2], joinSecondViewer, invite, externalRequests, auditContext: (value) => auditLocalRequests(value, externalRequests),
       async close() {
         await Promise.allSettled(contexts.map((value) => value.close()));
         await browser.close().catch(() => {});
@@ -151,8 +169,9 @@ async function openDiagnostics(page) {
 async function waitForMesh(pages) {
   await Promise.all(pages.map((page) => page.waitForFunction(() => {
     const state = window.__lanScreenTest;
-    return state?.pcs.length >= 2 && state.pcs.every((pc) => pc.connectionState === 'connected');
-  }, { timeout: 25_000 })));
+    const active = state?.pcs.filter(pc => pc.connectionState !== 'closed');
+    return active?.length >= 2 && active.every(pc => pc.connectionState === 'connected');
+  }, null, { timeout: 25_000 })));
 }
 
 async function memberIds(page) {
@@ -189,6 +208,62 @@ async function waitForActualPCStats(page, predicate, message) {
   }
   assert.fail(message+': '+JSON.stringify(rows));
 }
+
+async function activeVideoCodec(page, codec, direction) {
+  const readCodec = () => page.evaluate(async ({ codec, direction }) => {
+    for (const pc of window.__lanScreenTest.pcs) {
+      if (pc.connectionState !== 'connected') continue;
+      const reports = await pc.getStats();
+      for (const report of reports.values()) {
+        if (report.type !== direction || report.kind !== 'video' || !(report.framesDecoded || report.framesEncoded)) continue;
+        const mime = reports.get(report.codecId)?.mimeType;
+        if (mime?.toLowerCase() === `video/${codec.toLowerCase()}`) return {
+          mime, implementation: report.encoderImplementation ?? report.decoderImplementation ?? null,
+          efficient: report.powerEfficientEncoder ?? report.powerEfficientDecoder ?? null,
+          width:report.frameWidth, height:report.frameHeight,
+        };
+      }
+    }
+    return false;
+  }, { codec, direction });
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) {
+    const result = await readCodec();
+    if (result) return result;
+    await new Promise(resolve => setTimeout(resolve, 120));
+  }
+  assert.fail(`No active ${direction} ${codec} video was observed`);
+}
+
+test('H264 forwarding falls back for a named VP8-only viewer and restores on departure without interrupting voice', async t => withScenario(t, { lateVP8Viewer:true }, async ({host, viewers, joinSecondViewer}) => {
+  const [viewer, incompatible] = viewers;
+  await Promise.all([enableMic(host), enableMic(viewer)]);
+  const before = await waitForActualPCStats(viewer, rows => rows.some(row => row.type === 'inbound-rtp' && row.kind === 'audio' && row.bytes > 0), 'initial microphone audio');
+  const voice = before.find(row => row.type === 'inbound-rtp' && row.kind === 'audio' && row.bytes > 0);
+  await shareSyntheticScreen(host);
+  const initial = await Promise.all([
+    activeVideoCodec(host,'H264','outbound-rtp'), activeVideoCodec(viewer,'H264','inbound-rtp'),
+    viewer.waitForFunction(() => document.querySelector('#remote-screen').videoWidth > 0),
+  ]);
+  t.diagnostic('H264: ' + JSON.stringify(initial.slice(0,2)));
+  await joinSecondViewer();
+  const notice = await host.locator('#watch-toast').filter({hasText:'已自动切回兼容模式（VP8）'}).textContent();
+  assert.match(notice, /因「[^」]+」当前浏览器无法使用 H\.264/);
+  const member = await incompatible.locator('#members [data-self="true"] strong').textContent().then(name => name.replace(/ · 本机$/, ''));
+  assert.ok(member && notice.includes(`「${member}」`), 'the notice names the incompatible member');
+  await Promise.all(viewers.map(page => page.locator('#watch-toast').filter({hasText:notice}).waitFor()));
+  const fallback = await Promise.all([
+    activeVideoCodec(host,'VP8','outbound-rtp'), ...viewers.map(page => activeVideoCodec(page,'VP8','inbound-rtp')),
+    ...viewers.map(page => page.waitForFunction(() => document.querySelector('#remote-screen').videoWidth > 0)),
+  ]);
+  t.diagnostic('VP8: ' + JSON.stringify(fallback.slice(0,3)));
+  await waitForActualPCStats(viewer, rows => rows.some(row => row.pc === voice.pc && row.type === 'inbound-rtp' && row.kind === 'audio' && row.state === 'connected' && row.bytes > voice.bytes), 'the original microphone link stays connected across fallback');
+  await incompatible.locator('#leave-room').click();
+  const restored = `「${member}」已离开房间，已自动切回 H.264 优先模式。`;
+  await Promise.all([host, viewer].map(page => page.locator('#watch-toast').filter({hasText:restored}).waitFor()));
+  t.diagnostic('Restored: ' + JSON.stringify(await Promise.all([activeVideoCodec(host,'H264','outbound-rtp'), activeVideoCodec(viewer,'H264','inbound-rtp')])));
+  assert.equal(await host.evaluate(() => window.__lanScreenTest.captures.filter(item => item.type === 'display-request').length), 1);
+}));
 
 async function assertTrackRoleMapping(page, role) {
   const data = await page.evaluate(async () => {
@@ -297,7 +372,7 @@ test('viewerCanJoinWithMicDenied', async (t) => withScenario(t, { denyViewerMic:
   await enableMic(viewers[1]);
   await viewers[0].locator('#toggle-mic').click();
   await viewers[0].locator('#error-message').waitFor({ state: 'visible' });
-  assert.match(await viewers[0].locator('#error-message').textContent(), /仍可观看并听取房间语音/);
+  assert.match(await viewers[0].locator('#error-message').textContent(), /麦克风权限未开启/);
   await waitForMesh([host, ...viewers]);
   await viewers[0].waitForFunction(() => window.__lanScreenTest.received.some((track) => track.kind === 'video'));
   await viewers[0].waitForFunction(() => window.__lanScreenTest.received.some((track) => track.kind === 'audio'));
@@ -305,7 +380,9 @@ test('viewerCanJoinWithMicDenied', async (t) => withScenario(t, { denyViewerMic:
   const capture = await viewers[0].evaluate(() => window.__lanScreenTest.captures.find((item) => item.type === 'microphone-request'));
   assert.equal(capture.denied, true, 'microphone denial must come from the synthetic permission fixture');
   assert.equal(await viewers[0].locator('#toggle-mic').isVisible(), true);
-  assert.ok((await viewers[0].locator('.audio-source[data-role="microphone"]').count()) >= 1, 'denied viewer still receives another member\'s microphone track');
+  await viewers[0].waitForFunction(() => document.querySelector('#remote-screen').videoWidth > 0 &&
+    [...document.querySelectorAll('audio[data-track-role="microphone"]')].some(audio =>
+      audio.srcObject?.getAudioTracks().some(track => !track.muted)));
 }));
 
 test('screenStopPreservesVoice', async (t) => withScenario(t, {}, async ({ host, viewers }) => {
@@ -363,7 +440,7 @@ test('localSocketLossAutomaticallyResumesSameSeatAndRetainsMicrophone', async (t
   const microphoneRequests=await viewer.evaluate(()=>window.__lanScreenTest.captures.filter(item=>item.type==='microphone-request').length);
   await viewer.evaluate(() => window.__lanScreenTest.sockets.findLast(socket=>new URL(socket.url).pathname==='/ws/v1'&&socket.readyState===WebSocket.OPEN).close());
   await viewer.waitForFunction(()=>window.__lanScreenTest.incoming.filter(message=>message.type==='room.joined').length>=2);
-  await viewer.locator('#connection-status').filter({hasText:'房间已恢复'}).waitFor();
+  await waitForMesh([host, ...viewers]);
   const rejoined=await viewer.evaluate(()=>window.__lanScreenTest.incoming.findLast(message=>message.type==='room.joined'));
   assert.equal(rejoined.roomId,original.roomId);assert.equal(rejoined.peerId,original.peerId,'automatic resume retains the original identity');
   assert.notEqual(rejoined.payload.resumeToken,original.resumeToken,'resume credentials rotate');
@@ -499,19 +576,20 @@ test('gameFocusPausesOnlyTheLocalPreviewAndPreservesSelectedQualityAndRTP', asyn
   const sampleBefore=await Promise.all([host,...viewers].map(collectActualPCStats));
   await new Promise(resolve=>setTimeout(resolve,5000));
   const sampleAfter=await Promise.all([host,...viewers].map(collectActualPCStats));
-  const actualFPS=sampleAfter.map((rows,index)=>{
+  const actualVideo=sampleAfter.map((rows,index)=>{
     const active=rows.find(row=>row.kind==='video' && row.frames>0);
     const previous=sampleBefore[index].find(row=>row.kind==='video' && row.pc===active?.pc && row.type===active?.type);
     assert.ok(active && previous,'every participant has a stable native video report');
-    assert.equal(active.width,1920);assert.equal(active.height,1080);
     const fps=(active.frames-previous.frames)/((active.timestamp-previous.timestamp)/1000);
-    // The shared hosted runner also decodes both viewers on its four vCPUs.
-    // Keep functional transport checks here; the fixed-hardware command below
-    // explicitly enables the unchanged >=57 FPS acceptance gate.
+    assert.ok(fps > 0 && Number.isFinite(fps), 'native frames advance with the preview detached');
+    assert.ok(active.width > 0 && active.width <= 1920 && active.height > 0 && active.height <= 1080);
+    // The general browser run already proves initial 1080p encode/decode and
+    // the sender limits. Steady resolution/FPS are measured on fixed hardware.
     if (process.env.LANSW_FIXED_HARDWARE_PERFORMANCE === '1') {
+      assert.equal(active.width,1920);assert.equal(active.height,1080);
       assert.ok(fps>=57,`participant ${index} must retain actual 1080p60, observed ${fps.toFixed(2)} FPS`);
     }
-    return fps;
+    return { width:active.width, height:active.height, fps };
   });
   await host.evaluate(() => { delete document.hasFocus; window.dispatchEvent(new Event('focus')); });
   await host.waitForFunction(() => document.querySelector('#remote-screen').srcObject && document.querySelector('#remote-screen').videoWidth > 0);
@@ -520,6 +598,6 @@ test('gameFocusPausesOnlyTheLocalPreviewAndPreservesSelectedQualityAndRTP', asyn
   assert.ok(targets.every(target => target.maxFramerate === 60 && target.maxBitrate === 8_000_000));
   assert.equal(await host.locator('#quality-target').inputValue(), '1080p60');
   t.diagnostic('Native encoder evidence with selected quality preserved: ' + JSON.stringify(codecs));
-  t.diagnostic('Native encode / two receiver decode FPS with all three microphones: '+JSON.stringify(actualFPS));
+  t.diagnostic('Native encode / two receiver decode with all three microphones: '+JSON.stringify(actualVideo));
   t.diagnostic('Fixed-hardware >=57 FPS acceptance gate: '+(process.env.LANSW_FIXED_HARDWARE_PERFORMANCE === '1' ? 'enabled' : 'not requested; run npm run test:encoding-performance'));
 }));

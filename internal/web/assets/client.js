@@ -14,13 +14,14 @@ export const ERROR_TEXT = Object.freeze({
   SIGNAL_CONNECTION_LOST: '与房主的信令连接中断，正在尝试恢复房间。',
   MIC_PERMISSION_DENIED: '麦克风权限未授予；你仍可观看并听取房间语音。',
   CAPTURE_CANCELLED: '已取消屏幕选择。',
-  DISPLAY_NOT_MONITOR: '当前选的是窗口或标签页。请再点一次共享按钮，然后选择整个显示器。',
+  DISPLAY_NOT_MONITOR: '请选择整块显示器；窗口或浏览器标签页不能作为游戏画面。',
   SYSTEM_AUDIO_UNSUPPORTED: '当前浏览器无法提供所需的屏幕采集。请使用桌面版 Edge 或 Chrome，检查采集权限。',
   SYSTEM_AUDIO_UNVERIFIED: '声音隔离未确认；系统声音仍可共享，可能包含房间语音。',
   ICE_FAILED: '点对点连接失败；请确认设备位于同一局域网并允许浏览器本地连接。',
   RATE_LIMITED: '房间码尝试次数已达上限，请等待 60 秒后重试。',
   PORT_IN_USE: '房间信令端口已被占用。请关闭占用端口的程序，或用 --signal-port 指定其他端口后重试。',
   SERVICE_START_FAILED: '无法启动房间信令服务，请检查绑定地址和端口后重试。',
+  UNSUPPORTED_PROTOCOL: '版本不兼容，请所有成员更新到同一版本',
 });
 
 export class RoomClient extends EventTarget {
@@ -44,9 +45,30 @@ export class RoomClient extends EventTarget {
     this.storage = storageImpl;
     this.sessionEpoch = 0;
     this.recovering = false;
+    this.profileRoomId = '';
+    this.memberProfiles = new Map();
   }
 
   emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail })); }
+
+  rememberProfile(roomId, peerId, profile) {
+    if (roomId !== this.profileRoomId) {
+      this.profileRoomId = roomId;
+      this.memberProfiles.clear();
+    }
+    const existing = this.memberProfiles.get(peerId);
+    if (existing && (!Number.isSafeInteger(profile.profileRevision) || existing.profileRevision > profile.profileRevision)) return existing;
+    if (!Number.isSafeInteger(profile.profileRevision)) return {};
+    const { nickname, avatarColor, profileRevision } = profile;
+    const current = { nickname, avatarColor, profileRevision };
+    this.memberProfiles.set(peerId, current);
+    if (this.memberProfiles.size > 64) this.memberProfiles.delete(this.memberProfiles.keys().next().value);
+    return current;
+  }
+
+  mergeMembers(roomId, members) {
+    return members.map(member => ({ ...member, ...this.rememberProfile(roomId, member.peerId, member) }));
+  }
 
   async loadLocalControl() {
     const url = new URL('/api/v1/bootstrap', location.href);
@@ -75,12 +97,16 @@ export class RoomClient extends EventTarget {
     return this.openLocalSocket(resumeRoomId);
   }
 
-  async refreshBootstrap(role = this.role) {
+  async readBootstrap(role = this.role) {
     const url = new URL('/api/v1/bootstrap', location.href);
     if (role === 'host') url.searchParams.set('role', 'host');
-    const response = await this.fetchImpl(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    const response = await this.fetchImpl(url, { credentials: 'same-origin', headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(5000) });
     if (!response.ok) throw new Error('无法刷新本机房间连接信息。');
-    this.bootstrap = await response.json();
+    return response.json();
+  }
+
+  async refreshBootstrap(role = this.role) {
+    this.bootstrap = await this.readBootstrap(role);
     if (role === 'host' && this.bootstrap.hostControlToken) this.hostControlToken = this.bootstrap.hostControlToken;
     return this.bootstrap;
   }
@@ -149,6 +175,7 @@ export class RoomClient extends EventTarget {
     try { message = JSON.parse(raw); } catch { this.emit('protocolError', {}); return; }
     if (message.type === 'room.state' && this.room?.roomId === message.roomId &&
       Number.isSafeInteger(message.payload?.presentationRevision) && message.payload.presentationRevision < (this.room.presentationRevision ?? 0)) {
+      delete message.payload.presentationStarted;
       // Concurrent member/roster updates may arrive after a newer presenter.
       // Keep membership updates, but never rewind presentation ownership.
       for (const key of ['presenterPeerId','presentationRevision','screenSharing','hasSystemAudio','isolationStatus']) message.payload[key] = this.room[key];
@@ -176,18 +203,25 @@ export class RoomClient extends EventTarget {
       pending.resolve(message);
     }
     if (message.type === 'room.created') {
-      this.room = { roomId: message.roomId, name:message.payload?.name || '', roomCode: message.payload?.roomCode, expiresAt: message.payload?.expiresAt, members: [{ peerId: message.peerId, role: 'host', state: 'connected' }], screenSharing: false };
+      const members = message.payload?.members ?? [{ peerId: message.peerId, role: 'host', state: 'connected', seatIndex: 1 }];
+      this.room = { roomId: message.roomId, name:message.payload?.name || '', roomCode: message.payload?.roomCode, expiresAt: message.payload?.expiresAt, members: this.mergeMembers(message.roomId, members), screenSharing: false };
       this.peerId = message.peerId; this.reconnectWanted = true;
     }
     if (message.type === 'room.joined') {
-      this.room = { roomId: message.roomId, name:message.payload?.name || '', members: message.payload?.members ?? [], screenSharing: message.payload?.screenSharing === true, presenterPeerId: message.payload?.presenterPeerId ?? '', hasSystemAudio: message.payload?.hasSystemAudio === true, presentationRevision: message.payload?.presentationRevision ?? 0 };
+      this.room = { roomId: message.roomId, name:message.payload?.name || '', members: this.mergeMembers(message.roomId, message.payload?.members ?? []), screenSharing: message.payload?.screenSharing === true, presenterPeerId: message.payload?.presenterPeerId ?? '', hasSystemAudio: message.payload?.hasSystemAudio === true, presentationRevision: message.payload?.presentationRevision ?? 0 };
       this.peerId = message.peerId ?? message.payload?.peerId ?? '';
       this.resumeToken = message.payload?.resumeToken ?? this.resumeToken;
       this.reconnectWanted = true;
     }
-    if (message.type === 'room.state' && message.roomId) this.room = { ...(this.room ?? {}), roomId: message.roomId, ...(message.payload ?? {}) };
+    if (message.type === 'room.state' && message.roomId) {
+      const payload = { ...message.payload };
+      delete payload.presentationStarted;
+      if (Array.isArray(payload.members)) payload.members = this.mergeMembers(message.roomId, payload.members);
+      this.room = { ...(this.room ?? {}), roomId: message.roomId, ...payload };
+    }
     if (message.type === 'room.state' && message.payload?.resumed) { this.peerId = message.peerId; this.reconnectWanted = true; }
     if (message.type === 'room.ended') {
+      this.memberProfiles.clear();
       this.room = null;
       this.peerId = '';
       this.resumeToken = '';
@@ -199,11 +233,17 @@ export class RoomClient extends EventTarget {
       const departedPeerId = message.payload?.peerId ?? message.peerId;
       message.selfLeft = departedPeerId === this.peerId;
       if (this.room) this.room.members = (this.room.members ?? []).filter((member) => member.peerId !== departedPeerId);
-      if (message.selfLeft) { this.room = null; this.peerId = ''; this.resumeToken = ''; this.joinDetails = null; this.cancelRecovery(); }
+      if (message.selfLeft) { this.memberProfiles.clear(); this.room = null; this.peerId = ''; this.resumeToken = ''; this.joinDetails = null; this.cancelRecovery(); }
     }
-    if (message.type === 'peer.joined' && this.room) this.room.members = [...(this.room.members ?? []).filter((member) => member.peerId !== message.peerId), { peerId: message.peerId, role: message.payload?.role ?? 'viewer', state: 'connected' }];
+    if (message.type === 'peer.joined' && this.room) {
+      const member = { role: 'viewer', state: 'connected', ...message.payload, peerId: message.peerId };
+      this.room.members = [...(this.room.members ?? []).filter(item => item.peerId !== message.peerId), ...this.mergeMembers(this.room.roomId, [member])];
+    }
     if (message.type === 'peer.state' && this.room) this.room.members = (this.room.members ?? []).map((member) => member.peerId === message.peerId ? { ...member, state: message.payload?.state } : member);
-    if (message.type === 'room.state' && this.room) this.room = { ...this.room, ...(message.payload ?? {}) };
+    if (message.type === 'peer.profile' && message.roomId && message.peerId && (!this.room || message.roomId === this.room.roomId)) {
+      const profile = this.rememberProfile(message.roomId, message.peerId, message.payload ?? {});
+      if (this.room) this.room.members = (this.room.members ?? []).map(member => member.peerId === message.peerId ? {...member, ...profile} : member);
+    }
     if (this.room && this.reconnectWanted) this.saveSession();
     this.emit('message', message);
   }
@@ -215,12 +255,12 @@ export class RoomClient extends EventTarget {
     return { roomId: message.roomId, ...message.payload };
   }
 
-  async joinRoom({ hostIPv4, hostPort, roomCode, resumeToken = '', restartMedia = false }) {
+  async joinRoom({ hostIPv4, hostPort, roomCode, resumeToken = '', restartMedia = false, nickname, avatarColor }) {
     const payload = { hostIPv4: hostIPv4.trim(), hostPort: Number(hostPort), roomCode: roomCode.trim().toUpperCase() };
     if (resumeToken) payload.resumeToken = resumeToken;
     if (restartMedia) payload.restartMedia = true;
     this.joinDetails = {...payload};
-    const message = await this.request('viewer.join', payload, { expected: 'room.joined' });
+    const message = await this.request('viewer.join', { ...payload, nickname, avatarColor }, { expected: 'room.joined' });
     this.joinDetails = { ...payload, resumeToken: message.payload?.resumeToken ?? resumeToken };
     this.saveSession();
     return { roomId: message.roomId, peerId: message.peerId, ...message.payload };
@@ -251,11 +291,40 @@ export class RoomClient extends EventTarget {
 
   send(type, payload = {}, options = {}) { return this.request(type, payload, options); }
 
+  updateProfile(profile) {
+    return this.request('peer.profile', profile, { roomId: this.room?.roomId });
+  }
+
+  async controlPost(operation, payload, { keepalive = false } = {}) {
+    const token = this.bootstrap?.localControlToken;
+    if (!token) throw new Error('本机程序尚未连接。');
+    const response = await this.fetchImpl(new URL(`/api/v1/${operation}`, location.href), {
+      method: 'POST', credentials: 'same-origin', keepalive,
+      headers: { 'Content-Type': 'application/json', 'X-Local-Control-Token': token },
+      body: JSON.stringify(payload), signal: AbortSignal.timeout(5000),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.payload?.message || '本机设置未能更新，请稍后重试。');
+    return data;
+  }
+
+  async savePreferences(patch) {
+    const { preferences } = await this.controlPost('preferences', patch, { keepalive: true });
+    return preferences;
+  }
+
+  async switchNetwork(lanIPv4) {
+    const network = await this.controlPost('network', { lanIPv4 });
+    this.bootstrap = { ...this.bootstrap, ...network };
+    return network;
+  }
+
   async loadRooms() {
     const token = this.bootstrap?.localControlToken;
     if (!token) throw new Error('本机程序尚未连接。');
     const response = await this.fetchImpl(new URL('/api/v1/rooms', location.href), {
       credentials: 'same-origin', headers: { Accept: 'application/json', 'X-Local-Control-Token': token },
+      signal: AbortSignal.timeout(5000),
     });
     if (!response.ok) throw new Error('房间列表暂不可用。');
     return response.json();
@@ -273,7 +342,12 @@ export class RoomClient extends EventTarget {
       method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json','X-Local-Control-Token':token},
       body:JSON.stringify(payload), signal:signal ? AbortSignal.any([signal,AbortSignal.timeout(10000)]) : AbortSignal.timeout(10000),
     });
-    if (!response.ok) throw new Error('本机媒体连接未能建立，请停止共享后重试。');
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      const error = new Error('本机媒体连接未能建立，请停止共享后重试。');
+      if (body?.payload?.code === 'SCREEN_RELAY_CODEC_MISMATCH') error.code = body.payload.code;
+      throw error;
+    }
     return response.json();
   }
 

@@ -12,8 +12,11 @@ $sections.Add('Generated from the runtime dependencies of ./cmd/lan-screen-shari
 function Add-Notice([string]$Label, [string]$SourcePath) {
   $sections.Add("================================================================`n$Label`n================================================================`n`n" + [IO.File]::ReadAllText($SourcePath, [Text.Encoding]::UTF8).TrimEnd())
 }
+$previousOutputEncoding = [Console]::OutputEncoding
 Push-Location $projectRoot
 try {
+  # Go emits UTF-8 paths, including GOROOT and module directories on Windows.
+  [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
   $rows = & $GoExe list -deps -f '{{if .Module}}{{.Module.Path}}|{{.Module.Version}}|{{.Module.Dir}}{{end}}' ./cmd/lan-screen-sharing
   if ($LASTEXITCODE -ne 0) { throw 'Could not enumerate runtime module notices.' }
   foreach ($row in ($rows | Where-Object { $_ -and $_ -notmatch '^lan-screen-sharing\|' } | Sort-Object -Unique)) {
@@ -30,4 +33,7 @@ try {
   New-Item -ItemType Directory -Force (Split-Path -Parent $OutputPath) | Out-Null
   [IO.File]::WriteAllText($OutputPath, (($sections -join "`n`n") -replace '\r?\n', "`r`n") + "`r`n", [Text.UTF8Encoding]::new($false))
   Write-Output "Third-party notices: $OutputPath"
-} finally { Pop-Location }
+} finally {
+  [Console]::OutputEncoding = $previousOutputEncoding
+  Pop-Location
+}

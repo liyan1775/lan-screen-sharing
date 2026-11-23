@@ -13,3 +13,5 @@
 /.superpowers/sdd/lan-screen-sharing/build/
 /.superpowers/sdd/2026-11-02-audio-priority/
 /.superpowers/sdd/**/*.diff
+/docs/design-research/apple-upgrade/
+/website_original_backup/

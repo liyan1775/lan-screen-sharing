@@ -1,63 +1,54 @@
-# LAN / 分享 · 局域网屏幕共享
+<h1 align="center">LAN / 分享</h1>
 
-> 0.5.0 将两位观众的重复编码合为一次，保持所选画质，并减少后台预览和轮询开销。详见[本版说明](docs/releases/v0.5.0.md)和[验证说明](docs/verification.md)。
+<p align="center">同一局域网，一起看同一屏。最多三人共享屏幕、开麦和聊天，无需账号或云端中转。</p>
 
-在互通的私有局域网中，最多三个人共享显示器画面，使用语音或文字交流。每个人运行自己的 Windows x64 EXE，在桌面版 Edge 或 Chrome 中使用。共享画面和系统声音在浏览器中编码一次，再由分享者本机程序把相同的编码数据直接发送给两位观众；语音和文字继续通过浏览器点对点传输。
+<p align="center">
+  <a href="https://liyan1775.github.io/lan-screen-sharing/">在线宣传页</a> ·
+  <a href="https://github.com/liyan1775/lan-screen-sharing/releases/download/v1.0.0/lan-screen-sharing-1.0.0-windows-x64.zip"><strong>下载 v1.0.0 Windows 版</strong></a> ·
+  <a href="docs/releases/v1.0.0.md">版本说明</a> ·
+  <a href="LICENSE">Apache-2.0 开源</a>
+</p>
 
-所有成员请统一使用 0.5.0；新共享通路与 0.4.x 不兼容。画质、帧率、CPU 测量及验收范围见[性能记录](docs/performance/2026-11-06-single-encode.md)。
+<p align="center">
+  <img src="website/assets/screen.png" width="59%" alt="v1.0.0 观看共享屏幕，左上角有实收画质，右上角有看屏工具，下方是一行玻璃控制坞">
+  <img src="website/assets/room.png" width="39%" alt="v1.0.0 三人语音房间，展示各自的昵称和头像颜色">
+</p>
 
-![0.4.0 的三人语音房间，测试房间与合成媒体](docs/design-research/release-0.4.0-qa/04-voice-three.png)
+## 为什么好用
 
-[产品介绍](https://liyan1775.github.io/lan-screen-sharing/) · [下载 0.5.0 Windows x64 测试包](https://github.com/liyan1775/lan-screen-sharing/releases/download/v0.5.0/lan-screen-sharing-0.5.0-windows-x64.zip) · [发行页面](https://github.com/liyan1775/lan-screen-sharing/releases/tag/v0.5.0) · [版本说明](docs/releases/v0.5.0.md)
+- **零云端，局域网直连。** 无需登录。局域网内可自动发现房间，也能整段粘贴邀请。
+- **单次编码，最多两位观众。** 同一份编码画面由分享者本机转发，默认画质目标为 1080p60 / 8 Mbps。
+- **Apple Pro 风格玻璃交互。** 深色看屏界面、单行玻璃控制坞、实收画质胶囊和有反馈的动效。
+- **局部放大、画中画、一键截屏。** 放大画面细节，按原尺寸保存 PNG。画中画需要浏览器支持。
+- **自由麦、按键说话和本机试音。** 支持选麦、独立音量、房间文字链接与一键复制消息。
+- **优先推荐真实局域网网卡。** 昵称、头像颜色、麦克风和选用的网卡等偏好可跨重启保留。
 
-## 可以做什么
+## 三步开始
 
-- 通过附近房间发现并加入，也可以粘贴一段完整邀请信息加入；地址、端口和房间码的分别填写保留为备用入口。公开发现可在创建时关闭。
-- 最多三人语音，同一时间一人共享；任一成员停止共享后，另一人可在原房间接着分享。房主负责维持房间。
-- 共享整个显示器，默认包含浏览器捕获的系统声音，也可选择仅画面与语音。支持全屏观看、本机音量控制、画质目标和媒体诊断。
-- 不开麦也可以使用房间文字交流。文字只发给当前成员，本机仅保留最近 100 条，离开房间或刷新页面后清空。
-- 入口与语音界面跟随系统浅深外观；观看时使用深色界面。全屏保留麦克风、声音、文字及退出操作，支持键盘和文字放大。
-- 刷新或短暂断线时，在 30 秒保留期内自动恢复原房间与身份。活跃页面断线时保留本机采集；刷新后恢复收看，麦克风和屏幕需要重新点击开启。
-- 独立的[体验实验室](demos/experience-lab/README.md)保留两轮设计探索，可自由组合阶段结构及视觉主题；它使用模拟房间，不连接真实设备。
+1. **大家运行同一版。** 完整解压 Windows x64 ZIP。先打开 `先看这里.html`，再双击 `局域网屏幕共享.exe`，用桌面版 Edge 或 Chrome 打开本机页面。
+2. **一人建房，朋友加入。** 电脑须在能互相访问的私有 IPv4 局域网。朋友可以从“附近的房间”加入，或在“手动加入”粘贴完整邀请。
+3. **选择显示器，开始共享。** 点“共享我的屏幕”，选择整个显示器，并按需授权系统声音和麦克风。停止分享后，房间仍可语音和聊天。
 
-## 六步开始
+## 开发与构建
 
-1. 所有参与者下载同一个 0.5.0 测试包并完整解压，在各自 Windows x64 电脑上运行“局域网屏幕共享.exe”，用桌面版 Edge 或 Chrome 打开程序页面。
-2. 一人选择“创建房间”，填写房间名并按需要选择是否允许同网发现，然后创建房间。房主离开会结束整个房间。
-3. 其他人在“附近的房间”加入。若无法发现，房主点“邀请朋友 → 复制邀请信息”，朋友点击首页“粘贴邀请加入”（0.5.0 发行包显示为“手动加入”），整段粘贴并加入。
-4. 需要说话时点“开启麦克风”并在浏览器授权；如浏览器阻止播放，按提示点“启用声音”。也可以打开“文字”，用 Enter 发送、Shift+Enter 换行。
-5. 想分享的成员直接点屏幕共享按钮，在浏览器选择**整个显示器**并允许共享系统声音。默认已选择包含系统声音；没有音轨时按提示选择无游戏声音继续或取消重选。也可以在“设置”主动选择不共享系统声音。
-6. 观众可点“全屏观看”或双击画面，按 Esc 退出全屏。分享者点“停止屏幕共享”会停画面及其系统声音，房间语音继续；其他成员随后可共享。
-
-只聊语音会暂停本机观看和共享声音的播放；如果本机正在共享，选择“只聊语音”会停止自己的共享。恢复后可继续观看。
-
-## 网络、声音与测试状态
-
-所有电脑必须能通过私有 IPv4 网络互相访问。自动发现依赖局域网广播和组播；访客隔离、多网卡、VPN 和防火墙策略可能阻止发现或连接。发现失败可手动加入；软件不提供公网 STUN/TURN 或互联网中继，也不修改防火墙策略。
-
-默认共享系统声音；仍需在浏览器的共享选择窗口允许系统音频。包含系统声音时，即使隔离不可用或未确认，浏览器捕获到的系统声音仍会发送；可选听感检查不会自动关声。分享者可主动点“停止共享系统声音”，保留画面和语音。浏览器和系统可能同时捕获其他声音，请在真实设备上检查听感。
-
-房间默认没有固定时长上限，长时间共享、语音或暂时停止共享均可继续使用原房间和邀请信息。意外断线时保留房间和席位 30 秒，页面显示恢复状态并自动重试；房主刷新不会立即结束其他成员的房间。主动离开、结束房间和退出程序会取消自动恢复。关闭最后一个页面后，程序约等待 30 秒再退出，方便刷新重新接入。恢复信息仅保存在当前标签页的 sessionStorage，并绑定本机程序实例；程序重启或超过保留期后需要重新加入。浏览器禁用存储时，页面仍可使用，但刷新自动恢复不可用。
-
-0.5.0 是**公开测试版**。本轮按原生 WebRTC 与合成媒体完成非真实游戏验收。真实屏幕/麦克风、三台设备、系统声音隔离、游戏帧时间与不同分辨率鼠标捕获仍需实际设备反馈。EXE 尚未数字签名。已完成的检查及其范围见[验证说明](docs/verification.md)。
-
-## 开发
-
-需要 Go（以 [go.mod](go.mod) 的 1.27 为准）和 Node.js 24。Windows PowerShell 中：
+在 Windows PowerShell 中执行。Go 版本以 `go.mod` 为准，CI 使用 Node.js 24。构建会同时生成第三方许可清单。
 
 ```powershell
 npm ci
+go test ./... -count=1
 npm test
-npm run lab:build
-npm run lab:test
-npm run experience:build
-npm run experience:test
-npm run lab:preview
-powershell -NoProfile -File scripts/build.ps1 -BuildVersion 0.5.0
+$releaseExe = 'dist/release-1.0.0/局域网屏幕共享-1.0.0.exe'
+.\scripts\build.ps1 -OutputPath $releaseExe
+.\scripts\package-release.ps1 -ExePath $releaseExe
 ```
 
-构建默认输出 `dist/局域网屏幕共享-0.5.0.exe`，优先使用 PATH 中的 Go；可用 `-GoExe`、`-GoProxy` 和 `-OutputPath` 显式指定。`npm run lab:preview` 启动本机演示服务；实验室本身不访问真实媒体设备。完整 Go 测试为 `go test ./... -count=1`。更多架构和验证细节见[架构](docs/architecture.md)、[验证](docs/verification.md)。
+| 文档 | 内容 |
+| --- | --- |
+| [v1.0.0 版本说明](docs/releases/v1.0.0.md) | 正式版功能、升级与验证范围 |
+| [版本与发行规范](docs/versioning.md) | SemVer、同版建议、Tag、Release 与 Pages 发布 |
+| [系统架构](docs/architecture.md) | 局域网发现、房间信令和媒体通路 |
+| [验证与限制](docs/verification.md) | 本机回归、复现方式与实测边界 |
 
-## 许可与素材
+## 开源许可
 
-**项目尚未指定整体开源许可证。** 第三方组件的原有许可证不因此改变；构建旁的 `.licenses.txt` 保留 [WebSocket、Pion、Go 与图标等组件许可](docs/third-party-notices.txt)，素材来源见[素材与组件](docs/assets.md)。
+Copyright 2026 liyan1775。项目采用 Apache-2.0。再分发时按协议保留适用的署名声明。Windows 完整包附带项目许可、署名与第三方组件许可。 [LICENSE](LICENSE) · [NOTICE](NOTICE) · [第三方许可](docs/third-party-notices.txt)

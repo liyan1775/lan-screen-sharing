@@ -2,211 +2,217 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#fff">
-  <title>LAN / 分享 · 三人局域网屏幕共享</title>
-  <meta name="description" content="一人分享整个显示器，最多两位朋友观看，还能语音、发文字、轮流分享。无需账号，每人使用 Windows x64 和桌面版 Edge 或 Chrome。">
-  <meta property="og:title" content="LAN / 分享 · 三人局域网屏幕共享">
-  <meta property="og:description" content="一人分享，两位朋友观看。画面、声音和文字在局域网内传输。">
-  <meta property="og:type" content="website">
-  <meta property="og:image" content="https://liyan1775.github.io/lan-screen-sharing/assets/screen.png">
-  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#04070a">
+  <title>LAN / 分享 v1.0.0 — 局域网屏幕共享</title>
+  <meta name="description" content="在同一局域网共享屏幕、语音和文字。Windows x64 · 桌面版 Edge / Chrome。">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23146c7a'/%3E%3Cpath d='M13 22h-3a4 4 0 0 1 0-8h6m3-4h3a4 4 0 0 1 0 8h-6' fill='none' stroke='%23f2f6f9' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
   <script src="app.js" defer></script>
 </head>
-<body>
+<body id="top">
+  <svg class="brand-definitions" width="0" height="0" aria-hidden="true" focusable="false">
+    <defs>
+      <linearGradient id="brand-metal" x2=".85" y2="1">
+        <stop stop-color="#a9e7eb"/><stop offset=".42" stop-color="#297f8c"/><stop offset="1" stop-color="#25273e"/>
+      </linearGradient>
+      <symbol id="brand-mark" viewBox="0 0 64 64">
+        <rect x="1" y="1" width="62" height="62" rx="16" fill="url(#brand-metal)" stroke="#cbeaf4" stroke-opacity=".45"/>
+        <g transform="translate(12 12) scale(1.67)" fill="none" stroke="#f2f6f9" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 15.8h-.2A2.3 2.3 0 0 1 1.5 13.5V5.8a2.3 2.3 0 0 1 2.3-2.3h12.4a2.3 2.3 0 0 1 2.3 2.3v.4"/>
+          <rect x="6.5" y="8.6" width="16" height="10.8" rx="2.2"/>
+          <path d="M12.2 21.8h4.6"/>
+        </g>
+      </symbol>
+    </defs>
+  </svg>
   <a class="skip-link" href="#main">跳到主要内容</a>
-  <header class="site-header">
-    <nav class="nav wrap" aria-label="主导航">
-      <a class="brand" href="#top" aria-label="LAN 分享首页"><span class="brand-mark" aria-hidden="true">L</span> <span>LAN <i>/</i> 分享</span></a>
-      <div class="nav-links">
-        <a href="#experience">操作演示</a>
-        <a href="#start">开始使用</a>
-        <a href="#performance">性能</a>
-        <a href="https://github.com/liyan1775/lan-screen-sharing">GitHub</a>
-      </div>
-      <a class="button button-small" href="#download">下载</a>
-    </nav>
-  </header>
+  <header class="product-header"><nav class="product-nav wrap" aria-label="产品导航">
+    <a class="brand" href="#overview"><svg width="26" height="26" aria-hidden="true"><use href="#brand-mark"/></svg>LAN / 分享</a>
+    <div class="nav-links"><a href="#overview" aria-current="location">概览</a><a href="#experience">体验</a><a href="#performance">性能</a><a href="#simulator">交互模拟</a><a href="#specifications">规格</a><a href="#start">开始使用</a></div>
+    <div class="nav-actions"><a href="https://github.com/liyan1775/lan-screen-sharing">GitHub <span aria-hidden="true">↗</span></a><a class="button button-small" href="#download">下载</a></div>
+  </nav></header>
   <main id="main" tabindex="-1">
-    <section class="hero" id="top" aria-labelledby="hero-title">
-      <div class="wrap hero-layout">
-        <div class="hero-copy">
-          <p class="release-label">0.5.0 公开测试版</p>
-          <h1 id="hero-title">局域网屏幕共享，<br><span class="blue-text">三个人一起看。</span></h1>
-          <p class="hero-description">一人分享整个显示器，最多两位朋友观看。边看边语音、发文字，停播后还可以轮流分享。</p>
-          <p class="hero-benefits">无需账号 <span aria-hidden="true">·</span> 画面、声音和文字在局域网内传输</p>
-          <p class="requirements"><strong>运行要求</strong> 每位成员都要在 Windows x64 电脑上运行同一版本，使用桌面版 Edge 或 Chrome。电脑须处于可互通的私有 IPv4 局域网。</p>
-          <div class="hero-actions">
-            <a class="button" href="https://github.com/liyan1775/lan-screen-sharing/releases/download/v0.5.0/lan-screen-sharing-0.5.0-windows-x64.zip">下载 Windows 版</a>
-            <a class="text-link" href="#experience">观看演示</a>
-          </div>
-          <p class="install-note">测试版 EXE 未数字签名，Windows 可能提示 SmartScreen。 <a href="#installation">校验与运行说明</a></p>
-        </div>
-        <figure class="hero-product">
-          <img src="assets/screen.png" alt="一位朋友在三人房间中观看共享的演示稿，画面下方仍可控制语音和文字" width="1440" height="900" fetchpriority="high">
-          <figcaption>LAN / 分享 0.5.0 · 观众视角 · 演示素材</figcaption>
-        </figure>
+    <section class="hero" id="overview" aria-labelledby="hero-title">
+      <div class="hero-ambient-glow" aria-hidden="true"></div>
+      <canvas id="heroAuraCanvas" aria-hidden="true"></canvas>
+      <div class="hero-copy wrap">
+        <p class="glass-pill hero-version"><i class="dot" aria-hidden="true"></i>v1.0.0 正式版 · 局域网屏幕共享</p>
+        <h1 class="hero-gradient-text" id="hero-title"><span>同一局域网。</span><wbr><span>一起看同一屏。</span></h1>
+        <p class="hero-description">无需云端中转，打开即用。一个人分享，最多三人同场，在自己的局域网里边看边聊。默认画质目标为 1080p60。</p>
+        <div class="hero-actions"><a class="button" href="https://github.com/liyan1775/lan-screen-sharing/releases/download/v1.0.0/lan-screen-sharing-1.0.0-windows-x64.zip">下载 Windows 版 <span aria-hidden="true">↓</span></a><a class="text-link" href="#simulator">体验实时模拟 <span aria-hidden="true">›</span></a></div>
+        <p class="platform">Windows x64 单 EXE · 桌面版 Edge / Chrome</p>
       </div>
-    </section>
-
-    <section class="experience section wrap" id="experience" aria-labelledby="experience-title">
-      <div class="section-heading">
-        <h2 id="experience-title">从建房到换人分享</h2>
-        <p id="demo-description">约 30 秒看完操作。三个实际程序实例在同一台电脑运行，使用演示画面和合成声音。<span class="demo-sound-note">短片为静音，操作见字幕。</span></p>
-      </div>
-      <figure class="demo">
-        <div class="demo-player">
-          <video id="demo-video" controls playsinline preload="none" poster="assets/demo-poster.jpg" width="1440" height="900" aria-label="LAN 分享操作演示" aria-describedby="demo-description">
-            <source src="assets/first-room-demo.mp4" type="video/mp4">
-            <track kind="captions" src="assets/first-room-demo.zh-CN.vtt" srclang="zh-CN" label="简体中文" default>
-          </video>
-          <button id="play-demo" class="button demo-play" type="button" aria-controls="demo-video" hidden>播放演示</button>
+      <figure class="wide showcase" id="heroShowcase">
+        <div class="hero-stage">
+        <div class="glass-pill stage-status"><i class="dot dot-green" aria-hidden="true"></i>LAN 局域网直连 · 单次编码 · 1080p60</div>
+        <div class="devices">
+          <svg class="stage-beams" aria-hidden="true">
+            <defs>
+              <linearGradient id="beam-a" x1="1" y1="0" x2="0" y2="1"><stop class="beam-ice"/><stop offset="1" class="beam-violet"/></linearGradient>
+              <linearGradient id="beam-b" x1="0" y1="0" x2="1" y2="1"><stop class="beam-violet"/><stop offset="1" class="beam-ice"/></linearGradient>
+            </defs>
+            <g class="beam-branch"><path class="beam-track" stroke="url(#beam-a)"/><path class="beam-path" stroke="url(#beam-a)"/><circle class="beam-particle" r="2.2"/></g>
+            <g class="beam-branch"><path class="beam-track" stroke="url(#beam-b)"/><path class="beam-path" stroke="url(#beam-b)"/><circle class="beam-particle" r="2.2"/></g>
+          </svg>
+          <div class="device device-host"><div class="titanium-frame"><div class="device-screen"><canvas id="heroHostCanvas" aria-hidden="true"></canvas><div class="camera" aria-hidden="true"></div><span class="screen-label">房主</span><span class="screen-label host-live"><i class="dot dot-ruby" aria-hidden="true"></i>LIVE · 1080p60</span></div></div><div class="titanium-base" aria-hidden="true"></div></div>
+          <div class="device device-viewer viewer-a"><div class="titanium-frame"><div class="device-screen"><canvas id="heroViewerACanvas" aria-hidden="true"></canvas><span class="screen-label">朋友 A · 观看端</span></div></div><div class="monitor-stand" aria-hidden="true"></div></div>
+          <div class="device device-viewer viewer-b"><div class="titanium-frame"><div class="device-screen"><canvas id="heroViewerBCanvas" aria-hidden="true"></canvas><span class="screen-label">朋友 B · 观看端</span></div></div><div class="monitor-stand" aria-hidden="true"></div></div>
         </div>
-        <figcaption>
-          <details>
-            <summary>查看演示的文字步骤</summary>
-            <ol>
-              <li>房主创建「周末一起看」，将完整邀请发给两位朋友。</li>
-              <li>朋友各自运行程序，在「手动加入」中粘贴邀请。三人进房后按需开启麦克风。</li>
-              <li>房主开始共享。两位朋友都看到同一份画面，也可以通过房间文字交流。</li>
-              <li>房主停止共享，三人仍在原房间。一位朋友随后分享，另外两人继续观看。</li>
-            </ol>
-          </details>
-          <a class="text-link demo-file" href="assets/first-room-demo.mp4">打开 MP4</a>
-        </figcaption>
+        </div>
+        <figcaption class="stage-caption">实时动画演示 <span aria-hidden="true">/</span> 一份画面，两台桌面观看端 <button type="button" id="heroReplay" class="hero-replay" hidden><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 7a6 6 0 1 1 1.5 5M2 3v4h4"/></svg>重播开屏</button></figcaption>
       </figure>
-      <div class="scenarios">
-        <article><h3>同屋看队友视角</h3><p>朋友在玩，你们看他的屏幕，边看边说。下一局也可以换你分享。</p></article>
-        <article><h3>结对演示</h3><p>在同一间教室或办公室演示操作、一起过代码，随手发条文字补充。</p></article>
-      </div>
-      <div class="product-views">
-        <h3>还能在房间里怎么聊</h3>
-        <div class="segmented" role="tablist" aria-label="查看房间界面">
-          <button id="tab-voice" type="button" role="tab" aria-selected="true" aria-controls="panel-voice" tabindex="0">三人语音</button>
-          <button id="tab-text" type="button" role="tab" aria-selected="false" aria-controls="panel-text" tabindex="-1">房间文字</button>
-          <button id="tab-screen" type="button" role="tab" aria-selected="false" aria-controls="panel-screen" tabindex="-1">屏幕共享</button>
-        </div>
-        <div class="gallery">
-          <div id="panel-voice" role="tabpanel" aria-labelledby="tab-voice" tabindex="0">
-            <figure><img src="assets/room.png" alt="三人语音房间，左侧显示三位成员和独立的语音音量控制" width="1440" height="900" loading="lazy"><figcaption>不开屏也可以语音。成员声音与共享声音各有独立的本机音量控制。</figcaption></figure>
-          </div>
-          <div id="panel-text" role="tabpanel" aria-labelledby="tab-text" tabindex="0" hidden>
-            <figure><img src="assets/text.png" alt="正在观看共享画面，右侧打开房间文字并显示两位成员的对话" width="1440" height="900" loading="lazy"><figcaption>文字只发给当前成员，离开或刷新后清空。</figcaption></figure>
-          </div>
-          <div id="panel-screen" role="tabpanel" aria-labelledby="tab-screen" tabindex="0" hidden>
-            <figure><img src="assets/screen.png" alt="观看显示器共享时可以进入全屏，并使用麦克风和声音控制" width="1440" height="900" loading="lazy"><figcaption>共享整个显示器时可带上电脑声音。停播后，房间和语音继续。</figcaption></figure>
-          </div>
-        </div>
+    </section>
+    <section class="story section" aria-label="局域网共享理念">
+      <div class="section-ambient-glow" aria-hidden="true"></div><div class="wrap">
+        <p class="section-label">为亲近的连接而设计</p>
+        <p class="story-line">不走公网，无需账号。</p><p class="story-line">你的屏幕、声音与文字，<wbr>只在局域网内自由流转。</p>
+        <dl class="big-stats"><div class="reveal"><dt>同场语音与观看</dt><dd class="hero-gradient-text">3 <small>人</small></dd><dd>一人分享，两人观看，随时轮流开播。</dd></div><div class="reveal reveal-delay-1"><dt>单次编码复用</dt><dd class="hero-gradient-text">1 <small>次</small></dd><dd>同一份编码画面发给两位观众。</dd></div><div class="reveal reveal-delay-2"><dt>云端中转与上传</dt><dd class="hero-gradient-text">0</dd><dd>私有 IPv4 局域网 WebRTC 直连。</dd></div></dl>
       </div>
     </section>
-
-    <section class="start section" id="start" aria-labelledby="start-title">
-      <div class="wrap">
-        <div class="section-heading"><h2 id="start-title">三步开始共享</h2></div>
-        <ol class="steps" role="list">
-          <li>
-            <span aria-hidden="true">1</span>
-            <h3>各自打开程序</h3>
-            <p>每个人完整解压同一版本的 ZIP，打开「先看这里.html」，按说明运行「局域网屏幕共享.exe」。 <a class="inline-link" href="#installation">遇到 Windows 提示？</a></p>
-          </li>
-          <li>
-            <span aria-hidden="true">2</span>
-            <h3>进入同一个房间</h3>
-            <p>一人创建房间。朋友从「附近的房间」加入，或让房主点「邀请朋友」复制完整邀请，再到「手动加入」粘贴。</p>
-          </li>
-          <li>
-            <span aria-hidden="true">3</span>
-            <h3>分享整个显示器</h3>
-            <p>点「共享我的屏幕」，在浏览器中选择整个显示器。想分享电脑声音时，一并允许系统音频。麦克风可在房间内单独开启。</p>
-          </li>
-        </ol>
-      </div>
-    </section>
-
-    <section class="performance section" id="performance" aria-labelledby="performance-title">
-      <div class="wrap">
-        <div class="section-heading">
-          <h2 id="performance-title">多一个朋友，<span class="blue-text">不多编一次。</span></h2>
-          <p>两位朋友观看时，分享者的电脑只需编码一次视频和系统声音。同一份编码数据由本机程序分别发给两位观众。</p>
+    <section class="section wrap" id="experience" aria-labelledby="experience-title">
+      <div class="section-heading reveal"><p class="section-label">产品体验</p><h2 id="experience-title">开一间房。<br><span>一起看，也一起聊。</span></h2><p>共享整个显示器，按需带上系统声音。停下共享后，语音和文字仍可继续。</p></div>
+      <div class="gallery reveal">
+        <div class="segmented gallery-tabs" role="tablist" aria-label="查看产品界面">
+          <button id="tab-screen" role="tab" aria-selected="true" aria-controls="panel-screen" tabindex="0" data-view="screen">屏幕共享</button>
+          <button id="tab-voice" role="tab" aria-selected="false" aria-controls="panel-voice" tabindex="-1" data-view="voice">三人语音</button>
+          <button id="tab-text" role="tab" aria-selected="false" aria-controls="panel-text" tabindex="-1" data-view="text">房间文字</button>
         </div>
-        <div class="performance-card">
-          <div class="performance-top">
-            <h3>两位朋友观看时的编码方式</h3>
-            <div class="compare-toggle" role="group" aria-label="比较编码方式">
-              <button type="button" data-compare="before" aria-pressed="false">升级前</button>
-              <button type="button" data-compare="after" aria-pressed="true">0.5.0</button>
+        <div id="panel-screen" role="tabpanel" tabindex="0" aria-labelledby="tab-screen">
+          <figure>
+            <div class="titanium-frame gallery-frame">
+              <div class="screen-preview">
+                <img src="assets/screen.png" alt="周末一起玩的三人房间，阿岚正在共享，媒体已连接。顶栏可打开文字、邀请朋友、设置或离开房间。" width="2880" height="1440">
+                <div class="live-screen-stage" role="group" aria-label="屏幕共享动态演示" hidden>
+                  <canvas id="galleryScreenCanvas" aria-hidden="true"></canvas>
+                  <div class="screen-hud screen-signal" role="group" aria-label="演示画质目标 1080p，每秒 60 帧">
+                    <span class="screen-glass"><i aria-hidden="true"></i>阿岚的共享画面</span>
+                    <span class="screen-glass screen-fps" aria-hidden="true">1080p · <span id="galleryFPS">60</span>fps</span>
+                  </div>
+                  <div class="screen-hud screen-tools" role="group" aria-label="看屏工具">
+                    <div class="screen-glass screen-zoom" role="group" aria-label="缩放">
+                      <button type="button" id="galleryZoomOut" aria-label="缩小画面" aria-disabled="true">−</button>
+                      <button type="button" id="galleryZoomReset" aria-label="重置缩放，当前 1 倍">1×</button>
+                      <button type="button" id="galleryZoomIn" aria-label="放大画面">+</button>
+                    </div>
+                    <button type="button" class="screen-glass" id="galleryCapture" aria-label="截屏演示"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h4l2-3h6l2 3h4v13H3Z"/><circle cx="12" cy="13" r="3.5"/></svg>截屏</button>
+                    <button type="button" class="screen-glass" data-screen-tip="画中画可在房间内使用"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 18H3V5h18v5"/><rect x="11" y="12" width="10" height="7" rx="1"/></svg>画中画</button>
+                    <button type="button" class="screen-glass" data-screen-tip="全屏观看可在房间内使用"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3H3v6m12-6h6v6M3 15v6h6m12-6v6h-6"/></svg>全屏观看</button>
+                  </div>
+                  <div class="screen-glass screen-dock">
+                    <span><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11v1a7 7 0 0 0 14 0v-1m-7 8v3"/></svg>关闭麦克风</span>
+                    <span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15V12a9 9 0 0 1 18 0v3M3 13h4v7H5a2 2 0 0 1-2-2Zm18 0h-4v7h2a2 2 0 0 0 2-2Z"/></svg>只聊语音</span>
+                    <span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4c5 0 9 3.1 9 7s-4 7-9 7H8l-4 3 1.2-5C3.8 14.7 3 13 3 11c0-3.9 4-7 9-7Z"/></svg>文字</span>
+                    <span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9h4l5-5v16l-5-5H3Zm13 0a4 4 0 0 1 0 6m3-9a8 8 0 0 1 0 12"/></svg>声音</span>
+                    <button type="button" id="galleryReaction" aria-label="放飞表情">😊</button>
+                  </div>
+                  <span class="screen-demo-label">动态演示画面</span>
+                  <div class="screen-reactions" aria-hidden="true"></div>
+                  <div class="screen-flash" aria-hidden="true"></div>
+                  <div class="screen-glass screen-toast" role="status"></div>
+                </div>
+              </div>
             </div>
-          </div>
-          <div class="flow" data-state="after" role="img" aria-label="0.5.0 只编码一次，将同一份编码画面发送给两位观众">
-            <div class="flow-source"><strong>分享者</strong><span>共享画面</span></div>
-            <div class="flow-encoding">
-              <div class="encoder"><span>视频编码</span><strong>1 <small>次</small></strong></div>
-              <div class="encoder duplicate" aria-hidden="true"><span>视频编码</span><strong>1 <small>次</small></strong></div>
-              <span class="encoding-caption" id="encoding-caption">同一份编码画面</span>
-            </div>
-            <div class="flow-viewers"><strong>朋友 A</strong><strong>朋友 B</strong></div>
-          </div>
-          <p class="compare-description" aria-live="polite">编码一次，同一份画面送给两位观众。</p>
+            <figcaption><strong>画面由你摆布。</strong><span>试试放大、模拟截屏，或放飞一枚表情。</span></figcaption>
+          </figure>
         </div>
-        <div class="metrics">
-          <article>
-            <h3>1080p · 60 FPS</h3>
-            <p><strong>默认画质目标</strong>，视频码率上限 8 Mbps。实际画质随硬件、浏览器和网络而变化。</p>
-          </article>
-          <article>
-            <h3>约 60 FPS</h3>
-            <p><strong>0.5.0 发行版实测</strong>。同一台电脑使用合成画面和麦克风，分享端和两位观众均达到 1920×1080，实测编解码帧率约 60 FPS。</p>
-          </article>
-        </div>
-        <p class="measurement-note">最终 CPU 对照中，旧版降到 720p。性能记录中的同画质 CPU 降幅来自另一轮内部构建的合成测试。真实游戏帧时间仍待实测。 <a class="inline-link" href="https://github.com/liyan1775/lan-screen-sharing/blob/main/docs/performance/2026-11-06-single-encode.md">查看测试条件及原始数据</a></p>
+        <div id="panel-voice" role="tabpanel" tabindex="0" aria-labelledby="tab-voice" hidden><figure><div class="titanium-frame gallery-frame"><img src="assets/room.png" alt="三人语音房间展示自定义昵称、不同颜色的头像与麦克风控件。" width="2880" height="1440"></div><figcaption><strong>用熟悉的名字见面。</strong><span>选一个头像颜色，开自由麦，或按住说话。</span></figcaption></figure></div>
+        <div id="panel-text" role="tabpanel" tabindex="0" aria-labelledby="tab-text" hidden><figure><div class="titanium-frame gallery-frame"><img src="assets/text.png" alt="三人房间的聊天气泡带有可点开的网页链接和复制控件。" width="2880" height="1440"></div><figcaption><strong>有话就发，有链接就点。</strong><span>一键复制整条消息。离开或刷新后，本机聊天记录清空。</span></figcaption></figure></div>
+      </div>
+      <div class="bento">
+        <article class="bento-card span-4 reveal"><div class="card-top"><div><p class="section-label">实时传输引擎</p><h3>同一份编码，两份清晰。</h3><p>只编码一次，再把画面分别发给两位观众。</p></div><div class="quality-metric"><strong class="optical-gradient">1080p60</strong><span class="signal-text"><i class="dot dot-green" aria-hidden="true"></i>单次编码 · 8 Mbps 目标</span></div></div><div class="oscilloscope"><canvas id="encodingWaveCanvas" aria-hidden="true"></canvas><span>LAN DIRECT · 波形演示</span></div></article>
+        <article class="bento-card span-2 reveal reveal-delay-1"><p class="section-label">私有 IPv4 直连</p><h3>数据留在局域网。</h3><div class="shield-art" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M24 44s15-6 15-20V11L24 5 9 11v13c0 14 15 20 15 20Z"/><rect x="18" y="22" width="12" height="9" rx="2"/><path d="M21 22v-4a3 3 0 0 1 6 0v4m-3 4v2"/></svg></div><p>不经云端，无需账号。请在你信任的网络里使用。</p></article>
+        <article class="bento-card span-2 reveal"><p class="section-label">附近房间</p><h3>打开，就能找到彼此。</h3><svg class="radar-art" viewBox="0 0 180 132" aria-hidden="true"><path d="M24 66h132M90 3v126"/><circle cx="90" cy="66" r="59"/><circle cx="90" cy="66" r="43"/><circle cx="90" cy="66" r="25"/><circle class="radar-wave" cx="90" cy="66" r="55"/><circle class="radar-wave" cx="90" cy="66" r="55"/><circle class="radar-dot" cx="90" cy="66" r="7"/><circle class="radar-dot" cx="123" cy="37" r="4"/><circle class="radar-dot" cx="53" cy="91" r="3"/></svg><ul class="chips"><li>优先真实局域网网卡</li><li>局域网自动发现</li><li>整段邀请粘贴</li></ul></article>
+        <article class="bento-card span-4 reveal reveal-delay-1">
+          <div class="card-top"><div><p class="section-label">保留画面细节</p><h3>清晰画面，告别涂抹。</h3></div><div class="segmented clarity-toggle" role="group" aria-label="选择对比示意的画质"><button type="button" data-clarity="full" aria-pressed="true">1080p60 默认</button><button type="button" data-clarity="light" aria-pressed="false">720p60 轻量</button></div></div>
+          <div id="compareBox" data-quality="full"><div class="compare-layer compare-soft" aria-hidden="true"><div class="compare-art"></div></div><div id="compareOverlay" class="compare-layer" aria-hidden="true"><div class="compare-art"></div></div><span class="compare-tag tag-left" aria-hidden="true">局域网 · 清晰示意</span><span class="compare-tag tag-right" aria-hidden="true">公网 · 压缩示意</span><div class="compare-divider" aria-hidden="true"><span>‹ ›</span></div><input id="compareHandle" type="range" min="0" max="100" value="58" aria-label="清晰画面所占比例" aria-describedby="clarity-caption" aria-valuetext="58% 清晰画面"></div>
+          <p class="fine-print" id="clarity-caption">拖动滑块或使用方向键对照。右侧为模拟的公网压缩效果，不是实测。</p>
+        </article>
+        <article class="bento-card span-6 bento-room reveal"><div><p class="section-label">同一个房间</p><h3>聊得顺手，也认得出彼此。</h3></div><ul class="room-features"><li><strong>我的身份</strong><span>自定义昵称与头像颜色，下次打开还记得。</span></li><li><strong>语音由你掌握</strong><span>选麦、本机试音，自由麦和按键说话随时切换。</span></li><li><strong>聊得有来有回</strong><span>轻脆提示音、飘屏小表情，聊天链接可打开，消息可一键复制。</span></li></ul></article>
       </div>
     </section>
+    <section class="performance section immersive" id="performance" aria-labelledby="performance-title">
+      <div class="wrap narrative">
+        <div class="section-heading reveal"><p class="section-label">单次编码</p><h2 id="performance-title">两位观众。<br><span class="optical-gradient">一次编码。</span></h2><p>v1.0.0 将同一份编码画面发给两位观众，保留所选分辨率、帧率和码率目标。</p></div>
+        <div class="narrative-detail">
+          <div class="performance-card titanium-frame reveal">
+            <div class="performance-top"><h3>比较编码方式</h3><div class="compare-toggle segmented" role="group" aria-label="比较编码方式"><button type="button" data-compare="before" aria-pressed="false">升级前</button><button type="button" data-compare="after" aria-pressed="true">v1.0.0</button></div></div>
+            <div class="flow" data-state="after" role="img" aria-label="v1.0.0 只编码一次，将同一份编码画面发送给两位观众"><svg class="flow-wires" viewBox="0 0 600 200" preserveAspectRatio="none" aria-hidden="true"><g class="wires-after"><path d="M100 100H300C392 100 400 54 500 54"/><circle class="flow-pulse" r="3.3"/><path d="M100 100H300C392 100 400 146 500 146"/><circle class="flow-pulse" r="3.3"/></g><g class="wires-before"><path d="M100 100C195 100 205 54 300 54H500"/><circle class="flow-pulse" r="3.3"/><path d="M100 100C195 100 205 146 300 146H500"/><circle class="flow-pulse" r="3.3"/></g></svg><div class="flow-source"><span class="display-symbol" aria-hidden="true"></span><strong>你的电脑</strong></div><div class="flow-encoding"><div class="encoder primary"><span>视频编码</span><strong>1<span> 次</span></strong></div><div class="encoder duplicate" aria-hidden="true"><span>视频编码</span><strong>1<span> 次</span></strong></div></div><div class="flow-viewers"><div><span class="display-symbol" aria-hidden="true"></span><strong>朋友 A</strong></div><div><span class="display-symbol" aria-hidden="true"></span><strong>朋友 B</strong></div></div></div>
+            <p class="encoding-caption" id="encoding-caption">同一份编码画面</p><p class="compare-description" aria-live="polite">编码一次。分享者的本机程序把同一份画面分别发给两位观众。</p>
+          </div>
+          <div class="performance-details">
+            <article class="reveal"><h3>切回游戏时暂停本机预览。</h3><p>回到浏览器即恢复预览。采集、发送和朋友看到的画面继续。</p></article>
+            <article class="reveal"><h3>按需更新媒体诊断。</h3><p>语音时跳过视频统计。观看画面时，展开诊断即可查看实际尺寸、帧率和编码信息。</p></article>
+          </div>
+          <a class="text-link" href="https://github.com/liyan1775/lan-screen-sharing/blob/main/docs/performance/2026-11-06-single-encode.md">查看性能测量与验证范围 <span aria-hidden="true">↗</span></a>
+        </div>
+      </div>
+    </section>
+    <section class="section wrap simulator" id="simulator" aria-labelledby="simulator-title">
+      <div class="section-heading centered reveal"><p class="section-label">交互模拟 · 不采集屏幕</p><h2 id="simulator-title">亲手试试。<br><span>一动，两边都看见。</span></h2><p>开始模拟共享，再移动光标或点击房主画面，看看观看端如何跟随。这个演示不会连接任何设备。</p></div>
+      <div class="sim-console reveal" data-sharing="false">
+        <div class="sim-column sim-host">
+          <div class="sim-heading"><h3>房主 · 发送端</h3><span class="glass-pill sim-status" role="status"><i class="dot" aria-hidden="true"></i><span id="hostStatusText">待机中</span></span></div>
+          <div class="sim-screen host-screen"><canvas id="simHostCanvas" aria-hidden="true"></canvas><button type="button" id="simSurface" aria-label="移动光标或点击互动，按回车也可产生水波纹"><span>移动光标或点击互动</span></button></div>
+          <p class="fine-print" id="sim-quality-label">画质预设</p>
+          <div class="segmented sim-modes" role="group" aria-labelledby="sim-quality-label"><button type="button" data-mode="1080p60" aria-pressed="true">1080p60</button><button type="button" data-mode="720p60" aria-pressed="false">720p60</button><button type="button" data-mode="720p30" aria-pressed="false">720p30</button></div>
+          <button class="button" id="toggleShareBtn" type="button">开始共享屏幕</button>
+          <div class="invite"><div><span class="fine-print">示例邀请</span><code id="simInvite">192.168.1.20:45678<span>房间码 ABCD2345</span></code></div><button type="button" id="copyInviteBtn">复制</button></div><span class="sr-only" id="copyStatus" role="status"></span>
+        </div>
+        <div class="sim-column sim-receiver"><div class="sim-heading"><h3>朋友 A / 朋友 B · 接收端</h3></div>
+          <div class="sim-browser"><div class="browser-bar"><span class="browser-lights" aria-hidden="true"><i></i><i></i><i></i></span><code>192.168.1.20:45678</code></div><div class="sim-screen receiver-screen"><canvas id="simReceiverCanvas" aria-hidden="true"></canvas><div id="receiverStandby"><span class="display-symbol" aria-hidden="true"></span><strong>等待发送端开启共享</strong><span>开始共享后，这里会同步演示画面。</span></div><span class="glass-pill live-sync" aria-hidden="true"><i class="dot dot-green"></i>LIVE SYNC</span></div></div>
+          <dl class="telemetry" aria-live="polite"><div><dt>视频编码</dt><dd id="telEncoding">—</dd></div><div><dt>目标画质</dt><dd id="telQuality">—</dd></div><div><dt>连接方式</dt><dd id="telConnection">未连接</dd></div></dl>
+        </div>
+      </div>
+    </section>
+    <section class="connection section" id="privacy" aria-labelledby="connection-title"><div class="connection-art" aria-hidden="true"><img src="assets/hero-flow.png" alt="" width="1672" height="941"></div><div class="wrap connection-inner"><div class="connection-copy reveal"><p class="section-label">局域网直连</p><h2 id="connection-title">共享留在<br>你们的局域网。</h2><p>画面、声音和文字在成员的设备之间传输，无需云端中转或注册账号。请在你信任、且电脑能互相访问的私有 IPv4 局域网使用。</p></div></div></section>
+    <section class="section wrap specs" id="specifications" aria-labelledby="specs-title">
+      <div class="section-heading reveal"><h2 id="specs-title">技术规格</h2></div>
+      <table class="spec-table reveal" aria-labelledby="specs-title">
+        <tbody>
+          <tr><th scope="row">发布版本</th><td>v1.0.0 正式版。请让所有成员使用同一版本。</td></tr>
+          <tr><th scope="row">系统与浏览器</th><td>Windows x64 单 EXE · 桌面版 Microsoft Edge 或 Google Chrome</td></tr>
+          <tr><th scope="row">房间人数</th><td>最多三人。一次由一位成员共享，最多两位成员观看。</td></tr>
+          <tr><th scope="row">视频画质目标</th><td>默认 1080p60，码率上限 8 Mbps。另可选 720p60 或 <span class="spec-footnote">720p30。<sup><a href="#note-1" aria-label="1. 查看画质说明">1</a></sup></span></td></tr>
+          <tr><th scope="row">观看工具</th><td>实收画质、局部放大、全屏、原尺寸 PNG 截图。画中画取决于浏览器支持。</td></tr>
+          <tr><th scope="row">声音与文字</th><td>选麦试音、自由麦、按键说话、独立音量和带链接的房间文字。系统声音由浏览器和采集授权决定。</td></tr>
+          <tr><th scope="row">网络与本机偏好</th><td>可互通的私有 IPv4 局域网，使用 WebRTC，优先推荐实际局域网网卡。昵称、头像颜色等偏好保存在本机。</td></tr>
+          <tr><th scope="row">开源许可</th><td>Apache-2.0。发布包附带 NOTICE 署名和第三方组件许可。</td></tr>
+        </tbody>
+      </table>
+    </section>
 
-    <section class="faq section wrap" aria-labelledby="faq-title">
-      <div class="section-heading"><h2 id="faq-title">常见问题</h2></div>
-      <details><summary>朋友可以用手机看吗？</summary><p>当前版本的所有成员都需要在 Windows x64 电脑运行程序，并在桌面版 Edge 或 Chrome 中操作。电脑间须能通过私有 IPv4 局域网互相访问。软件不提供公网中继。</p></details>
-      <details><summary>同一 Wi-Fi 下为什么找不到朋友？</summary><p>请房主确认已开启同网发现，并刷新房间列表。仍找不到时可粘贴完整邀请。访客网络隔离、VPN、多网卡和防火墙策略也可能影响连接。</p></details>
-      <details><summary>升级时，朋友也需要更新吗？</summary><p>需要。0.5.0 的画面共享与 0.4.x 不兼容。每位成员使用同一版本后，请重新创建房间。</p></details>
-      <details><summary>停止共享或短暂断线，会怎样？</summary><p>停掉画面后可以继续语音，也可以换一人分享。短暂断线时，原房间和席位保留 30 秒并尝试恢复。刷新后可恢复收看，麦克风和屏幕需要重新开启。房主主动退出会结束房间。</p></details>
+    <section class="start section wrap" id="start" aria-labelledby="start-title">
+      <div class="section-heading reveal"><h2 id="start-title">三步开始共享。</h2></div>
+      <ol class="steps">
+        <li class="step-card reveal"><span aria-hidden="true">01</span><h3>各自打开程序</h3><p>完整解压同一版本的 Windows 发布包。双击 EXE，在 Edge 或 Chrome 里打开页面。</p></li>
+        <li class="step-card reveal reveal-delay-1"><span aria-hidden="true">02</span><h3>加入同一个房间</h3><p>一人创建房间。朋友从附近房间加入，也可粘贴完整邀请信息。</p></li>
+        <li class="step-card reveal reveal-delay-2"><span aria-hidden="true">03</span><h3>选择显示器开始共享</h3><p>点击共享屏幕，选择整个显示器。根据需要授权系统声音和麦克风。</p></li>
+      </ol>
+      <div class="faq reveal">
+        <h3>常见问题</h3>
+        <details><summary>需要什么设备与网络？</summary><div class="faq-answer"><p>每位成员都需运行 Windows x64 版本，使用桌面版 Edge 或 Chrome。电脑须处于能够互相访问的私有 IPv4 局域网。</p></div></details>
+        <details><summary>朋友也需要更新吗？</summary><div class="faq-answer"><p>请大家退出旧程序，统一运行 v1.0.0，再重新创建房间。旧版与正式版混用会遇到协议兼容问题。</p></div></details>
+        <details><summary>停止共享或短暂断线，会怎样？</summary><div class="faq-answer"><p>停止共享会保留语音和房间。短暂断线时，程序会在 30 秒保留期内尝试恢复。刷新后，麦克风和屏幕需重新开启。房主退出或超过保留期，房间结束。</p></div></details>
+        <details><summary>下次打开会记住什么？</summary><div class="faq-answer"><p>昵称、头像颜色、选用的网卡和麦克风等偏好保存在本机。启用麦克风或共享时，仍由你操作并通过浏览器授权。</p></div></details>
+        <details><summary>可以断网使用吗？</summary><div class="faq-answer"><p>电脑能在同一个局域网互相访问，就可以在无互联网时开房、看屏、开麦和聊天。下载程序以及点击聊天中的外部网页链接，需要相应的互联网连接。</p></div></details>
+        <details><summary>画质和性能验证到哪里？</summary><div class="faq-answer"><p>使用原生 WebRTC 和合成媒体检查三人传输、实际编解码尺寸与帧率、停止共享和刷新恢复。真实游戏帧时间、三台实体设备和不同网络条件仍需实测。</p><a class="text-link" href="https://github.com/liyan1775/lan-screen-sharing/blob/v1.0.0/docs/releases/v1.0.0.md">阅读完整验证范围 <span aria-hidden="true">↗</span></a></div></details>
+      </div>
     </section>
 
     <section class="download section" id="download" aria-labelledby="download-title">
-      <div class="wrap">
-        <div class="download-heading">
-          <div class="section-heading">
-            <p class="release-label">0.5.0 公开测试版</p>
-            <h2 id="download-title">下载 Windows 版</h2>
-            <p>Windows x64 · 完整 ZIP 包。每位成员都需运行同一版本。</p>
-          </div>
-          <div class="download-actions">
-            <a class="button" href="https://github.com/liyan1775/lan-screen-sharing/releases/download/v0.5.0/lan-screen-sharing-0.5.0-windows-x64.zip">下载 Windows 版</a>
-            <a class="text-link" href="https://github.com/liyan1775/lan-screen-sharing/releases/tag/v0.5.0">GitHub 发布页</a>
-          </div>
-        </div>
-        <section id="installation" class="installation" aria-labelledby="installation-title">
-          <h3 id="installation-title">校验与运行说明</h3>
-          <p>测试版 EXE 未数字签名，Windows 可能提示 SmartScreen。请从本项目的 GitHub 发布页获取 ZIP，并核对发布附件中的校验值。</p>
-          <ol>
-            <li>在 ZIP 所在文件夹打开 PowerShell，运行下面的命令。
-              <pre><code>Get-FileHash -LiteralPath .\lan-screen-sharing-0.5.0-windows-x64.zip -Algorithm SHA256</code></pre>
-            </li>
-            <li>对照发布附件 <a class="inline-link" href="https://github.com/liyan1775/lan-screen-sharing/releases/download/v0.5.0/SHA256SUMS.txt">SHA256SUMS.txt</a> 中对应 ZIP 的一行。校验不符或设备安全策略阻止运行时，请停止。</li>
-            <li>完整解压 ZIP，打开「先看这里.html」，再按说明运行程序。</li>
-          </ol>
-        </section>
+      <div class="wrap reveal"><svg class="download-mark" width="64" height="64" aria-hidden="true"><use href="#brand-mark"/></svg><h2 id="download-title" class="hero-gradient-text">打开 LAN / 分享。</h2><p>Windows x64 · v1.0.0 正式版</p>
+        <div class="hero-actions"><a class="button" href="https://github.com/liyan1775/lan-screen-sharing/releases/download/v1.0.0/lan-screen-sharing-1.0.0-windows-x64.zip">下载 Windows 版 <span aria-hidden="true">↓</span></a><a class="text-link" href="https://github.com/liyan1775/lan-screen-sharing/releases/tag/v1.0.0">版本说明与其他附件 <span aria-hidden="true">›</span></a></div>
+        <p class="download-note">完整解压后，打开“先看这里.html”查看使用说明。</p>
       </div>
     </section>
   </main>
-  <footer>
-    <div class="wrap">
-      <div class="footer-top">
-        <a class="brand" href="#top"><span>LAN <i>/</i> 分享</span></a>
-        <p>同一个画面，多一份默契。</p>
-        <a class="text-link" href="https://github.com/liyan1775/lan-screen-sharing">GitHub</a>
-      </div>
-      <p>项目尚未指定整体开源许可证。第三方组件保留各自许可。</p>
-    </div>
-  </footer>
+  <footer><div class="wrap">
+    <p id="note-1">1. 1080p60 / 8 Mbps 为默认画质目标。合成测试核对了实际编解码尺寸与帧率。不同设备、网络和游戏负载下的结果可能不同。</p>
+    <p>截图来自 v1.0.0 实际界面，测试房间使用合成媒体。宣传页不会采集屏幕或麦克风。正式版 EXE 尚未数字签名。</p>
+    <div class="footer-bottom"><a class="brand" href="#top">LAN / 分享</a><a href="#privacy">隐私与网络</a><a href="https://github.com/liyan1775/lan-screen-sharing">GitHub <span aria-hidden="true">↗</span></a></div>
+    <p class="legal">Copyright 2026 liyan1775 · <a href="https://github.com/liyan1775/lan-screen-sharing/blob/v1.0.0/LICENSE">Apache-2.0</a> · <a href="https://github.com/liyan1775/lan-screen-sharing/blob/v1.0.0/NOTICE">NOTICE 署名</a> · 第三方组件保留各自许可</p>
+  </div></footer>
 </body>
 </html>

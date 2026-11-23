@@ -14,7 +14,12 @@ export function formatVideoLinks(rows, memberName = () => '成员') {
     const direction = row.localRelay ? '本机编码 → 房间转发（编码一次）' : row.direction === 'outbound-rtp' ? `发送给${memberName(row.peerId)}` : `接收${memberName(row.peerId)}`;
     const limit = { cpu: '编码性能限制', bandwidth: '带宽限制', other: '其他限制' }[row.qualityLimitationReason];
     const codec = row.codec ? ` · ${row.codec}` : '';
-    return `${direction} · ${formatActualStats(row)}${codec}${limit ? ` · 浏览器报告：${limit}` : ''}`;
+    const sending = row.direction === 'outbound-rtp';
+    const efficient = sending ? row.powerEfficientEncoder : row.powerEfficientDecoder;
+    const implementation = sending ? row.encoderImplementation : row.decoderImplementation;
+    const role = sending ? '编码' : '解码';
+    const acceleration = efficient === true ? ` · 节能${role}` : efficient === false ? ` · 非节能${role}` : '';
+    return `${direction} · ${formatActualStats(row)}${codec}${acceleration}${implementation ? ` · ${role}实现 ${implementation}` : ''}${limit ? ` · 浏览器报告：${limit}` : ''}`;
   }).join('\n');
 }
 
@@ -36,6 +41,10 @@ export function formatMediaDiagnostics({ track, rows = [], target = '', shareCur
   const detail = rows.filter(row => row.role === 'screenVideo').map((row, index) => {
     const source = Number.isFinite(row.sourceFps) ? row.sourceFps.toFixed(1) : '未报告';
     const encode = Number.isFinite(row.averageEncodeMs) ? row.averageEncodeMs.toFixed(2) : '未报告';
+    if (row.direction === 'inbound-rtp') {
+      const efficient = row.powerEfficientDecoder;
+      return `连接 ${index + 1}：浏览器报告节能解码 ${typeof efficient === 'boolean' ? String(efficient) : '未报告'}`;
+    }
     const efficient = typeof row.powerEfficientEncoder === 'boolean' ? String(row.powerEfficientEncoder) : '未报告';
     const interval = Number.isFinite(row.intervalEncodeMs) ? row.intervalEncodeMs.toFixed(2) : '未报告';
     return `连接 ${index + 1}：实际采集 ${source} FPS；累计平均编码 ${encode} ms/帧；本区间编码 ${interval} ms/帧；浏览器报告节能编码 ${efficient}`;

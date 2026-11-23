@@ -43,7 +43,7 @@ func TestServeLANLimitsFailedRoomCodeAttemptsByRemoteIP(t *testing.T) {
 	for attempt := 1; attempt <= 6; attempt++ {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		headers := http.Header{"X-Forwarded-For": []string{"198.51.100." + strconv.Itoa(attempt)}}
-		conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), &websocket.DialOptions{HTTPHeader: headers})
+		conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), &websocket.DialOptions{HTTPHeader: headers, Subprotocols: []string{LANSubprotocol}})
 		if err != nil {
 			cancel()
 			t.Fatal(err)
@@ -140,7 +140,7 @@ func lanJoinRequest(t *testing.T, serverURL, roomCode, resumeToken string) (*web
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(serverURL, "http")+"/signal/v1", nil)
+	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(serverURL, "http")+"/signal/v1", &websocket.DialOptions{Subprotocols: []string{LANSubprotocol}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -443,7 +443,7 @@ func startFakeLANHost(t *testing.T, ip string, manager *room.Manager) *fakeLANHo
 			http.NotFound(w, r)
 			return
 		}
-		rawConn, acceptErr := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+		rawConn, acceptErr := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true, Subprotocols: []string{LANSubprotocol}})
 		if acceptErr != nil {
 			return
 		}

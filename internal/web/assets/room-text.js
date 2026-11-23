@@ -1,14 +1,26 @@
 const LABEL = 'lan-room-text-v1';
+export const ROOM_REACTIONS = Object.freeze(['👏', '🔥', '😂', '👍']);
+const reactionBufferLimit = 4096;
+const validId = id => typeof id === 'string' && id.length > 0 && id.length <= 64;
+function remember(seen, id, limit) {
+  seen.add(id);
+  if (seen.size > limit) seen.delete(seen.values().next().value);
+}
 const validText = text => typeof text === 'string' && text.trim().length > 0 && [...text.trim()].length <= 500;
 
 // Text travels on the same authenticated, encrypted peer connections as room media.
 // No history, account, external service or microphone permission is needed.
 export class RoomText {
-  constructor({onMessage = () => {}, onChange = () => {}} = {}) {
-    this.peers = new Map(); this.onMessage = onMessage; this.onChange = onChange;
+  constructor({onMessage = () => {}, onReaction = () => {}, onChange = () => {}, now = Date.now} = {}) {
+    this.peers = new Map();
+    this.onMessage = onMessage;
+    this.onReaction = onReaction;
+    this.onChange = onChange;
+    this.now = now;
+    this.lastReaction = -Infinity;
   }
   addPeer(peerId, pc, offerer) {
-    const peer = {channel:null, seen:new Set(), window:0, count:0};
+    const peer = {channel:null, seen:new Set(), reactionIds:new Set(), lastReaction:-Infinity, window:0, count:0};
     this.peers.set(peerId, peer);
     const attach = channel => {
       if (channel.label !== LABEL || peer.channel) { channel.close(); return; }
@@ -16,12 +28,22 @@ export class RoomText {
       channel.onopen = channel.onclose = channel.onerror = () => this.onChange();
       channel.onmessage = event => {
         if (this.peers.get(peerId) !== peer || typeof event.data !== 'string' || event.data.length > 8192) return;
-        const now = Date.now();
+        let message;
+        try { message = JSON.parse(event.data); } catch { return; }
+        if (message?.v !== 1 || !validId(message.id)) return;
+        const now = this.now();
+        if (message.kind === 'reaction') {
+          if (Object.hasOwn(message, 'text') || !ROOM_REACTIONS.includes(message.emoji) || peer.reactionIds.has(message.id)) return;
+          remember(peer.reactionIds, message.id, 128);
+          if (now - peer.lastReaction < 500) return;
+          peer.lastReaction = now;
+          this.onReaction({peerId, id:message.id, emoji:message.emoji});
+          return;
+        }
+        if (message.kind !== undefined && message.kind !== 'text') return;
         if (now - peer.window > 1000) { peer.window = now; peer.count = 0; }
-        if (++peer.count > 8) return;
-        let message; try { message = JSON.parse(event.data); } catch { return; }
-        if (message?.v !== 1 || typeof message.id !== 'string' || !message.id || message.id.length > 64 || !validText(message.text) || peer.seen.has(message.id)) return;
-        peer.seen.add(message.id); if (peer.seen.size > 100) peer.seen.delete(peer.seen.values().next().value);
+        if (++peer.count > 8 || !validText(message.text) || peer.seen.has(message.id)) return;
+        remember(peer.seen, message.id, 100);
         this.onMessage({peerId, id:message.id, text:message.text.trim(), time:now});
       };
       this.onChange();
@@ -46,6 +68,23 @@ export class RoomText {
     }
     return {id, text:text.trim(), time:Date.now(), sent, failed};
   }
+  sendReaction(emoji) {
+    const now = this.now();
+    if (!ROOM_REACTIONS.includes(emoji) || now - this.lastReaction < 650) return null;
+    const channels = [...this.peers.values()]
+      .map(peer => peer.channel)
+      .filter(channel => channel?.readyState === 'open' && channel.bufferedAmount <= reactionBufferLimit);
+    if (!channels.length) return null;
+    this.lastReaction = now;
+    const id = globalThis.crypto.randomUUID();
+    const payload = JSON.stringify({v: 1, id, kind: 'reaction', emoji});
+    let sent = false;
+    for (const channel of channels) {
+      try { channel.send(payload); sent = true; } catch { /* Ephemeral reactions are dropped. */ }
+    }
+    return sent ? {id, emoji} : null;
+  }
+
   removePeer(peerId) {
     const peer = this.peers.get(peerId); if (!peer) return;
     this.peers.delete(peerId); peer.channel?.close(); this.onChange();

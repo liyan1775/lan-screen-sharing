@@ -29,8 +29,13 @@ type Connection struct {
 	remoteAddr string
 }
 
+const LANSubprotocol = "lansw-room-1.0.0"
+const incompatibleVersion = "版本不兼容，请所有成员更新到同一版本"
+
+var errIncompatibleVersion = errors.New("UNSUPPORTED_PROTOCOL")
+
 func Accept(w http.ResponseWriter, r *http.Request) (*Connection, error) {
-	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{OriginPatterns: []string{r.Host}})
+	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{OriginPatterns: []string{r.Host}, Subprotocols: []string{LANSubprotocol}})
 	if err != nil {
 		return nil, err
 	}
@@ -38,9 +43,13 @@ func Accept(w http.ResponseWriter, r *http.Request) (*Connection, error) {
 	return &Connection{raw: c, remoteAddr: r.RemoteAddr}, nil
 }
 func Dial(ctx context.Context, target string) (*Connection, error) {
-	c, _, err := websocket.Dial(ctx, target, nil)
+	c, _, err := websocket.Dial(ctx, target, &websocket.DialOptions{Subprotocols: []string{LANSubprotocol}})
 	if err != nil {
 		return nil, err
+	}
+	if c.Subprotocol() != LANSubprotocol {
+		_ = c.CloseNow()
+		return nil, errIncompatibleVersion
 	}
 	c.SetReadLimit(protocol.MaxMessageBytes)
 	return &Connection{raw: c}, nil
@@ -92,10 +101,12 @@ type Hub struct {
 	pendingJoins  map[*Connection]*pendingViewerJoin
 	onHostCreated func() error
 	dial          func(context.Context, string) (*Connection, error)
+	viewerJoining int
+	viewerNetwork map[*session]viewerNetworkUse
 }
 
 func NewHub(manager *room.Manager) *Hub {
-	return &Hub{rooms: manager, joinFailures: newJoinFailureLimiter(), sessions: map[*session]struct{}{}, connections: map[string]*Connection{}, pendingJoins: map[*Connection]*pendingViewerJoin{}, dial: Dial}
+	return &Hub{rooms: manager, joinFailures: newJoinFailureLimiter(), sessions: map[*session]struct{}{}, connections: map[string]*Connection{}, pendingJoins: map[*Connection]*pendingViewerJoin{}, dial: Dial, viewerNetwork: map[*session]viewerNetworkUse{}}
 }
 
 var errHubShuttingDown = errors.New("signal hub is shutting down")
@@ -518,7 +529,7 @@ func (h *Hub) ServeLocal(ctx context.Context, conn *Connection, hostToken string
 			}
 			continue
 		}
-		if lost && msg.Type != "viewer.join" && msg.Type != "viewer.leave" && (strings.HasPrefix(msg.Type, "rtc.") || strings.HasPrefix(msg.Type, "screen.") || strings.HasPrefix(msg.Type, "share.") || msg.Type == "media.state" || msg.Type == "heartbeat") {
+		if lost && msg.Type != "viewer.join" && msg.Type != "viewer.leave" && (strings.HasPrefix(msg.Type, "rtc.") || strings.HasPrefix(msg.Type, "screen.") || strings.HasPrefix(msg.Type, "share.") || msg.Type == "media.state" || msg.Type == "heartbeat" || msg.Type == "peer.profile") {
 			h.sendError(ctx, conn, msg.RequestID, "SIGNAL_CONNECTION_LOST", "主播信令连接已断开，请使用重连凭证重试", true)
 			continue
 		}
@@ -544,13 +555,10 @@ func (h *Hub) ServeLocal(ctx context.Context, conn *Connection, hostToken string
 				s.roomID = ""
 				s.peerID = ""
 			}
-			var options struct {
-				Name         string `json:"name"`
-				Discoverable *bool  `json:"discoverable"`
-			}
+			var options protocol.CreateRoomPayload
 			_ = json.Unmarshal(msg.Payload, &options)
 			public := options.Discoverable == nil || *options.Discoverable
-			snap, _, e := h.rooms.CreateHostWithOptions(options.Name, public)
+			snap, _, e := h.rooms.CreateHostWithProfile(options.Name, public, options.Profile)
 			if e != nil {
 				h.lifecycleMu.Unlock()
 				if protocol.ErrorCode(e) == "INVALID_ROOM_NAME" {
@@ -572,7 +580,7 @@ func (h *Hub) ServeLocal(ctx context.Context, conn *Connection, hostToken string
 			s.peerID = hostPeer(snap)
 			h.register(s)
 			h.lifecycleMu.Unlock()
-			created := map[string]any{"roomId": snap.ID, "hostPeerId": s.peerID, "roomCode": snap.Code, "name": snap.Name, "discoverable": snap.Discoverable}
+			created := map[string]any{"roomId": snap.ID, "hostPeerId": s.peerID, "roomCode": snap.Code, "name": snap.Name, "discoverable": snap.Discoverable, "members": snap.Members}
 			if !snap.ExpiresAt.IsZero() {
 				created["expiresAt"] = snap.ExpiresAt
 			}
@@ -655,6 +663,8 @@ func (h *Hub) ServeLocal(ctx context.Context, conn *Connection, hostToken string
 			}
 		case "share.claim", "share.release":
 			h.handlePresentation(ctx, s, msg)
+		case "peer.profile":
+			h.handleProfile(ctx, s, msg)
 		default:
 			h.sendError(ctx, conn, msg.RequestID, "INVALID_MESSAGE", "消息类型无效", false)
 		}
@@ -665,17 +675,26 @@ func (h *Hub) ServeLAN(ctx context.Context, conn *Connection) {
 	defer conn.Close()
 	first, err := readEnvelope(ctx, conn)
 	if err != nil {
+		if protocol.ErrorCode(err) == "UNSUPPORTED_PROTOCOL" {
+			h.sendError(ctx, conn, first.RequestID, "UNSUPPORTED_PROTOCOL", incompatibleVersion, false)
+		}
+		return
+	}
+	if conn.raw != nil && conn.raw.Subprotocol() != LANSubprotocol {
+		h.sendError(ctx, conn, first.RequestID, "UNSUPPORTED_PROTOCOL", incompatibleVersion, false)
+		if first.Type == "signal.join" {
+			var join protocol.SignalJoinPayload
+			if json.Unmarshal(first.Payload, &join) == nil {
+				h.notifyHostOfIncompatibleJoin(ctx, join.RoomCode)
+			}
+		}
 		return
 	}
 	if first.Type != "signal.join" {
 		h.sendError(ctx, conn, first.RequestID, "AUTH_REQUIRED", "需要房间码加入", false)
 		return
 	}
-	var p struct {
-		RoomCode     string `json:"roomCode"`
-		ResumeToken  string `json:"resumeToken,omitempty"`
-		RestartMedia bool   `json:"restartMedia,omitempty"`
-	}
+	var p protocol.SignalJoinPayload
 	if json.Unmarshal(first.Payload, &p) != nil {
 		h.sendError(ctx, conn, first.RequestID, "INVALID_INVITE", "房间信息无效", false)
 		return
@@ -696,7 +715,7 @@ func (h *Hub) ServeLAN(ctx context.Context, conn *Connection) {
 	}
 	joinCtx, cancelJoin := context.WithTimeout(ctx, gracefulRoomEndLimit)
 	fanoutCtx, cancelFanout := context.WithCancel(joinCtx)
-	peerSession, snap, s, err := h.joinViewerAndRegister(conn, p.RoomCode, p.ResumeToken, cancelFanout)
+	peerSession, snap, s, err := h.joinViewerAndRegister(joinCtx, conn, p, cancelFanout)
 	if err != nil {
 		cancelFanout()
 		cancelJoin()
@@ -722,8 +741,12 @@ func (h *Hub) ServeLAN(ctx context.Context, conn *Connection) {
 		h.joinFailures.finish(sourceIP, true)
 	}
 	if err = h.writeEnvelope(joinCtx, conn, event("room.joined", first.RequestID, s.roomID, s.peerID, map[string]any{"name": snap.Name, "roomId": s.roomID, "peerId": s.peerID, "resumeToken": peerSession.ResumeToken, "members": snap.Members, "presenterPeerId": snap.PresenterPeerID, "presentationRevision": snap.PresentationRevision, "screenSharing": snap.ScreenSharing, "hasSystemAudio": snap.HasSystemAudio, "isolationStatus": snap.IsolationStatus})); err != nil {
-		h.rooms.Leave(s.roomID, s.peerID)
-		h.unregister(s)
+		h.lifecycleMu.Lock()
+		if h.ownsConnection(s) {
+			h.rooms.Leave(s.roomID, s.peerID)
+			h.unregister(s)
+		}
+		h.lifecycleMu.Unlock()
 		cancelFanout()
 		h.completeViewerJoin(conn)
 		cancelJoin()
@@ -734,7 +757,12 @@ func (h *Hub) ServeLAN(ctx context.Context, conn *Connection) {
 	if resuming {
 		h.broadcastWithContext(fanoutCtx, s.roomID, s.peerID, event("peer.state", first.RequestID, s.roomID, s.peerID, map[string]any{"peerId": s.peerID, "state": "connected", "restartMedia": p.RestartMedia}))
 	} else {
-		h.broadcastWithContext(fanoutCtx, s.roomID, s.peerID, event("peer.joined", "", s.roomID, s.peerID, map[string]any{"peerId": s.peerID, "role": "viewer"}))
+		for _, member := range snap.Members {
+			if member.PeerID == s.peerID {
+				h.broadcastWithContext(fanoutCtx, s.roomID, s.peerID, event("peer.joined", "", s.roomID, s.peerID, member))
+				break
+			}
+		}
 	}
 	h.sendRoomStateExcludingWithContext(fanoutCtx, snap, "", s.peerID)
 	if resuming {
@@ -791,26 +819,47 @@ func (h *Hub) ServeLAN(ctx context.Context, conn *Connection) {
 			_ = h.writeEnvelope(ctx, conn, protocol.Envelope{V: 1, Type: "heartbeat", RequestID: msg.RequestID, RoomID: s.roomID, PeerID: s.peerID, Payload: raw(map[string]any{})})
 		case "share.claim", "share.release", "media.state":
 			h.handlePresentation(ctx, s, msg)
+		case "peer.profile":
+			h.handleProfile(ctx, s, msg)
 		default:
 			h.sendError(ctx, conn, msg.RequestID, "INVALID_MESSAGE", "消息类型无效", false)
 		}
 	}
 }
 
+func (h *Hub) notifyHostOfIncompatibleJoin(ctx context.Context, code string) {
+	snapshot, found := h.rooms.RoomForCode(code)
+	if !found {
+		return
+	}
+	h.mu.RLock()
+	host := h.connections[connKey(snapshot.ID, hostPeer(snapshot))]
+	h.mu.RUnlock()
+	if host != nil {
+		writeCtx, cancel := context.WithTimeout(ctx, time.Second)
+		defer cancel()
+		h.sendError(writeCtx, host, "", "UNSUPPORTED_PROTOCOL", incompatibleVersion, false)
+	}
+}
+
 func (h *Hub) joinBridge(ctx context.Context, s *session, msg protocol.Envelope, p protocol.JoinPayload) error {
+	if !h.beginViewerDial() {
+		return errHubShuttingDown
+	}
+	defer h.finishViewerDial()
+	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
 	target := (&url.URL{Scheme: "ws", Host: net.JoinHostPort(p.HostIPv4, strconv.Itoa(p.HostPort)), Path: "/signal/v1"}).String()
 	bridge, err := h.dial(ctx, target)
 	if err != nil {
-		h.sendError(ctx, s.conn, msg.RequestID, "ROOM_NOT_FOUND", "无法连接主播信令服务", true)
+		if errors.Is(err, errIncompatibleVersion) {
+			h.sendError(ctx, s.conn, msg.RequestID, "UNSUPPORTED_PROTOCOL", incompatibleVersion, false)
+		} else {
+			h.sendError(ctx, s.conn, msg.RequestID, "ROOM_NOT_FOUND", "无法连接主播信令服务", true)
+		}
 		return err
 	}
-	joinPayload := map[string]any{"roomCode": p.RoomCode}
-	if p.RestartMedia {
-		joinPayload["restartMedia"] = true
-	}
-	if p.ResumeToken != "" {
-		joinPayload["resumeToken"] = p.ResumeToken
-	}
+	joinPayload := protocol.SignalJoinPayload{RoomCode: p.RoomCode, RestartMedia: p.RestartMedia, ResumeToken: p.ResumeToken, Profile: p.Profile}
 	join := protocol.Envelope{V: 1, Type: "signal.join", RequestID: msg.RequestID, Payload: raw(joinPayload)}
 	if err = bridge.Write(ctx, mustJSON(join)); err != nil {
 		bridge.Close()
@@ -849,6 +898,7 @@ func (h *Hub) joinBridge(ctx context.Context, s *session, msg protocol.Envelope,
 	s.roomID, s.peerID = response.RoomID, response.PeerID
 	bridgeCtx, bridgeCancel := context.WithCancel(context.WithoutCancel(ctx))
 	s.setBridge(bridge, bridgeCancel, p, joined.ResumeToken)
+	h.setViewerNetwork(s, bridge)
 	go h.pumpBridge(bridgeCtx, s, bridge)
 	return nil
 }
@@ -863,6 +913,7 @@ func (h *Hub) pumpBridge(ctx context.Context, s *session, bridge *Connection) {
 		var message protocol.Envelope
 		if protocol.Decode(data, &message) == nil && message.Type == "room.ended" {
 			if ok, cancel := s.finishBridgeEnded(bridge); ok {
+				h.clearViewerNetwork(s, bridge)
 				_ = s.conn.Write(ctx, data)
 				bridge.CloseNow()
 				if cancel != nil {
@@ -885,6 +936,7 @@ func (h *Hub) bridgeTransportLost(ctx context.Context, s *session, bridge *Conne
 	if !died {
 		return
 	}
+	h.reserveViewerRecovery(s, bridge)
 	bridge.Close()
 	h.sendError(ctx, s.conn, requestID, "SIGNAL_CONNECTION_LOST", "主播信令连接已断开，请使用重连凭证重试", true)
 	if cancel != nil {
@@ -966,13 +1018,13 @@ func (h *Hub) register(s *session) {
 	h.connections[connKey(s.roomID, s.peerID)] = s.conn
 }
 
-func (h *Hub) joinViewerAndRegister(conn *Connection, roomCode, resumeToken string, cancelFanout context.CancelFunc) (room.PeerSession, room.RoomSnapshot, *session, error) {
+func (h *Hub) joinViewerAndRegister(ctx context.Context, conn *Connection, request protocol.SignalJoinPayload, cancelFanout context.CancelFunc) (room.PeerSession, room.RoomSnapshot, *session, error) {
 	h.lifecycleMu.Lock()
 	defer h.lifecycleMu.Unlock()
-	if h.shuttingDown {
+	if h.shuttingDown || ctx.Err() != nil {
 		return room.PeerSession{}, room.RoomSnapshot{}, nil, errHubShuttingDown
 	}
-	peerSession, snapshot, err := h.rooms.Join(roomCode, resumeToken)
+	peerSession, snapshot, err := h.rooms.JoinWithProfile(request.RoomCode, request.ResumeToken, request.Profile)
 	if err != nil {
 		return room.PeerSession{}, room.RoomSnapshot{}, nil, err
 	}
@@ -1113,7 +1165,35 @@ func (h *Hub) sendRoomStateWithContext(ctx context.Context, snap room.RoomSnapsh
 	h.sendRoomStateExcludingWithContext(ctx, snap, requestID, "", screenSharing...)
 }
 func (h *Hub) sendRoomStateExcludingWithContext(ctx context.Context, snap room.RoomSnapshot, requestID, exclude string, screenSharing ...bool) {
-	h.broadcastWithContext(ctx, snap.ID, exclude, event("room.state", requestID, snap.ID, "", map[string]any{"name": snap.Name, "members": snap.Members, "screenSharing": snap.ScreenSharing, "presenterPeerId": snap.PresenterPeerID, "presentationRevision": snap.PresentationRevision, "hasSystemAudio": snap.HasSystemAudio, "isolationStatus": snap.IsolationStatus}))
+	payload := map[string]any{"name": snap.Name, "members": snap.Members, "screenSharing": snap.ScreenSharing, "presenterPeerId": snap.PresenterPeerID, "presentationRevision": snap.PresentationRevision, "hasSystemAudio": snap.HasSystemAudio, "isolationStatus": snap.IsolationStatus}
+	if snap.PresentationStarted {
+		payload["presentationStarted"] = true
+	}
+	h.broadcastWithContext(ctx, snap.ID, exclude, event("room.state", requestID, snap.ID, "", payload))
+}
+
+func (h *Hub) handleProfile(ctx context.Context, s *session, msg protocol.Envelope) {
+	var request protocol.ProfileUpdate
+	if json.Unmarshal(msg.Payload, &request) != nil || request.ProfileRevision != 0 {
+		h.sendError(ctx, s.conn, msg.RequestID, "INVALID_MESSAGE", "个人资料格式无效", false)
+		return
+	}
+	h.lifecycleMu.Lock()
+	if h.shuttingDown || s.roomID == "" || s.peerID == "" ||
+		(msg.RoomID != "" && msg.RoomID != s.roomID) || (msg.PeerID != "" && msg.PeerID != s.peerID) || !h.ownsConnection(s) {
+		h.lifecycleMu.Unlock()
+		h.sendError(ctx, s.conn, msg.RequestID, "AUTH_REQUIRED", "只能修改当前房间里的本机资料", false)
+		return
+	}
+	profile, err := h.rooms.UpdateProfile(s.roomID, s.peerID, request.Profile)
+	h.lifecycleMu.Unlock()
+	if err != nil {
+		h.sendError(ctx, s.conn, msg.RequestID, protocol.ErrorCode(err), "个人资料更新失败", false)
+		return
+	}
+	broadcastCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), gracefulRoomEndLimit)
+	defer cancel()
+	h.broadcastWithContext(broadcastCtx, s.roomID, "", event("peer.profile", msg.RequestID, s.roomID, s.peerID, profile))
 }
 
 func (h *Hub) handlePresentation(ctx context.Context, s *session, msg protocol.Envelope) {
@@ -1173,6 +1253,7 @@ func (h *Hub) disconnect(s *session) {
 	}
 	// A lost local browser socket is not an explicit leave. Let the host retain
 	// this viewer's identity for the authenticated resume window.
+	h.reserveViewerRecovery(s, nil)
 	if bridge := s.clearBridge(); bridge != nil {
 		bridge.CloseNow()
 	}
@@ -1221,6 +1302,7 @@ func (h *Hub) leaveViewerWithContext(ctx context.Context, s *session, requestID 
 		s.roomID, s.peerID = "", ""
 	}
 	s.clearBridge()
+	h.clearViewerNetwork(s, nil)
 	if sendResponse {
 		_ = h.writeEnvelope(ctx, s.conn, event("peer.left", requestID, oldRoomID, oldPeerID, map[string]any{"peerId": oldPeerID, "reason": "left"}))
 	}
@@ -1284,7 +1366,7 @@ func readEnvelope(ctx context.Context, c *Connection) (protocol.Envelope, error)
 	var e protocol.Envelope
 	if err = protocol.Decode(data, &e); err != nil {
 		log.Printf("rejected websocket message: %s", protocol.ErrorCode(err))
-		return protocol.Envelope{}, err
+		return e, err
 	}
 	return e, nil
 }

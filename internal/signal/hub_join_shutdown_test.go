@@ -27,7 +27,7 @@ func TestShutdownFirstRejectsLANJoinWithoutReservingSeat(t *testing.T) {
 	}
 
 	viewerConn := &Connection{write: func(context.Context, []byte) error { return nil }, closeNow: func() {}}
-	_, _, _, joinErr := h.joinViewerAndRegister(viewerConn, host.Code, "", func() {})
+	_, _, _, joinErr := h.joinViewerAndRegister(context.Background(), viewerConn, protocol.SignalJoinPayload{RoomCode: host.Code}, func() {})
 	if !errors.Is(joinErr, errHubShuttingDown) {
 		t.Fatalf("shutdown-first LAN join was not rejected at the lifecycle barrier: %v", joinErr)
 	}
@@ -65,7 +65,7 @@ func TestJoinFirstPendingHandshakeIsCoveredByTerminalShutdownSnapshot(t *testing
 	}
 	hostConn := &Connection{write: func(context.Context, []byte) error { return nil }, closeNow: func() {}}
 	h.register(&session{role: protocol.RoleHost, roomID: host.ID, peerID: "host", conn: hostConn})
-	peerSession, snapshot, viewer, err := h.joinViewerAndRegister(viewerConn, host.Code, "", func() {})
+	peerSession, snapshot, viewer, err := h.joinViewerAndRegister(context.Background(), viewerConn, protocol.SignalJoinPayload{RoomCode: host.Code}, func() {})
 	if err != nil {
 		t.Fatal(err)
 	}

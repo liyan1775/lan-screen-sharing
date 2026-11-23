@@ -16,6 +16,7 @@ import (
 
 	"github.com/coder/websocket"
 	"lan-screen-sharing/internal/protocol"
+	"lan-screen-sharing/internal/signal"
 )
 
 func visibleControlRequest(s *Server, method, origin, token string) *http.Request {
@@ -375,7 +376,7 @@ func TestVisibleHarnessDropRouteClosesActualProductionLANBridge(t *testing.T) {
 	}
 	ownerTransport := &visibleHarnessBridgeTransport{base: baseTransport, marker: bridgeHeaders.Get(visibleHarnessOwnerHeader)}
 	http.DefaultClient.Transport = ownerTransport
-	owned, _, err := websocket.Dial(ctx, bridgeURL, nil)
+	owned, _, err := websocket.Dial(ctx, bridgeURL, &websocket.DialOptions{Subprotocols: []string{signal.LANSubprotocol}})
 	http.DefaultClient.Transport = originalTransport
 	if err != nil {
 		t.Fatalf("dial owned production LAN handler using the native default websocket path: %v", err)
@@ -385,7 +386,7 @@ func TestVisibleHarnessDropRouteClosesActualProductionLANBridge(t *testing.T) {
 		path, host := ownerTransport.LastTarget()
 		t.Fatalf("native websocket Dial did not use the scoped marker transport: calls=%d marked=%d target=%s %s", ownerTransport.RoundTrips(), ownerTransport.MarkedRequests(), path, host)
 	}
-	unowned, _, err := websocket.Dial(ctx, bridgeURL, nil)
+	unowned, _, err := websocket.Dial(ctx, bridgeURL, &websocket.DialOptions{Subprotocols: []string{signal.LANSubprotocol}})
 	if err != nil {
 		t.Fatalf("dial unmarked production LAN handler: %v", err)
 	}

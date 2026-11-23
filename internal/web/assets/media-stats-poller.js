@@ -22,8 +22,8 @@ export function createMediaStatsPoller({ sample, getState, setTimeoutImpl = setT
   return {
     sync() {
       if (stopped) return;
-      const { active, diagnosticsVisible, hidden, context = '' } = getState();
-      const next = active ? (diagnosticsVisible && !hidden ? 2000 : 10000) : null;
+      const { active, watching = false, diagnosticsVisible, hidden, context = '' } = getState();
+      const next = active ? (diagnosticsVisible && !hidden ? 2000 : 10000) : watching && !hidden ? 2000 : null;
       const key = `${next}:${!!hidden}:${context}`;
       if (key === previous) return;
       previous = key; interval = next; pending = false;

@@ -2,9 +2,10 @@ package signal
 
 import (
 	"context"
+	"testing"
+
 	"lan-screen-sharing/internal/protocol"
 	"lan-screen-sharing/internal/room"
-	"testing"
 )
 
 func recoveryTestConnection() *Connection {
@@ -41,11 +42,11 @@ func TestViewerTakeoverIgnoresLateDisconnectFromTheOldTransport(t *testing.T) {
 	manager := room.NewManager()
 	snap, _, _ := manager.CreateHost()
 	h := NewHub(manager)
-	peer, _, old, err := h.joinViewerAndRegister(recoveryTestConnection(), snap.Code, "", func() {})
+	peer, _, old, err := h.joinViewerAndRegister(context.Background(), recoveryTestConnection(), protocol.SignalJoinPayload{RoomCode: snap.Code}, func() {})
 	if err != nil {
 		t.Fatal(err)
 	}
-	nextPeer, _, next, err := h.joinViewerAndRegister(recoveryTestConnection(), snap.Code, peer.ResumeToken, func() {})
+	nextPeer, _, next, err := h.joinViewerAndRegister(context.Background(), recoveryTestConnection(), protocol.SignalJoinPayload{RoomCode: snap.Code, ResumeToken: peer.ResumeToken}, func() {})
 	if err != nil || nextPeer.PeerID != peer.PeerID {
 		t.Fatalf("takeover: %#v %v", nextPeer, err)
 	}
@@ -55,10 +56,12 @@ func TestViewerTakeoverIgnoresLateDisconnectFromTheOldTransport(t *testing.T) {
 	if !h.ownsConnection(next) {
 		t.Fatal("resumed member lost its transport")
 	}
+	h.handleProfile(context.Background(), next, event("peer.profile", "new-profile", snap.ID, "", protocol.Profile{Nickname: "新连接", AvatarColor: "green"}))
+	h.handleProfile(context.Background(), old, event("peer.profile", "stale-profile", snap.ID, "", protocol.Profile{Nickname: "过期连接", AvatarColor: "pink"}))
 	current, _ := manager.Get(snap.ID)
 	for _, member := range current.Members {
-		if member.PeerID == peer.PeerID && member.State != "connected" {
-			t.Fatal("resumed member was marked disconnected")
+		if member.PeerID == peer.PeerID && (member.State != "connected" || member.Nickname != "新连接" || member.AvatarColor != "green") {
+			t.Fatalf("old connection affected resumed member: %+v", member)
 		}
 	}
 }
