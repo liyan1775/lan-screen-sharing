@@ -386,6 +386,7 @@ test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearan
   assert.match(await viewer.locator('#watch-source').textContent(),/夜航/);
   assert.equal(await viewer.locator('#text-log .text-message strong').first().textContent(),nextName);
   assert.equal(await viewer.locator('#text-log .text-message strong b').count(),0,'markup in the nickname stays text');
+  await viewer.locator('#members .member-seat[data-role="host"] .member-avatar[data-avatar-color="pink"]').waitFor({state:'attached'});
   assert.equal(await viewer.locator('#members .member-seat[data-role="host"] .member-avatar').getAttribute('data-avatar-color'),'pink');
   assert.deepEqual(await Promise.all([host,viewer,other].map(mediaGraph)),beforeProfile);
   assert.equal(await slider.evaluate(n=>document.activeElement===n),true);
