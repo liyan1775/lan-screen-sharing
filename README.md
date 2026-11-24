@@ -4,30 +4,30 @@
 
 <p align="center">
   <a href="https://liyan1775.github.io/lan-screen-sharing/">在线宣传页</a> ·
-  <a href="https://github.com/liyan1775/lan-screen-sharing/releases/download/v1.0.0/lan-screen-sharing-1.0.0-windows-x64.zip"><strong>下载 v1.0.0 Windows 版</strong></a> ·
-  <a href="docs/releases/v1.0.0.md">版本说明</a> ·
+  <a href="https://github.com/liyan1775/lan-screen-sharing/releases/download/v1.1.0/lan-screen-sharing-1.1.0-windows-x64.zip"><strong>下载 v1.1.0 Windows 版</strong></a> ·
+  <a href="docs/releases/v1.1.0.md">版本说明</a> ·
   <a href="LICENSE">Apache-2.0 开源</a>
 </p>
 
 <p align="center">
-  <img src="website/assets/screen.png" width="59%" alt="v1.0.0 观看共享屏幕，左上角有实收画质，右上角有看屏工具，下方是一行玻璃控制坞">
-  <img src="website/assets/room.png" width="39%" alt="v1.0.0 三人语音房间，展示各自的昵称和头像颜色">
+  <img src="website/assets/screen.png" width="59%" alt="v1.1.0 观看共享屏幕，左上角有实收画质，右上角有看屏工具，下方是一行玻璃控制坞">
+  <img src="website/assets/room.png" width="39%" alt="v1.1.0 三人语音房间，展示各自的昵称和头像颜色">
 </p>
 
 ## 为什么好用
 
-- **零云端，局域网直连。** 无需登录。局域网内可自动发现房间，也能整段粘贴邀请。
-- **单次编码，最多两位观众。** 同一份编码画面由分享者本机转发，默认画质目标为 1080p60 / 8 Mbps。
-- **Apple Pro 风格玻璃交互。** 深色看屏界面、单行玻璃控制坞、实收画质胶囊和有反馈的动效。
-- **局部放大、画中画、一键截屏。** 放大画面细节，按原尺寸保存 PNG。画中画需要浏览器支持。
-- **自由麦、按键说话和本机试音。** 支持选麦、独立音量、房间文字链接与一键复制消息。
-- **优先推荐真实局域网网卡。** 昵称、头像颜色、麦克风和选用的网卡等偏好可跨重启保留。
+- **零云端，局域网与校园网直连。** 无需登录。支持多路径局域网发现，也支持保存常用好友 IP 做单播直连探测，校园网屏蔽广播同样秒找房间。
+- **整屏打游戏，单标签页看视频。** 支持共享整块显示器，也支持直接共享单个浏览器标签页（看 B 站/在线视频自带纯标签页声音、不暴露桌面且帧率更稳）。
+- **单次编码 + 清晰度优先。** 同一份编码画面由分享者本机转发给两位观众，优先显卡硬编 H.264、默认锁定清晰度目标 1080p60 / 8 Mbps，实发分辨率变化一眼可见。
+- **冰青瓷银双模式玻璃交互。** 同时提供亮白瓷器浅色与暗夜黛青深色界面，配单行玻璃控制坞、局部放大、画中画与原画 PNG 截屏。
+- **自由麦、按键说话和本机试音。** 支持选麦、独立音量、飘屏小表情、房间文字链接与一键复制消息。
+- **优先推荐真实局域网网卡。** 昵称、头像颜色、麦克风、网卡与好友探测 IP 均可跨重启保留。
 
 ## 三步开始
 
 1. **大家运行同一版。** 完整解压 Windows x64 ZIP。先打开 `先看这里.html`，再双击 `局域网屏幕共享.exe`，用桌面版 Edge 或 Chrome 打开本机页面。
-2. **一人建房，朋友加入。** 电脑须在能互相访问的私有 IPv4 局域网。朋友可以从“附近的房间”加入，或在“手动加入”粘贴完整邀请。
-3. **选择显示器，开始共享。** 点“共享我的屏幕”，选择整个显示器，并按需授权系统声音和麦克风。停止分享后，房间仍可语音和聊天。
+2. **一人建房，朋友加入。** 电脑须在能互相访问的私有 IPv4 局域网。朋友可以从“附近的房间”加入；校园网屏蔽广播时，手动加入一次即可自动记住好友 IP，下次自动刷出。
+3. **选整屏或单标签页开始共享。** 点“共享我的屏幕”，打游戏选整块显示器、看网页视频选单个浏览器标签页，按需授权声音和麦克风。停止分享后，房间仍可语音和聊天。
 
 ## 开发与构建
 
@@ -37,14 +37,15 @@
 npm ci
 go test ./... -count=1
 npm test
-$releaseExe = 'dist/release-1.0.0/局域网屏幕共享-1.0.0.exe'
+$releaseExe = 'dist/release-1.1.0/局域网屏幕共享-1.1.0.exe'
 .\scripts\build.ps1 -OutputPath $releaseExe
 .\scripts\package-release.ps1 -ExePath $releaseExe
 ```
 
 | 文档 | 内容 |
 | --- | --- |
-| [v1.0.0 版本说明](docs/releases/v1.0.0.md) | 正式版功能、升级与验证范围 |
+| [v1.1.0 版本说明](docs/releases/v1.1.0.md) | 正式版新功能、修复与验证范围 |
+| [v1.0.0 版本说明](docs/releases/v1.0.0.md) | 首个正式版归档说明 |
 | [版本与发行规范](docs/versioning.md) | SemVer、同版建议、Tag、Release 与 Pages 发布 |
 | [系统架构](docs/architecture.md) | 局域网发现、房间信令和媒体通路 |
 | [验证与限制](docs/verification.md) | 本机回归、复现方式与实测边界 |

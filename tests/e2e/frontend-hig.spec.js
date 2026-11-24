@@ -12,6 +12,77 @@ const output=path.resolve(process.env.LANSW_HIG_EVIDENCE || '.superpowers/sdd/la
 const assetFiles=['index.html','styles.css','app.js','client.js','preferences.js','connection-lifecycle.js','page-lease.js','room-browser.js','room-invite.js','room-experience.js','room-text.js','room-text-ui.js','media.js','screen-relay.js','media-stats-poller.js','media-stats.js','fullscreen.js','preview-playback.js','voice-controls.js','quality-hud.js','viewer-tools.js','room-reactions.js','sound-effects.js','icons.js','player-pointer.js'];
 const microphones=[{deviceId:'desk-mic',label:'桌面麦克风'},{deviceId:'headset-mic',label:'耳机麦克风'}];
 
+function colorContrast({color, backgroundColor}, label) {
+  const channels = css => {
+    assert.match(css, /^rgba?\(/, label + ' must use a solid sRGB color');
+    return css.match(/[\d.]+/g).map(Number);
+  };
+  const foreground = channels(color), background = channels(backgroundColor);
+  assert.equal(background[3] ?? 1, 1, label + ' background must be opaque');
+  assert.equal(foreground[3] ?? 1, 1, label + ' text must be opaque');
+  const luminance = rgb => rgb.slice(0,3).map(channel => {
+    const value = channel / 255;
+    return value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4;
+  }).reduce((total,value,index) => total + value * [.2126,.7152,.0722][index], 0);
+  const [dark,light] = [luminance(foreground),luminance(background)].sort((a,b) => a-b);
+  const ratio = (light+.05)/(dark+.05);
+  assert.ok(ratio >= 4.5, `${label} contrast ${ratio.toFixed(2)} must be at least 4.5:1`);
+}
+
+async function checkSettingsSelects(page) {
+  const ids = ['network-interface','mic-device','mic-mode','share-mode','quality-target'];
+  assert.deepEqual(await page.locator('#settings-dialog select').evaluateAll(nodes => nodes.map(node => node.id)), ids);
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('DOM.enable');
+  await cdp.send('CSS.enable');
+  const {root} = await cdp.send('DOM.getDocument');
+  const originalTheme = await page.evaluate(() => matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  // A single network interface can leave its control hidden and empty.
+  await page.evaluate(ids => {
+    for (const id of ids) {
+      const select = document.getElementById(id);
+      for (const disabled of [false,true]) {
+        if ([...select.options].some(option => option.disabled === disabled)) continue;
+        const option = new Option('测试选项', '__contrast');
+        option.dataset.contrastFixture = '';
+        option.disabled = disabled;
+        select.append(option);
+      }
+    }
+  }, ids);
+  try {
+    for (const theme of ['light','dark']) {
+      await page.emulateMedia({colorScheme:theme});
+      for (const id of ids) {
+        for (const suffix of ['', ' option:not(:disabled)', ' option:disabled']) {
+          const selector = '#' + id + suffix;
+          const {nodeIds} = await cdp.send('DOM.querySelectorAll',{nodeId:root.nodeId,selector});
+          assert.ok(nodeIds.length, selector + ' must be present');
+          for (const [index,nodeId] of nodeIds.entries()) {
+            const locator = page.locator(selector).nth(index);
+            const label = `${theme} ${selector} [${index + 1}]`;
+            const styles = () => locator.evaluate(node => {
+              const {color,backgroundColor} = getComputedStyle(node);
+              return {color,backgroundColor};
+            });
+            const normal = await styles();
+            colorContrast(normal, label);
+            await cdp.send('CSS.forcePseudoState',{nodeId,forcedPseudoClasses:['hover']});
+            const hover = await styles();
+            colorContrast(hover, label + ':hover');
+            if (!suffix || suffix.includes(':not')) assert.notEqual(hover.backgroundColor, normal.backgroundColor, label + ' hover style');
+            await cdp.send('CSS.forcePseudoState',{nodeId,forcedPseudoClasses:[]});
+          }
+        }
+      }
+    }
+  } finally {
+    await cdp.detach();
+    await page.evaluate(() => document.querySelectorAll('[data-contrast-fixture]').forEach(option => option.remove()));
+    await page.emulateMedia({colorScheme:originalTheme});
+  }
+}
+
 test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearance, zoom and errors', {timeout:180000}, async t=>{
   assert.ok(process.env.LANSW_EXE && process.env.LANSW_BROWSER_PATH,'provide the candidate executable and installed browser');
   await mkdir(output,{recursive:true});
@@ -116,6 +187,31 @@ test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearan
   await noOverflow(host,'entry light narrow');await capture(host,'02b-entry-light-390');
   await host.emulateMedia({colorScheme:'dark'});
   await noOverflow(host,'entry dark narrow');await capture(host,'01b-entry-dark-390');
+  await host.unroute('**/api/v1/rooms');
+  // Discovery intentionally excludes all of this computer's own addresses.
+  const peerIP = ['10.255.255.254', '10.255.255.253'].find(ip => !availableLANIPv4s().includes(ip));
+  const peerInput = host.locator('#peer-host-input');
+  assert.equal(await peerInput.getAttribute('autocomplete'),'off');
+  await peerInput.fill(peerIP);
+  await host.locator('#peer-host-form button').click();
+  const removePeer = host.getByRole('button',{name:`移除好友 IP ${peerIP}`});
+  await removePeer.waitFor();
+  await host.locator('#discovery-panel .discovery-help > summary').click();
+  await host.locator('#discovery-diagnostics').filter({hasText:'好友 IP：1 个'}).waitFor();
+  await axe(host,'saved friend and discovery diagnostics dark narrow');
+  await host.emulateMedia({colorScheme:'light'});
+  await axe(host,'saved friend and discovery diagnostics light narrow');
+  await removePeer.focus();
+  await removePeer.press('Enter');
+  await removePeer.waitFor({state:'detached'});
+  await host.locator('#discovery-diagnostics').filter({hasText:'好友 IP：0 个'}).waitFor();
+  assert.equal(await peerInput.evaluate(node => document.activeElement === node),true);
+  await host.locator('#discovery-panel .discovery-help > summary').click();
+  const refreshResponse = host.waitForResponse(response =>
+    new URL(response.url()).pathname === '/api/v1/discovery/refresh' && response.request().method() === 'POST');
+  await host.locator('#refresh-rooms').click();
+  assert.equal((await refreshResponse).ok(),true);
+  await host.emulateMedia({colorScheme:'dark'});
   await host.setViewportSize({width:1440,height:1000});
   let fixtureRooms=[{id:'fixture-active',name:'测试 · 周末游戏',members:1,capacity:3,screenSharing:true,hostIPv4:lanIP,hostPort:Number(services[0].signalPort),roomCode:'ABCD2345'},{id:'fixture-full',name:'测试 · 已满房间',members:3,capacity:3,hostIPv4:lanIP,hostPort:Number(services[0].signalPort),roomCode:'BCDE2345'},{id:'fixture-idle',name:'测试 · 聊会儿',members:2,capacity:3,hostIPv4:lanIP,hostPort:Number(services[0].signalPort),roomCode:'CDEF2345'}];
   await host.route('**/api/v1/rooms',route=>route.fulfill({json:{available:true,rooms:fixtureRooms}}));await host.locator('#refresh-rooms').click();await host.locator('.discovered-room').nth(2).waitFor();
@@ -135,6 +231,8 @@ test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearan
   await host.locator('#error-message').waitFor({state:'visible'});await capture(host,'17-stale-room');await axe(host,'stale room failure');await ax(host,'stale room alert');
   fixtureRooms=[];await host.unroute('**/api/v1/rooms');await host.locator('#refresh-rooms').click();
   await host.locator('#quick-manual-join').click();
+  assert.equal(await host.locator('#remember-peer-host').isChecked(),true);
+  assert.equal(await host.locator('#join-port').getAttribute('autocomplete'),'off');
   assert.equal(await host.locator('#join-manual-fields').getAttribute('open'),null,'individual connection fields start collapsed');
   await capture(host,'22-paste-invite-dark');await axe(host,'single invitation dark');
   await host.emulateMedia({colorScheme:'light'});await capture(host,'23-paste-invite-light');await axe(host,'single invitation light');
@@ -146,6 +244,8 @@ test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearan
   await host.locator('#nickname').fill('小雨🌙');
   await host.locator('input[value="teal"]').check();
   await capture(host,'28-entry-identity-dark');await axe(host,'identity and network dark');
+  await checkSettingsSelects(host);
+  evidence.checks.push({check:'all five settings selects and their enabled and disabled options retain opaque 4.5:1 contrast in light and dark, including hover',passed:true});
   await closeSettings(host);
   assert.equal(await host.locator('#entry-identity-name').textContent(),'小雨🌙');
   assert.equal(await host.evaluate(()=>matchMedia('(prefers-reduced-motion: reduce)').matches),true);
@@ -166,10 +266,15 @@ test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearan
   await host.locator('#invite-dialog [data-close-dialog]').click();
   for(const [page,shortcut] of [[viewer,'Enter'],[other,'Control+Enter']]){
     await page.locator('#quick-manual-join').click();
+    if (page === other) await page.locator('#remember-peer-host').uncheck();
     await page.locator('#join-invite').fill(invite.text);
     await page.locator('#join-invite').press(shortcut);await page.locator('body[data-stage="voice"]').waitFor();
     assert.equal(await page.locator('#topbar-room-name').textContent(),'周二游戏夜','manual join preserves actual room context');
   }
+  const savedPeers = page => page.evaluate(async () => (await (await fetch('/api/v1/bootstrap')).json()).preferences.peerHosts);
+  await viewer.waitForFunction(async hostIP =>
+    (await (await fetch('/api/v1/bootstrap')).json()).preferences.peerHosts.includes(hostIP),invite.address);
+  assert.deepEqual(await savedPeers(other),[]);
   await host.waitForFunction(()=>document.querySelectorAll('.member-seat[data-empty="false"]').length===3);
   assert.match(await viewer.locator('#members .member-seat[data-role="host"] > strong').textContent(),/小雨🌙/);
   assert.equal(await viewer.locator('#members .member-seat[data-role="host"] .member-avatar').getAttribute('data-avatar-color'),'teal');
@@ -394,13 +499,25 @@ test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearan
   evidence.checks.push({check:'authoritative nickname and color update in seats, watch, mixer and existing text without WebRTC renegotiation or focus loss',passed:true});
   const displayRequests=await host.evaluate(()=>window.__lanScreenTest.captures.filter(item=>item.type==='display-request').length);
   const connectionsBeforeQuality=await Promise.all([host,viewer,other].map(mediaGraph));
-  await host.getByRole('button',{name:'共享画质目标 1080p · 60fps'}).click();
+  const qualityTrigger = host.locator('#quality-trigger');
+  await host.waitForFunction(() => document.querySelector('#quality-trigger').dataset.degraded === 'true');
+  assert.match(await qualityTrigger.textContent(),/实发 720p · 目标 1080p/);
+  for (const theme of ['light','dark']) {
+    await host.emulateMedia({colorScheme:theme});
+    colorContrast(await qualityTrigger.evaluate(node => {
+      const {color,backgroundColor} = getComputedStyle(node);
+      return {color,backgroundColor};
+    }), theme + ' degraded quality capsule');
+    await axe(host,`degraded sharing quality ${theme}`);
+  }
+  await host.getByRole('button',{name:'共享画质 实发 720p · 目标 1080p'}).click();
   await host.getByRole('group',{name:'共享画质快选'}).waitFor();
   await capture(host,'32-quality-quick-pick');await axe(host,'sharing quality picker');await ax(host,'quality picker choices');
   await host.getByRole('button',{name:'1080p · 60 FPS（默认）'}).press('Escape');
   assert.equal(await host.locator('#quality-trigger').evaluate(node=>document.activeElement===node),true);
   await host.locator('#quality-trigger').click();
   await host.getByRole('button',{name:'720p · 30 FPS',exact:true}).press('Enter');
+  assert.equal(await qualityTrigger.getAttribute('data-degraded'),null);
   assert.match(await host.locator('#quality-trigger').textContent(),/720p · 30fps/);
   assert.equal(await host.locator('#quality-target').inputValue(),'720p30');
   await host.waitForFunction(async()=> (await (await fetch('/api/v1/bootstrap')).json()).preferences?.qualityTarget==='720p30');
@@ -631,6 +748,10 @@ test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearan
   await host.waitForFunction(()=>document.querySelector('#members .member-seat[data-seat="left"]')?.dataset.empty==='true'&&
     document.querySelector('#members .member-seat[data-seat="right"] > strong')?.textContent==='成员 2');
   evidence.checks.push({check:'the second guest retains the original seat and default name when the first guest leaves',passed:true});
+  // The discovery UDP port on this Windows interface is held by the first
+  // service. Release it before testing real network changes and restart.
+  await Promise.all(contexts.map(context => context.close()));
+  await shutdownOwnedServices(services);
   const profile=await createTestPreferences();testProfiles.push(profile);
   const persistence=await startOwnedService({lanIP,autoLAN:true,preferencesPath:profile.preferencesPath,signalPort:0});services.push(persistence);
   const freshContext=async (service, rotated=false)=>{
@@ -668,10 +789,11 @@ test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearan
     await closeSettings(editing);
     await editing.locator('#entry-identity').click();
     await editing.locator('#network-note').filter({hasText:'虚拟网卡'}).waitFor();
-    const switching=editing.waitForResponse(response=>response.url().endsWith('/api/v1/network')&&response.status()===200);
+    const switching=editing.waitForResponse(response=>response.url().endsWith('/api/v1/network'));
     const refresh=editing.waitForRequest(request=>request.url().endsWith('/api/v1/rooms'));
     await editing.locator('#network-interface').selectOption(chosen);
     const response=await switching;
+    assert.equal(response.status(),200,await response.text());
     const network=await response.json();
     assert.equal(network.lanIPv4,chosen);
     assert.ok(network.signalPort>0);

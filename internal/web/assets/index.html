@@ -19,7 +19,17 @@
     <div id="discovery-skeleton" class="discovery-skeleton" aria-hidden="true"><span></span><span></span><span></span></div>
     <div id="empty-rooms" class="empty-rooms" hidden><span class="empty-mark discovery-mark" data-icon="people" aria-hidden="true"></span><div><h2>附近还没有房间</h2><p>创建房间，邀请朋友加入。</p><button id="empty-create-room" class="button button-primary" type="button" data-button-icon="plus">创建房间</button></div></div>
     <p class="entry-help">没有找到朋友的房间？<button id="choose-viewer" class="text-button" type="button" data-button-icon="arrow-right">手动加入</button></p>
-    <details class="discovery-help"><summary>未发现房间？查看检查方法与诊断</summary><p class="hint">确认朋友已创建房间并勾选允许发现，两台电脑位于可互通的局域网。若系统提示网络权限，请允许本程序在你信任的网络通信；网络阻止自动查找时仍可手动加入。</p><pre id="discovery-diagnostics">正在读取查找状态…</pre><button id="copy-discovery-diagnostics" class="button button-light" type="button">复制查找诊断</button></details>
+    <section class="peer-hosts" aria-labelledby="peer-hosts-title">
+      <h2 id="peer-hosts-title">常用好友 IP（校园网直连探测）</h2>
+      <form id="peer-host-form" class="peer-host-form">
+        <label class="sr-only" for="peer-host-input">好友局域网 IPv4</label>
+        <input id="peer-host-input" type="text" inputmode="decimal" placeholder="例如 10.208.1.20" autocomplete="off" spellcheck="false" aria-describedby="peer-host-status">
+        <button class="button" type="submit">添加</button>
+      </form>
+      <ul id="peer-host-list" class="peer-host-list" aria-label="已保存的好友 IP" hidden></ul>
+      <p id="peer-host-status" class="hint" role="status" aria-atomic="true"></p>
+    </section>
+    <details class="discovery-help"><summary>未发现房间？查看检查方法与诊断</summary><p class="hint">校园网或企业网常会屏蔽广播。第一次可以用「手动加入」，也可以添加好友 IP 直接查找。请确认两台电脑可以互通，且朋友已创建房间。要让房间出现在列表里，请让朋友勾选允许发现。若系统提示网络权限，请允许本程序在你信任的网络通信。</p><pre id="discovery-diagnostics">正在读取查找状态…</pre><button id="copy-discovery-diagnostics" class="button button-light" type="button">复制查找诊断</button></details>
   </section></div>
   <section id="room-panel" class="room-layout" hidden>
     <div class="room-main">
@@ -45,8 +55,9 @@
           <label>邀请信息<input id="join-invite" type="text" maxlength="256" placeholder="粘贴朋友发来的完整邀请信息" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="join-invite-help"></label>
           <p id="join-invite-help" class="hint">请朋友在房间内点“邀请朋友 → 复制邀请信息”，整段粘贴到这里。</p>
           <details id="join-manual-fields" class="join-manual-fields"><summary>分别填写地址、端口和房间码</summary>
-            <div class="form-grid"><label>房主局域网 IPv4<input pattern="(?:[0-9]{1,3}\.){3}[0-9]{1,3}" id="join-address" type="text" inputmode="decimal" placeholder="例如 192.168.1.20" autocomplete="off"></label><label>信令端口<input id="join-port" type="number" min="1" max="65535" placeholder="例如 45678"></label><label class="full-field">房间码<input id="join-code" type="text" maxlength="8" placeholder="8 位房间码" autocomplete="off"></label></div>
+            <div class="form-grid"><label>房主局域网 IPv4<input pattern="(?:[0-9]{1,3}\.){3}[0-9]{1,3}" id="join-address" type="text" inputmode="decimal" placeholder="例如 192.168.1.20" autocomplete="off"></label><label>信令端口<input id="join-port" type="number" min="1" max="65535" placeholder="例如 45678" autocomplete="off"></label><label class="full-field">房间码<input id="join-code" type="text" maxlength="8" placeholder="8 位房间码" autocomplete="off"></label></div>
           </details>
+          <label class="room-visibility"><span>记住此好友 IP，下次自动在「附近的房间」探测</span><input id="remember-peer-host" type="checkbox" checked></label>
           <button id="join-room" class="button button-primary" type="submit" title="加入房间（Ctrl 或 ⌘ + Enter）" aria-keyshortcuts="Control+Enter Meta+Enter">加入房间<span class="shortcut-hint" aria-hidden="true"></span></button>
           <p class="hint">麦克风稍后单独开启；拒绝麦克风权限仍可接收画面和房间语音。</p>
         </form>
@@ -74,7 +85,7 @@
             <button id="fullscreen-screen" class="button" type="button" aria-keyshortcuts="F" aria-pressed="false" disabled data-button-icon="fullscreen">全屏观看</button>
           </div></div>
         </div>
-        <div role="group" class="room-controls" aria-label="房间主要操作"><div class="audio-controls"><div id="mic-home"><div id="mic-controls"><button id="toggle-mic" class="button" type="button" aria-pressed="false">开启麦克风</button><button id="push-to-talk" class="button" type="button" aria-keyshortcuts="Space Enter" aria-pressed="false" aria-description="按住时发送语音，松开即静音" hidden><span class="ptt-wave" aria-hidden="true"><i></i><i></i><i></i></span><span class="button-label">按住说话</span></button></div></div><button hidden id="enable-audio" class="button" type="button" data-button-icon="speaker">启用声音</button><div id="view-home"><button id="voice-only" class="button" type="button" aria-pressed="false" data-button-icon="headphones">只聊语音</button></div><div id="share-home"><div id="host-share-controls" class="host-share-controls" hidden><div class="button-row"><button id="start-share" class="button button-primary" type="button">共享我的屏幕</button><button id="stop-share" class="button button-danger" type="button" disabled>停止共享</button></div><p id="sharing-permission" class="hint"></p></div></div></div><button aria-expanded="false" aria-controls="text-panel" class="button" type="button" id="watch-text" data-button-icon="chat">文字</button><button id="watch-sound" class="button sound-button" type="button" data-button-icon="speaker" aria-haspopup="dialog">声音</button><div id="watch-reaction-slot"><div id="reaction-controls"><button id="react-toggle" class="button icon-button" type="button" aria-label="发送表情" title="发送表情" aria-controls="reaction-picker" aria-expanded="false" data-icon="reaction"></button>
+        <div role="group" class="room-controls" aria-label="房间主要操作"><div class="audio-controls"><div id="mic-home"><div id="mic-controls"><button id="toggle-mic" class="button" type="button" aria-pressed="false">开启麦克风</button><button id="push-to-talk" class="button" type="button" aria-keyshortcuts="Space Enter" aria-pressed="false" aria-description="按住时发送语音，松开即静音" hidden><span class="ptt-wave" aria-hidden="true"><i></i><i></i><i></i></span><span class="button-label">按住说话</span></button></div></div><button hidden id="enable-audio" class="button" type="button" data-button-icon="speaker">启用声音</button><div id="view-home"><button id="voice-only" class="button" type="button" aria-pressed="false" data-button-icon="headphones">只聊语音</button></div><div id="share-home"><div id="host-share-controls" class="host-share-controls" hidden><div class="button-row"><button id="start-share" class="button button-primary" type="button">选择内容并开始共享</button><button id="stop-share" class="button button-danger" type="button" disabled>停止共享</button></div><p id="sharing-permission" class="hint"></p></div></div></div><button aria-expanded="false" aria-controls="text-panel" class="button" type="button" id="watch-text" data-button-icon="chat">文字</button><button id="watch-sound" class="button sound-button" type="button" data-button-icon="speaker" aria-haspopup="dialog">声音</button><div id="watch-reaction-slot"><div id="reaction-controls"><button id="react-toggle" class="button icon-button" type="button" aria-label="发送表情" title="发送表情" aria-controls="reaction-picker" aria-expanded="false" data-icon="reaction"></button>
           <div id="reaction-picker" role="group" aria-label="选择表情" hidden>
             <button class="button" type="button" data-emoji="👏" aria-label="鼓掌">👏</button>
             <button class="button" type="button" data-emoji="🔥" aria-label="火焰">🔥</button>
@@ -126,11 +137,11 @@
     <p class="hint" id="mic-test-help">试音仅在本机显示，期间房间麦克风静音。</p>
     <p class="hint" id="mic-note" role="status"></p>
   </section>
-  <section aria-labelledby="sharing-settings-title" class="settings-basic"><h3 id="sharing-settings-title">共享</h3><label>共享模式<select id="share-mode"><option value="combined" selected>画面 + 屏幕系统音频 + 语音</option><option value="limited">画面 + 语音（无游戏声音）</option></select></label><div class="media-controls">
+  <section aria-labelledby="sharing-settings-title" class="settings-basic"><h3 id="sharing-settings-title">共享</h3><label>共享模式<select id="share-mode"><option value="combined" selected>画面 + 屏幕系统音频 + 语音</option><option value="limited">画面 + 房间语音（无共享声音）</option></select></label><div class="media-controls">
             <label class="select-control">我的共享画质<select id="quality-target"><option value="1080p60">1080p · 60 FPS</option><option value="720p60">720p · 60 FPS</option><option value="720p30">720p · 30 FPS</option></select></label>
             <label class="room-visibility"><span>切到游戏时暂停本机预览</span><input id="pause-background-preview" type="checkbox" checked aria-describedby="pause-background-preview-help"></label><p id="pause-background-preview-help" class="hint">释放本机预览使用的资源。直播发送、声音和所选画质继续；回到页面立即恢复预览。</p>
             
-          </div><label class="room-visibility"><span>共享我的鼠标（浏览器支持时生效）</span><input id="share-cursor" type="checkbox"></label><p id="system-audio-note" class="hint" role="status">共享时默认包含系统声音；请在浏览器选择显示器并允许共享系统音频。</p><button id="stop-system-audio" class="button button-secondary" type="button" disabled>停止共享系统声音</button></section><details class="settings-section"><summary>连接与兼容性诊断</summary>
+          </div><label class="room-visibility"><span>共享我的鼠标（浏览器支持时生效）</span><input id="share-cursor" type="checkbox"></label><p id="system-audio-note" class="hint" role="status">打游戏请选择整块显示器；和朋友看 B 站或网页视频时，推荐选择单个浏览器标签页，帧率更稳，也不会露出桌面。需要声音时，请在浏览器选择窗口中开启共享音频。</p><button id="stop-system-audio" class="button button-secondary" type="button" disabled>停止共享系统声音</button></section><details class="settings-section"><summary>连接与兼容性诊断</summary>
           
           <p id="actual-stats" class="stats-line">实际统计：等待媒体连接</p>
           <p id="capture-stats" class="stats-line" hidden></p>

@@ -20,10 +20,14 @@ test('viewerCanJoinWithoutMicrophone', () => {
   assert.deepEqual(next, { joined: true, microphone: 'denied', receiveOnly: true, code: 'MIC_PERMISSION_DENIED' });
 });
 
-test('displayModeRequiresMonitor', () => {
+test('displayModeAllowsOnlyMonitorsAndBrowserTabs', () => {
   assert.deepEqual(inspectDisplaySurface('monitor'), { allowed: true, state: 'ready', message: '' });
-  assert.deepEqual(inspectDisplaySurface('window'), { allowed: false, state: 'DISPLAY_NOT_MONITOR', message: '检测到所选内容不是整块显示器，请重新选择显示器。' });
-  assert.equal(inspectDisplaySurface('browser').allowed, false);
+  assert.deepEqual(inspectDisplaySurface('browser'), { allowed: true, state: 'ready', message: '' });
+  assert.deepEqual(inspectDisplaySurface('window'), { allowed: false, state: 'DISPLAY_NOT_MONITOR', message: '检测到单个应用窗口（无法稳定同步声音），请重新选择整块显示器或单个浏览器标签页。' });
+  for (const unknownSurface of [undefined, 'unknown']) {
+    assert.equal(inspectDisplaySurface(unknownSurface).allowed, false);
+    assert.equal(inspectDisplaySurface(unknownSurface).state, 'DISPLAY_NOT_MONITOR');
+  }
 });
 
 test('isolationNeverAutoPromotesFromSettings', () => {

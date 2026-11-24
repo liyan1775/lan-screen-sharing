@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MeshMedia } from '../../internal/web/assets/media.js';
+import { formatSystemAudioDiagnostics } from '../../internal/web/assets/system-audio-isolation.js';
 
 function installCapture(stream, supported = { restrictOwnAudio: true }) {
   const previousNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
@@ -43,12 +44,15 @@ function makeStream(video, audio = []) {
 
 function createMedia() {
   const messages = [];
+  const states = [];
   const media = new MeshMedia({
     sendSignal() {},
     sendUnacknowledged(type, payload) { messages.push({ type, payload }); return true; },
+  }, {
+    onState(state) { states.push(state); },
   });
   media.setIdentity('host-test', 'host');
-  return { media, messages };
+  return { media, messages, states };
 }
 
 test('missingSystemAudioWaitsForExplicitLimitedModeOptIn', async (t) => {
@@ -60,7 +64,18 @@ test('missingSystemAudioWaitsForExplicitLimitedModeOptIn', async (t) => {
 
   const result = await media.startScreenFromGesture('combined');
 
-  assert.deepEqual(browser.calls[0], { video: { displaySurface: 'monitor', width: { ideal: 1920, max: 1920 }, height: { ideal: 1080, max: 1080 }, frameRate: { ideal: 60, max: 60 }, cursor: 'never' }, audio: { restrictOwnAudio: true }, systemAudio: 'include' });
+  assert.deepEqual(browser.calls[0], {
+    video: {
+      width: { ideal: 1920, max: 1920 },
+      height: { ideal: 1080, max: 1080 },
+      frameRate: { ideal: 60, max: 60 },
+      cursor: 'never',
+    },
+    audio: { restrictOwnAudio: true },
+    systemAudio: 'include',
+    selfBrowserSurface: 'exclude',
+    surfaceSwitching: 'include',
+  });
   assert.equal(result.captureState, 'missing_audio');
   assert.equal(result.isolation.state, 'missing_audio');
   assert.equal(result.isolation.label, '未捕获屏幕音频');
@@ -77,6 +92,68 @@ test('missingSystemAudioWaitsForExplicitLimitedModeOptIn', async (t) => {
   assert.equal(media.captureMode, 'limited');
   assert.equal(messages.at(-1).payload.screenSharing, true);
   assert.equal(messages.at(-1).payload.hasSystemAudio, false);
+});
+
+test('a browser tab with audio starts sharing with source diagnostics and unverified isolation', async (t) => {
+  const video = makeTrack('video', { displaySurface: 'browser' });
+  const audio = makeTrack('audio', { restrictOwnAudio: true });
+  const stream = makeStream(video, [audio]);
+  const browser = installCapture(stream);
+  t.after(browser.restore);
+  const { media, messages } = createMedia();
+
+  const result = await media.startScreenFromGesture('combined');
+
+  assert.equal(result.captureState, 'ready');
+  assert.equal(media.screenStream, stream);
+  assert.equal(media.systemAudioTrack, audio);
+  assert.equal(messages.at(-1).payload.screenSharing, true);
+  assert.equal(messages.at(-1).payload.hasSystemAudio, true);
+  assert.equal(result.isolation.state, 'browser_reported');
+  assert.equal(result.isolation.verified, false);
+  assert.equal(media.systemAudioDiagnostics.displaySurface, 'browser');
+  assert.match(formatSystemAudioDiagnostics(media.systemAudioDiagnostics),
+    /采集来源：单个浏览器标签页（仅采集所选标签页声音，不混入房间语音）/);
+});
+
+test('a browser tab without audio waits for explicit consent before sharing', async (t) => {
+  const video = makeTrack('video', { displaySurface: 'browser' });
+  const stream = makeStream(video);
+  const browser = installCapture(stream);
+  t.after(browser.restore);
+  const { media, messages, states } = createMedia();
+
+  const result = await media.startScreenFromGesture('combined');
+
+  assert.equal(result.captureState, 'missing_audio');
+  assert.ok(states.some(({ state }) => state === 'missing_audio'));
+  assert.equal(media.pendingScreenStream, stream);
+  assert.equal(media.screenStream, null);
+  assert.ok(!messages.some(({ payload }) => payload.screenSharing));
+
+  const accepted = await media.acceptPendingScreenAsLimited();
+  assert.equal(accepted.mode, 'limited');
+  assert.equal(media.screenStream, stream);
+  assert.equal(messages.at(-1).payload.screenSharing, true);
+  assert.equal(messages.at(-1).payload.hasSystemAudio, false);
+});
+
+test('an application window is rejected and all captured tracks are stopped', async (t) => {
+  const video = makeTrack('video', { displaySurface: 'window' });
+  const audio = makeTrack('audio', {});
+  const browser = installCapture(makeStream(video, [audio]));
+  t.after(browser.restore);
+  const { media, messages, states } = createMedia();
+  const message = '检测到单个应用窗口（无法稳定同步声音），请重新选择整块显示器或单个浏览器标签页。';
+
+  await assert.rejects(media.startScreenFromGesture('combined'), { code: 'DISPLAY_NOT_MONITOR', message });
+
+  assert.equal(video.stopped, true);
+  assert.equal(audio.stopped, true);
+  assert.equal(media.pendingScreenStream, null);
+  assert.equal(media.screenStream, null);
+  assert.ok(states.some((state) => state.state === 'DISPLAY_NOT_MONITOR' && state.message === message));
+  assert.ok(!messages.some(({ payload }) => payload.screenSharing));
 });
 
 test('decliningLimitedModeStopsEveryPendingCaptureTrack', async (t) => {

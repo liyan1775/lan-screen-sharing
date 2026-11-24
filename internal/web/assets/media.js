@@ -1,9 +1,9 @@
-import { isolationStatus } from './state.js';
+import { inspectDisplaySurface, isolationStatus } from './state.js';
 import { prepareSystemAudioIsolation } from './system-audio-isolation.js';
 import { RoomText } from './room-text.js';
 import { ScreenRelay } from './screen-relay.js';
 
-const QUALITY = Object.freeze({
+export const QUALITY = Object.freeze({
   '1080p60': { width: 1920, height: 1080, fps: 60, bitrate: 8_000_000 },
   '720p60': { width: 1280, height: 720, fps: 60, bitrate: 5_000_000 },
   '720p30': { width: 1280, height: 720, fps: 30, bitrate: 2_500_000 },
@@ -68,6 +68,7 @@ export class MeshMedia extends EventTarget {
     this.audioElements = new Map();
     this.statsPrevious = new Map();
     this.captureGeneration = 0;
+    this.statsCaptureGeneration = -1;
     this.ownsPresentation = false;
     this.presenterPeerId = '';
     this.remoteScreens = new Map();
@@ -88,6 +89,7 @@ export class MeshMedia extends EventTarget {
       },
       onError:error => this.onState({state:'screen_relay_error',message:error.message}),
       onCodecChange:change => this.onState({state:'screen_codec_change', ...change}),
+      onSourceClosed:() => this.onState({state:'screen_stats_changed'}),
     });
   }
 
@@ -269,6 +271,7 @@ export class MeshMedia extends EventTarget {
     this.systemAudioTrack = mode === 'combined' ? stream?.getAudioTracks?.()[0] ?? null : null;
     this.captureMode = mode;
     this.isolation = isolation;
+    this.onState({state:'screen_stats_changed'});
     if (this.screenVideoTrack) await this.applyCaptureQuality();
     if (generation !== this.captureGeneration || this.screenStream !== stream) return;
     if (this.screenVideoTrack) {
@@ -306,6 +309,7 @@ export class MeshMedia extends EventTarget {
       capturedAudio.addEventListener('ended', () => { if (this.systemAudioTrack === capturedAudio) void this.setSystemAudioTrack(null); }, { once: true });
     }
     if (previousStream && previousStream !== stream) previousStream.getTracks().forEach((track) => track.stop());
+    this.statsCaptureGeneration = generation;
     this.publishMediaState();
     if (this.usesScreenRelay && stream) this.relay.announce();
     this.publishQualityState();
@@ -480,13 +484,18 @@ export class MeshMedia extends EventTarget {
   }
 
   async captureScreenFromGesture(mode = 'limited') {
-    if (this.pendingScreenStream) throw Object.assign(new Error('请先选择无游戏声音共享或取消当前屏幕捕获。'), { code: 'PENDING_SCREEN_CAPTURE' });
+    if (this.pendingScreenStream) throw Object.assign(new Error('请先选择仅共享画面与房间语音，或取消当前共享。'), { code: 'PENDING_SCREEN_CAPTURE' });
     const captureGeneration = this.captureGeneration;
     if (!navigator.mediaDevices?.getDisplayMedia) throw Object.assign(new Error('屏幕采集不可用'), { code: 'SYSTEM_AUDIO_UNSUPPORTED' });
     const supported = navigator.mediaDevices.getSupportedConstraints?.() ?? {};
-    const constraints = mode === 'combined'
-      ? { video: { displaySurface: 'monitor', ...captureVideoConstraints(this.quality, this.shareCursor) }, audio: supported.restrictOwnAudio ? { restrictOwnAudio: true } : true, systemAudio: 'include' }
-      : { video: { displaySurface: 'monitor', ...captureVideoConstraints(this.quality, this.shareCursor) }, audio: false };
+    const captureAudio = supported.restrictOwnAudio ? { restrictOwnAudio: true } : true;
+    const constraints = {
+      video: captureVideoConstraints(this.quality, this.shareCursor),
+      audio: mode === 'combined' ? captureAudio : false,
+      systemAudio: 'include',
+      selfBrowserSurface: 'exclude',
+      surfaceSwitching: 'include',
+    };
     const capturePromise = navigator.mediaDevices.getDisplayMedia(constraints);
     const stream = await capturePromise;
     if (captureGeneration !== this.captureGeneration) {
@@ -494,25 +503,26 @@ export class MeshMedia extends EventTarget {
       throw Object.assign(new Error('本机信令已关闭，屏幕捕获已取消。'), { code: 'CAPTURE_CANCELLED' });
     }
     const videoTrack = stream.getVideoTracks()[0];
-    const surface = videoTrack?.getSettings?.().displaySurface;
-    if (surface !== 'monitor') {
+    const displaySurface = videoTrack?.getSettings?.().displaySurface;
+    const { allowed, state, message } = inspectDisplaySurface(displaySurface);
+    if (!allowed) {
       stream.getTracks().forEach((track) => track.stop());
-      this.onState({ state: 'DISPLAY_NOT_MONITOR', message: '检测到窗口或浏览器标签页，请重新选择整块显示器。' });
-      throw Object.assign(new Error('请选择显示器'), { code: 'DISPLAY_NOT_MONITOR' });
+      this.onState({ state, message });
+      throw Object.assign(new Error(message), { code: state });
     }
     const systemAudioTrack = stream.getAudioTracks()[0];
     try { videoTrack.contentHint = 'motion'; } catch { /* Optional browser hint. */ }
     if (mode === 'combined' && (!systemAudioTrack || systemAudioTrack.readyState === 'ended')) {
       this.pendingScreenStream = stream;
       this.isolation = isolationStatus({ supported: !!supported.restrictOwnAudio, requested: true, settings: {}, missingAudio: true });
-      this.onState({ state: 'missing_audio', message: '未捕获屏幕音频；画面尚未共享，请明确选择无游戏声音模式或取消。' });
+      this.onState({ state: 'missing_audio', message: '未获取所选内容的声音。画面尚未共享，请确认仅共享画面与房间语音，或取消。' });
       return { stream, mode: 'pending', captureState: 'missing_audio', isolation: this.isolation, hasSystemAudio: false };
     }
     this.isolation = { state: 'unverified', label: '未验证', verified: false };
     if (mode === 'combined') {
       this.preparingScreenStream = stream;
       let result;
-      try { result = await prepareSystemAudioIsolation(systemAudioTrack, !!supported.restrictOwnAudio); }
+      try { result = await prepareSystemAudioIsolation(systemAudioTrack, !!supported.restrictOwnAudio, { displaySurface }); }
       finally { if (this.preparingScreenStream === stream) this.preparingScreenStream = null; }
       if (captureGeneration !== this.captureGeneration || videoTrack.readyState === 'ended') {
         stream.getTracks().forEach((track) => track.stop());
@@ -559,21 +569,21 @@ export class MeshMedia extends EventTarget {
       const source = this.screenVideoTrack?.getSettings?.() ?? {};
       const scale = Math.max(1, (source.width ?? target.width) / target.width, (source.height ?? target.height) / target.height);
       const current = parameters.encodings?.[0];
-      if (parameters.degradationPreference === 'maintain-framerate' && current?.maxBitrate === target.bitrate
+      if (parameters.degradationPreference === 'maintain-resolution' && current?.maxBitrate === target.bitrate
         && current.maxFramerate === target.fps && current.scaleResolutionDownBy === scale) return true;
-      parameters.degradationPreference = 'maintain-framerate';
+      parameters.degradationPreference = 'maintain-resolution';
       if (!parameters.encodings?.length) parameters.encodings = [{}];
       parameters.encodings[0].maxBitrate = target.bitrate;
       parameters.encodings[0].maxFramerate = target.fps;
       parameters.encodings[0].scaleResolutionDownBy = scale;
       try { await sender.setParameters(parameters); }
       catch {
-        // Keep basic bitrate/FPS targets if the browser rejects the preference.
+        // Keep the basic encoding settings if the browser rejects the preference.
         const fallback = sender.getParameters();
         if (!fallback.encodings?.length) fallback.encodings = [{}];
         Object.assign(fallback.encodings[0], parameters.encodings[0]);
         await sender.setParameters(fallback);
-        this.onState({ state: 'quality_preference_unsupported', message: '浏览器未接受帧率优先策略，已保留基本画质设置；请以实际统计为准。' });
+        this.onState({ state: 'quality_preference_unsupported', message: '浏览器未接受清晰度优先策略，已保留基本画质设置；请以实际统计为准。' });
       }
       if (!confirm) return true;
       const applied = sender.getParameters().encodings?.[0];
@@ -701,13 +711,15 @@ export class MeshMedia extends EventTarget {
         const encodeTimeDelta = previous && Number.isFinite(previous.totalEncodeTime) && report.totalEncodeTime >= previous.totalEncodeTime ? report.totalEncodeTime - previous.totalEncodeTime : null;
         const cpuTime = report.qualityLimitationDurations?.cpu;
         const cpuDelta = previous && Number.isFinite(previous.cpuTime) && cpuTime >= previous.cpuTime ? cpuTime - previous.cpuTime : null;
-        this.statsPrevious.set(key, { time: now, bytes, frames, sourceTime, sourceFrames: source?.frames, framesEncoded: report.framesEncoded, totalEncodeTime: report.totalEncodeTime, cpuTime });
+        const frameSize = report.frameWidth > 0 && report.frameHeight > 0
+          ? { width: report.frameWidth, height: report.frameHeight } : previous?.frameSize;
+        this.statsPrevious.set(key, { time: now, bytes, frames, sourceTime, sourceFrames: source?.frames, framesEncoded: report.framesEncoded, totalEncodeTime: report.totalEncodeTime, cpuTime, frameSize });
         const codec = report.codecId ? reports.get(report.codecId) : null;
         const transport = report.transportId ? reports.get(report.transportId) : null;
         const pair = transport?.selectedCandidatePairId ? reports.get(transport.selectedCandidatePairId) : null;
         const outbound = report.type === 'outbound-rtp';
         const mime = codec?.mimeType?.toUpperCase();
-        snapshots.push({ peerId, localRelay:reading.peer.localRelay === true, direction: report.type, role, width: report.frameWidth, height: report.frameHeight, fps: report.framesPerSecond ?? measuredFps, bitrate, droppedFrames: report.framesDropped ?? report.framesDiscarded,
+        snapshots.push({ peerId, localRelay:reading.peer.localRelay === true, direction: report.type, role, width: report.frameWidth, height: report.frameHeight, lastFrameSize: frameSize, fps: report.framesPerSecond ?? measuredFps, bitrate, droppedFrames: report.framesDropped ?? report.framesDiscarded,
           sourceFps: source?.framesPerSecond ?? sourceDelta,
           intervalFps: measuredFps, sourceIntervalFps: sourceDelta, sampleIntervalSeconds: elapsed,
           codec: ['VIDEO/VP8', 'VIDEO/VP9', 'VIDEO/H264', 'VIDEO/AV1'].includes(mime) ? mime.slice(6) : null,

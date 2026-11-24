@@ -3,6 +3,7 @@ package discovery
 import (
 	"encoding/json"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 )
@@ -64,20 +65,41 @@ func TestOnlyRecentOutstandingQueriesCanPopulateTheRoomList(t *testing.T) {
 	id := "0123456789abcdef0123456789abcdef"
 	ad := Advertisement{RoomID: "friends", Name: "一起玩", RoomCode: "ABCD2345", Port: 45678, Members: 1}
 	data, _ := json.Marshal(packet{Service: ServiceName, Version: WireVersion, Kind: "room", QueryID: id, Room: &ad})
-	s := &Service{cache: NewCache(netip.MustParsePrefix("192.168.1.0/24"), func() time.Time { return now }), queries: map[string]time.Time{}}
+	s := &Service{cache: NewCache(netip.MustParsePrefix("192.168.1.0/24"), func() time.Time { return now }), queries: map[string]activeQuery{}}
 	source := netip.MustParseAddr("192.168.1.25")
 	if s.observeReply(data, source, now) || len(s.Rooms()) != 0 {
 		t.Fatal("unsolicited room appeared")
 	}
-	s.queries[id] = now.Add(-RoomLifetime)
+	s.queries[id] = activeQuery{created: now.Add(-RoomLifetime)}
 	if s.observeReply(data, source, now) {
 		t.Fatal("expired query accepted a room")
 	}
-	s.queries[id] = now
+	s.queries[id] = activeQuery{created: now}
 	if s.observeReply(data, netip.MustParseAddr("192.168.2.25"), now) {
 		t.Fatal("reply from another subnet accepted")
 	}
 	if !s.observeReply(data, source, now) || len(s.Rooms()) != 1 {
 		t.Fatal("recent matching query did not discover the room")
+	}
+}
+
+func TestDiscoveryDiagnosticsNeverExposeWireCredentials(t *testing.T) {
+	s, _, _ := memoryService()
+	s.SetDirectPeers([]string{"10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4", "10.0.0.5", "10.0.0.6", "10.0.0.7", "10.0.0.8", "10.0.0.9"})
+	if s.Diagnostics().DirectPeers != MaxDirectPeers {
+		t.Fatal("the service did not enforce the peer cap")
+	}
+	s.query()
+	for id := range s.queries {
+		ad := Advertisement{RoomID: "room", Name: "测试房间", RoomCode: "ABCD2345", Port: 45678, Members: 1}
+		data, _ := json.Marshal(packet{Service: ServiceName, Version: WireVersion, Kind: "room", QueryID: id, Room: &ad})
+		if !s.observeReply(data, netip.MustParseAddr("10.0.0.1"), time.Now()) {
+			t.Fatal("valid probe reply rejected")
+		}
+		diagnosticJSON, err := json.Marshal(s.Diagnostics())
+		if err != nil || strings.Contains(string(diagnosticJSON), ad.RoomCode) || strings.Contains(string(diagnosticJSON), id) ||
+			strings.Contains(string(diagnosticJSON), "10.0.0.1") {
+			t.Fatal("diagnostics exposed discovery wire details or a friend IP")
+		}
 	}
 }

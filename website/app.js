@@ -78,7 +78,7 @@ for (const [index, button] of compareButtons.entries()) button.addEventListener(
     {opacity: 1, transform: 'translateY(0) scale(1)'},
   ], timing));
   updatePulses();
-  flow.setAttribute('aria-label', before ? '升级前为两位观众分别编码，共编码两次' : 'v1.0.0 只编码一次，将同一份编码画面发送给两位观众');
+  flow.setAttribute('aria-label', before ? '升级前为两位观众分别编码，共编码两次' : 'v1.1.0 只编码一次，将同一份编码画面发送给两位观众');
   document.getElementById('encoding-caption').textContent = before ? '分别为两位观众编码' : '同一份编码画面';
   document.querySelector('.compare-description').textContent = before
     ? '分享端为两位观众分别编码相同的画面。'

@@ -4,49 +4,79 @@ package discovery
 
 import (
 	"net"
+	"net/netip"
 	"syscall"
+
+	"golang.org/x/net/ipv4"
 )
 
-func reuseDiscoveryPort(_, _ string, raw syscall.RawConn) error {
+func socketOption(conn *net.UDPConn, set func(int) error) error {
+	raw, err := conn.SyscallConn()
+	if err != nil {
+		return err
+	}
 	var result error
-	if err := raw.Control(func(fd uintptr) {
-		result = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
-	}); err != nil {
+	if err := raw.Control(func(fd uintptr) { result = set(int(fd)) }); err != nil {
 		return err
 	}
 	return result
 }
 
-func configureMulticast(receiver, sender *net.UDPConn) error {
-	for _, option := range []struct {
-		conn        *net.UDPConn
-		name, value int
-	}{{receiver, syscall.IP_MULTICAST_LOOP, 1}, {sender, syscall.IP_MULTICAST_TTL, 1}} {
-		raw, err := option.conn.SyscallConn()
-		if err != nil {
+func enableBroadcast(conn *net.UDPConn) error {
+	return socketOption(conn, func(fd int) error {
+		return syscall.SetsockoptInt(fd, syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
+	})
+}
+
+func configureMulticast(sender *net.UDPConn) error {
+	return socketOption(sender, func(fd int) error {
+		if err := syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, syscall.IP_MULTICAST_TTL, 1); err != nil {
 			return err
 		}
-		var result error
-		if err = raw.Control(func(fd uintptr) {
-			result = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IP, option.name, option.value)
-		}); err != nil {
-			return err
-		}
-		if result != nil {
-			return result
-		}
+		address := sender.LocalAddr().(*net.UDPAddr).AddrPort().Addr().Unmap().As4()
+		return syscall.SetsockoptInet4Addr(fd, syscall.IPPROTO_IP, syscall.IP_MULTICAST_IF, address)
+	})
+}
+
+type packetInfoSocket struct {
+	*net.UDPConn
+	packet         *ipv4.PacketConn
+	interfaceIndex int
+}
+
+func newQuerySocket(conn *net.UDPConn, index int) udpSocket {
+	packet := ipv4.NewPacketConn(conn)
+	if err := packet.SetControlMessage(ipv4.FlagDst|ipv4.FlagInterface, true); err != nil {
+		return conn
 	}
-	raw, err := sender.SyscallConn()
+	return &packetInfoSocket{conn, packet, index}
+}
+
+func newSenderSocket(conn *net.UDPConn, index int) udpSocket {
+	return &packetInfoSocket{conn, ipv4.NewPacketConn(conn), index}
+}
+
+func (s *packetInfoSocket) WriteToUDP(data []byte, destination *net.UDPAddr) (int, error) {
+	if destination.AddrPort().Addr().Unmap() == limitedBroadcastIP {
+		return s.packet.WriteTo(data, &ipv4.ControlMessage{IfIndex: s.interfaceIndex}, destination)
+	}
+	return s.UDPConn.WriteToUDP(data, destination)
+}
+
+func (s *packetInfoSocket) readQuery(data []byte) (int, *net.UDPAddr, netip.Addr, error) {
+	n, control, source, err := s.packet.ReadFrom(data)
 	if err != nil {
-		return err
+		return n, nil, netip.Addr{}, err
 	}
-	var result error
-	var address [4]byte
-	copy(address[:], sender.LocalAddr().(*net.UDPAddr).IP.To4())
-	if err = raw.Control(func(fd uintptr) {
-		result = syscall.SetsockoptInet4Addr(int(fd), syscall.IPPROTO_IP, syscall.IP_MULTICAST_IF, address)
-	}); err != nil {
-		return err
+	addr, _ := source.(*net.UDPAddr)
+	if control == nil {
+		return n, addr, netip.Addr{}, nil
 	}
-	return result
+	destination, _ := netip.AddrFromSlice(control.Dst)
+	destination = destination.Unmap()
+	if control.IfIndex != 0 && control.IfIndex != s.interfaceIndex &&
+		(destination.IsMulticast() || destination == limitedBroadcastIP) {
+		return n, nil, destination, nil
+	}
+	return n, addr, destination, nil
 }

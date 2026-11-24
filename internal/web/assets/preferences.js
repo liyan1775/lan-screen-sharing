@@ -2,7 +2,30 @@ export const preferenceDefaults = Object.freeze({
   nickname: '', avatarColor: 'blue', preferredLanIPv4: '', qualityTarget: '1080p60',
   shareMode: 'combined', pauseBackgroundPreview: true, shareCursor: false,
   micMode: 'open', micDeviceId: '', micDeviceLabel: '', soundEffects: true,
+  peerHosts: Object.freeze([]),
 });
+
+export const maxPeerHosts = 8;
+
+export function privatePeerHost(value) {
+  const address = typeof value === 'string' ? value.trim() : '';
+  if (!/^(?:(?:0|[1-9]\d{0,2})\.){3}(?:0|[1-9]\d{0,2})$/.test(address)) return '';
+  const octets = address.split('.').map(Number);
+  if (octets.some(octet => octet > 255)) return '';
+  const [first, second] = octets;
+  const isPrivate = first === 10 || (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168);
+  return isPrivate ? address : '';
+}
+
+export function normalizePeerHosts(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map(privatePeerHost).filter(Boolean))].slice(0, maxPeerHosts);
+}
+
+function normalizePreference(key, value) {
+  return key === 'peerHosts' ? normalizePeerHosts(value) : value;
+}
 
 const avatarColors = new Set(['blue', 'indigo', 'teal', 'green', 'orange', 'pink']);
 const maxNickname = 20;
@@ -34,13 +57,15 @@ export function createPreferenceWriter({save, onError, debounce = 250}) {
   let edits = {}, timer, inFlight;
   function restore(saved) {
     for (const key of Object.keys(preferenceDefaults)) {
-      if (Object.hasOwn(saved, key) && !Object.hasOwn(edits, key)) values[key] = saved[key];
+      if (Object.hasOwn(saved, key) && !Object.hasOwn(edits, key)) values[key] = normalizePreference(key, saved[key]);
     }
   }
   function set(patch) {
     let changed = false;
-    for (const [key, value] of Object.entries(patch)) {
+    for (const [key, input] of Object.entries(patch)) {
+      const value = normalizePreference(key, input);
       if (!Object.hasOwn(values, key) || values[key] === value) continue;
+      if (key === 'peerHosts' && values[key].join(',') === value.join(',')) continue;
       edits[key] = values[key] = value;
       changed = true;
     }
@@ -61,7 +86,7 @@ export function createPreferenceWriter({save, onError, debounce = 250}) {
         // Normalize only the fields in this request. An unrelated field may
         // have a newer value from a separate network change.
         for (const key of Object.keys(patch)) {
-          if (!Object.hasOwn(edits, key) && Object.hasOwn(saved, key)) values[key] = saved[key];
+          if (!Object.hasOwn(edits, key) && Object.hasOwn(saved, key)) values[key] = normalizePreference(key, saved[key]);
         }
         return true;
       } catch (error) {

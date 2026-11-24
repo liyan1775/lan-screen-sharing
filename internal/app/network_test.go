@@ -41,13 +41,17 @@ func TestLANRankingPrefersPhysicalAndKeepsPrivateVPNAdapters(t *testing.T) {
 }
 
 type testDiscoveryGeneration struct {
-	ip     string
-	closed bool
-	rooms  []discovery.Room
+	ip        string
+	closed    bool
+	rooms     []discovery.Room
+	peers     []string
+	refreshes int
 }
 
-func (d *testDiscoveryGeneration) Close()                  { d.closed = true }
-func (d *testDiscoveryGeneration) Rooms() []discovery.Room { return d.rooms }
+func (d *testDiscoveryGeneration) Close()                        { d.closed = true }
+func (d *testDiscoveryGeneration) Rooms() []discovery.Room       { return d.rooms }
+func (d *testDiscoveryGeneration) SetDirectPeers(peers []string) { d.peers = peers }
+func (d *testDiscoveryGeneration) Refresh() bool                 { d.refreshes++; return true }
 func (d *testDiscoveryGeneration) Diagnostics() discovery.Diagnostics {
 	return discovery.Diagnostics{LocalIPv4: d.ip, Running: !d.closed}
 }
@@ -89,6 +93,12 @@ func TestLANSwitchReplacesSignalingDiscoveryAndRelayWithoutStoppingLocalhost(t *
 	oldSignal, oldRelay := s.lanListener, s.screens
 	oldDiscovery := (*generations)[0]
 	oldDiscovery.rooms = []discovery.Room{{ID: "obsolete-room"}}
+	peers := []string{"10.208.141.20"}
+	saved := httptest.NewRecorder()
+	s.Handler().ServeHTTP(saved, localControlRequest(s, "/api/v1/preferences", `{"peerHosts":["10.208.141.20"]}`))
+	if saved.Code != http.StatusOK || !slices.Equal(oldDiscovery.peers, peers) {
+		t.Fatalf("could not configure peers on existing generation: %d %s", saved.Code, saved.Body)
+	}
 	w := switchTestNetwork(s, "172.22.1.10")
 	var selected lanState
 	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &selected) != nil || selected.LANIPv4 != "172.22.1.10" ||
@@ -99,6 +109,9 @@ func TestLANSwitchReplacesSignalingDiscoveryAndRelayWithoutStoppingLocalhost(t *
 	_ = oldSignal.(*net.TCPListener).SetDeadline(time.Now().Add(time.Second))
 	if _, err := oldSignal.Accept(); !errors.Is(err, net.ErrClosed) || !oldDiscovery.closed || len(*generations) != 2 || len(s.discoveryService.Rooms()) != 0 {
 		t.Fatalf("old LAN listener or discovery cache is live: %v", err)
+	}
+	if next := (*generations)[1]; !slices.Equal(next.peers, peers) || next.refreshes != 1 {
+		t.Fatalf("peer settings did not trigger a probe on the new network: %+v", next)
 	}
 	if _, _, err := oldRelay.Start(ctx, webrtc.SessionDescription{}); !errors.Is(err, screenrelay.ErrSession) {
 		t.Fatalf("old relay is still usable: %v", err)

@@ -1,4 +1,4 @@
-// Package discovery finds opt-in rooms on the selected private IPv4 subnet.
+// Package discovery finds opt-in rooms on the selected private IPv4 network and at configured peer addresses.
 // It never carries media or host/local control credentials.
 package discovery
 
@@ -20,14 +20,28 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"golang.org/x/net/ipv4"
 )
 
 const ServiceName = "lan-screen-sharing"
 const WireVersion = 2
 const RoomLifetime = 7 * time.Second
 const multicastIP = "239.255.77.77"
+
+var multicastAddress = netip.MustParseAddr(multicastIP)
+var limitedBroadcastIP = netip.MustParseAddr("255.255.255.255")
+
 const multicastPort = 49877
 const maxPacketBytes = 1400
+const MaxDirectPeers = 8
+const refreshInterval = 800 * time.Millisecond
+const queryInterval = 2 * time.Second
+const maxRepliesPerSecond = 32
+
+func privateIPv4(ip netip.Addr) bool {
+	return ip.Is4() && ip.IsPrivate() && !ip.IsLoopback()
+}
 
 type Advertisement struct {
 	RoomID        string `json:"roomId"`
@@ -58,6 +72,7 @@ type Cache struct {
 	prefix netip.Prefix
 	now    func() time.Time
 	rooms  map[string]cachedRoom
+	peers  map[netip.Addr]struct{}
 }
 
 func NewCache(prefix netip.Prefix, now func() time.Time) *Cache {
@@ -98,14 +113,28 @@ func validAdvertisement(a Advertisement) bool {
 	return true
 }
 func (c *Cache) allows(source netip.Addr) bool {
-	return source.Is4() && source.IsPrivate() && !source.IsLoopback() && c.prefix.IsValid() && c.prefix.Contains(source)
+	_, direct := c.peers[source]
+	return privateIPv4(source) && (c.prefix.Contains(source) || direct)
+}
+func (c *Cache) setDirectPeers(peers map[netip.Addr]struct{}) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.peers = peers
+	for key, item := range c.rooms {
+		if !c.allows(netip.MustParseAddr(item.room.HostIPv4)) {
+			delete(c.rooms, key)
+		}
+	}
 }
 func (c *Cache) Observe(a Advertisement, source netip.Addr) bool {
-	if !c.allows(source) || !validAdvertisement(a) {
+	if !validAdvertisement(a) {
 		return false
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if !c.allows(source) {
+		return false
+	}
 	now := c.now()
 	c.prune(now)
 	key := source.String() + ":" + strconv.Itoa(a.Port) + "/" + a.RoomID
@@ -177,16 +206,34 @@ type Service struct {
 	cache            *Cache
 	receiver, sender udpSocket
 	destinations     []*net.UDPAddr
+	port             int
+	localIP          netip.Addr
+	directPeers      map[netip.Addr]struct{}
+	localIPs         map[netip.Addr]struct{}
+	refreshRequests  chan struct{}
 	localQuerySource string
 	advertisements   func() []Advertisement
 	cancel           context.CancelFunc
 	closeOnce        sync.Once
 	queryMu          sync.Mutex
-	queries          map[string]time.Time
+	queries          map[string]activeQuery
 	replyMu          sync.Mutex
-	replied          map[string]time.Time
+	replied          map[querySource]time.Time
+	lastQueryByIP    map[netip.Addr]time.Time
+	replyTimes       []time.Time
+	writeMu          sync.Mutex
 	diagnosticsMu    sync.Mutex
 	diagnostics      Diagnostics
+}
+
+type activeQuery struct {
+	created     time.Time
+	directPeers map[netip.Addr]struct{}
+}
+
+type querySource struct {
+	ip netip.Addr
+	id string
 }
 
 type udpSocket interface {
@@ -196,20 +243,52 @@ type udpSocket interface {
 	Close() error
 }
 
-// Diagnostics intentionally excludes invitations, room contents and control tokens.
-type Diagnostics struct {
-	InterfaceName   string `json:"interfaceName"`
-	LocalIPv4       string `json:"localIPv4"`
-	Subnet          string `json:"subnet"`
-	Transport       string `json:"transport"`
-	Running         bool   `json:"running"`
+type PathDiagnostics struct {
 	QueriesSent     uint64 `json:"queriesSent"`
 	QueriesReceived uint64 `json:"queriesReceived"`
-	RepliesSent     uint64 `json:"repliesSent"`
-	RepliesReceived uint64 `json:"repliesReceived"`
-	SendErrors      uint64 `json:"sendErrors"`
-	ReadErrors      uint64 `json:"readErrors"`
-	LastError       string `json:"lastError,omitempty"`
+}
+
+type DiscoveryPaths struct {
+	Multicast        PathDiagnostics `json:"multicast"`
+	SubnetBroadcast  PathDiagnostics `json:"subnetBroadcast"`
+	LimitedBroadcast PathDiagnostics `json:"limitedBroadcast"`
+	DirectUnicast    PathDiagnostics `json:"directUnicast"`
+	Unknown          PathDiagnostics `json:"unknown"`
+}
+
+func (d *DiscoveryPaths) forDestination(ip, broadcast netip.Addr) *PathDiagnostics {
+	switch {
+	case !ip.IsValid():
+		return &d.Unknown
+	case ip == multicastAddress:
+		return &d.Multicast
+	case ip == limitedBroadcastIP:
+		return &d.LimitedBroadcast
+	case ip == broadcast:
+		return &d.SubnetBroadcast
+	default:
+		return &d.DirectUnicast
+	}
+}
+
+// Diagnostics intentionally excludes invitations, room contents and control tokens.
+type Diagnostics struct {
+	InterfaceName              string         `json:"interfaceName"`
+	LocalIPv4                  string         `json:"localIPv4"`
+	Subnet                     string         `json:"subnet"`
+	Transport                  string         `json:"transport"`
+	Running                    bool           `json:"running"`
+	DirectPeers                int            `json:"directPeers"`
+	Paths                      DiscoveryPaths `json:"paths"`
+	SubnetRepliesReceived      uint64         `json:"subnetRepliesReceived"`
+	CrossSubnetRepliesReceived uint64         `json:"crossSubnetRepliesReceived"`
+	QueriesSent                uint64         `json:"queriesSent"`
+	QueriesReceived            uint64         `json:"queriesReceived"`
+	RepliesSent                uint64         `json:"repliesSent"`
+	RepliesReceived            uint64         `json:"repliesReceived"`
+	SendErrors                 uint64         `json:"sendErrors"`
+	ReadErrors                 uint64         `json:"readErrors"`
+	LastError                  string         `json:"lastError,omitempty"`
 }
 
 func (s *Service) Diagnostics() Diagnostics {
@@ -246,21 +325,29 @@ func ErrorCode(err error) string {
 	}
 }
 
-func queryDestinations(prefix netip.Prefix, multicast bool) []*net.UDPAddr {
-	result := []*net.UDPAddr{}
-	if multicast {
-		result = append(result, &net.UDPAddr{IP: net.ParseIP(multicastIP), Port: multicastPort})
-	}
+func subnetBroadcast(prefix netip.Prefix) netip.Addr {
 	if !prefix.IsValid() || !prefix.Addr().Is4() || prefix.Bits() < 8 || prefix.Bits() > 30 {
-		return result
+		return netip.Addr{}
 	}
 	address := prefix.Masked().Addr().As4()
 	for bit := prefix.Bits(); bit < 32; bit++ {
 		address[bit/8] |= 1 << (7 - bit%8)
 	}
 	broadcast := netip.AddrFrom4(address)
-	if prefix.Masked().Addr().IsPrivate() && broadcast.IsPrivate() {
-		result = append(result, &net.UDPAddr{IP: net.IP(address[:]), Port: multicastPort})
+	if privateIPv4(prefix.Masked().Addr()) && privateIPv4(broadcast) {
+		return broadcast
+	}
+	return netip.Addr{}
+}
+
+func queryDestinations(prefix netip.Prefix, multicast bool) []*net.UDPAddr {
+	result := []*net.UDPAddr{}
+	if multicast {
+		result = append(result, &net.UDPAddr{IP: net.ParseIP(multicastIP), Port: multicastPort})
+	}
+	if broadcast := subnetBroadcast(prefix); broadcast.IsValid() {
+		result = append(result, net.UDPAddrFromAddrPort(netip.AddrPortFrom(broadcast, multicastPort)))
+		result = append(result, &net.UDPAddr{IP: net.IPv4bcast, Port: multicastPort})
 	}
 	return result
 }
@@ -287,8 +374,12 @@ func interfaceFor(ip netip.Addr) (*net.Interface, netip.Prefix, error) {
 }
 
 func Start(parent context.Context, ipText string, advertisements func() []Advertisement) (*Service, error) {
+	return start(parent, ipText, advertisements, multicastPort)
+}
+
+func start(parent context.Context, ipText string, advertisements func() []Advertisement, port int) (*Service, error) {
 	ip, err := netip.ParseAddr(ipText)
-	if err != nil || !ip.Is4() || !ip.IsPrivate() || ip.IsLoopback() {
+	if err != nil || !privateIPv4(ip) {
 		return nil, errors.New("NO_PRIVATE_NETWORK")
 	}
 	iface, prefix, err := interfaceFor(ip)
@@ -299,24 +390,36 @@ func Start(parent context.Context, ipText string, advertisements func() []Advert
 	if err != nil {
 		return nil, err
 	}
-	receiver, multicastErr := net.ListenMulticastUDP("udp4", iface, &net.UDPAddr{IP: net.ParseIP(multicastIP), Port: multicastPort})
+	if err := enableBroadcast(sender); err != nil {
+		sender.Close()
+		return nil, err
+	}
+	receiver, err := net.ListenUDP("udp4", &net.UDPAddr{Port: port})
+	if err != nil {
+		sender.Close()
+		return nil, err
+	}
+	group := &net.UDPAddr{IP: net.ParseIP(multicastIP)}
+	multicastErr := configureMulticast(sender)
 	if multicastErr == nil {
-		multicastErr = configureMulticast(receiver, sender)
-		if multicastErr != nil {
-			receiver.Close()
+		multicastErr = ipv4.NewPacketConn(receiver).JoinGroup(iface, group)
+	}
+	queryReceiver := newQuerySocket(receiver, iface.Index)
+	localIPs := map[netip.Addr]struct{}{ip: {}}
+	addresses, _ := net.InterfaceAddrs()
+	for _, address := range addresses {
+		if local, err := netip.ParsePrefix(address.String()); err == nil {
+			localIPs[local.Addr().Unmap()] = struct{}{}
+			if broadcast := subnetBroadcast(local); broadcast.IsValid() {
+				localIPs[broadcast] = struct{}{}
+			}
 		}
 	}
-	if multicastErr != nil {
-		// UDP broadcasts still work on networks/interfaces without multicast membership.
-		config := net.ListenConfig{Control: reuseDiscoveryPort}
-		conn, listenErr := config.ListenPacket(parent, "udp4", net.JoinHostPort("0.0.0.0", strconv.Itoa(multicastPort)))
-		if listenErr != nil {
-			sender.Close()
-			return nil, listenErr
-		}
-		receiver = conn.(*net.UDPConn)
-	}
+	port = receiver.LocalAddr().(*net.UDPAddr).Port
 	targets := queryDestinations(prefix, multicastErr == nil)
+	for _, destination := range targets {
+		destination.Port = port
+	}
 	if len(targets) == 0 {
 		receiver.Close()
 		sender.Close()
@@ -329,23 +432,17 @@ func Start(parent context.Context, ipText string, advertisements func() []Advert
 	} else if len(targets) == 1 {
 		transport = "multicast"
 	}
-	s := &Service{cache: NewCache(prefix, time.Now), receiver: receiver, sender: sender, destinations: targets, localQuerySource: sender.LocalAddr().String(), advertisements: advertisements, cancel: cancel, queries: map[string]time.Time{}, replied: map[string]time.Time{}, diagnostics: Diagnostics{InterfaceName: iface.Name, LocalIPv4: ipText, Subnet: prefix.String(), Transport: transport, Running: true}}
+	s := &Service{
+		cache: NewCache(prefix, time.Now), receiver: queryReceiver, sender: newSenderSocket(sender, iface.Index),
+		destinations: targets, port: port, localIP: ip, localIPs: localIPs, refreshRequests: make(chan struct{}, 1),
+		localQuerySource: sender.LocalAddr().String(), advertisements: advertisements, cancel: cancel,
+		queries: make(map[string]activeQuery), replied: make(map[querySource]time.Time),
+		lastQueryByIP: make(map[netip.Addr]time.Time),
+		diagnostics:   Diagnostics{InterfaceName: iface.Name, LocalIPv4: ipText, Subnet: prefix.String(), Transport: transport, Running: true},
+	}
 	go s.readQueries(ctx)
 	go s.readRooms(ctx)
-	go func() {
-		ticker := time.NewTicker(2 * time.Second)
-		defer ticker.Stop()
-		s.query()
-		for {
-			select {
-			case <-ctx.Done():
-				s.Close()
-				return
-			case <-ticker.C:
-				s.query()
-			}
-		}
-	}()
+	go s.runQueries(ctx)
 	return s, nil
 }
 func (s *Service) Close() {
@@ -357,6 +454,75 @@ func (s *Service) Close() {
 	})
 }
 func (s *Service) Rooms() []Room { return s.cache.List() }
+
+// SetDirectPeers replaces the list of explicitly trusted probe targets.
+func (s *Service) SetDirectPeers(ips []string) {
+	peers := make(map[netip.Addr]struct{})
+	for _, text := range ips {
+		ip, err := netip.ParseAddr(text)
+		_, local := s.localIPs[ip]
+		if err != nil || !privateIPv4(ip) || ip == s.localIP || local {
+			continue
+		}
+		peers[ip] = struct{}{}
+		if len(peers) == MaxDirectPeers {
+			break
+		}
+	}
+	s.queryMu.Lock()
+	defer s.queryMu.Unlock()
+	s.cache.setDirectPeers(peers)
+	s.directPeers = peers
+	s.record(func(d *Diagnostics) { d.DirectPeers = len(peers) })
+}
+
+// Refresh requests a probe. Requests during the cooldown coalesce into one
+// pending round, so a changed peer list is still probed promptly.
+func (s *Service) Refresh() bool {
+	if !s.Diagnostics().Running {
+		return false
+	}
+	select {
+	case s.refreshRequests <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Service) runQueries(ctx context.Context) {
+	defer s.Close()
+	ticker := time.NewTicker(queryInterval)
+	defer ticker.Stop()
+	s.query()
+	var refreshed time.Time
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.query()
+		case <-s.refreshRequests:
+			if delay := time.Until(refreshed.Add(refreshInterval)); delay > 0 {
+				timer := time.NewTimer(delay)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return
+				case <-timer.C:
+				}
+			}
+			// A request queued during the cooldown is covered by this same round.
+			select {
+			case <-s.refreshRequests:
+			default:
+			}
+			refreshed = time.Now()
+			s.query()
+		}
+	}
+}
+
 func (s *Service) query() {
 	var random [16]byte
 	if _, err := rand.Read(random[:]); err != nil {
@@ -366,21 +532,34 @@ func (s *Service) query() {
 	now := time.Now()
 	s.queryMu.Lock()
 	for key, created := range s.queries {
-		if now.Sub(created) >= RoomLifetime {
+		if now.Sub(created.created) >= RoomLifetime {
 			delete(s.queries, key)
 		}
 	}
-	s.queries[id] = now
+	peers := s.directPeers
+	s.queries[id] = activeQuery{created: now, directPeers: peers}
 	s.queryMu.Unlock()
 	data, _ := json.Marshal(packet{Service: ServiceName, Version: WireVersion, Kind: "query", QueryID: id})
-	for _, destination := range s.destinations {
+	broadcast := subnetBroadcast(s.cache.prefix)
+	send := func(destination *net.UDPAddr) {
 		if s.writePacket(data, destination) {
-			s.record(func(d *Diagnostics) { d.QueriesSent++ })
+			s.record(func(d *Diagnostics) {
+				d.QueriesSent++
+				d.Paths.forDestination(destination.AddrPort().Addr().Unmap(), broadcast).QueriesSent++
+			})
 		}
+	}
+	for _, destination := range s.destinations {
+		send(destination)
+	}
+	for peer := range peers {
+		send(net.UDPAddrFromAddrPort(netip.AddrPortFrom(peer, uint16(s.port))))
 	}
 }
 
 func (s *Service) writePacket(data []byte, destination *net.UDPAddr) bool {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	err := s.sender.SetWriteDeadline(time.Now().Add(250 * time.Millisecond))
 	if err == nil {
 		_, err = s.sender.WriteToUDP(data, destination)
@@ -407,7 +586,17 @@ func (s *Service) handleReadError(ctx context.Context, err error) bool {
 func (s *Service) readQueries(ctx context.Context) {
 	buffer := make([]byte, maxPacketBytes+1)
 	for {
-		n, source, err := s.receiver.ReadFromUDP(buffer)
+		var destination netip.Addr
+		var n int
+		var source *net.UDPAddr
+		var err error
+		if receiver, ok := s.receiver.(interface {
+			readQuery([]byte) (int, *net.UDPAddr, netip.Addr, error)
+		}); ok {
+			n, source, destination, err = receiver.readQuery(buffer)
+		} else {
+			n, source, err = s.receiver.ReadFromUDP(buffer)
+		}
 		if err != nil {
 			if s.handleReadError(ctx, err) {
 				continue
@@ -417,39 +606,28 @@ func (s *Service) readQueries(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		s.handleQuery(buffer[:n], source)
+		s.handleQuery(buffer[:n], source, destination)
 	}
 }
 
-func (s *Service) handleQuery(data []byte, source *net.UDPAddr) {
-	if source.String() == s.localQuerySource {
+func (s *Service) handleQuery(data []byte, source *net.UDPAddr, destination netip.Addr) {
+	if source == nil || source.String() == s.localQuerySource {
+		return
+	}
+	if destination.IsValid() && destination != s.localIP && destination != multicastAddress &&
+		destination != limitedBroadcastIP && destination != subnetBroadcast(s.cache.prefix) {
 		return
 	}
 	p, err := decodePacket(data)
-	if err != nil || p.Kind != "query" {
+	ip := source.AddrPort().Addr().Unmap()
+	if err != nil || p.Kind != "query" || !privateIPv4(ip) || source.Port == 0 {
 		return
 	}
-	ip, ok := netip.AddrFromSlice(source.IP)
-	ip = ip.Unmap()
-	if !ok || !s.cache.allows(ip) {
-		return
-	}
-	s.record(func(d *Diagnostics) { d.QueriesReceived++ })
-	s.replyMu.Lock()
-	now := time.Now()
-	key := source.String()
-	last, known := s.replied[key]
-	for key, seen := range s.replied {
-		if now.Sub(seen) > RoomLifetime {
-			delete(s.replied, key)
-		}
-	}
-	allowed := now.Sub(last) >= time.Second && (known || len(s.replied) < 128)
-	if allowed {
-		s.replied[key] = now
-	}
-	s.replyMu.Unlock()
-	if !allowed {
+	s.record(func(d *Diagnostics) {
+		d.QueriesReceived++
+		d.Paths.forDestination(destination, subnetBroadcast(s.cache.prefix)).QueriesReceived++
+	})
+	if !s.allowQuery(ip, p.QueryID, time.Now()) {
 		return
 	}
 	for index, a := range s.advertisements() {
@@ -459,12 +637,60 @@ func (s *Service) handleQuery(data []byte, source *net.UDPAddr) {
 		if !validAdvertisement(a) {
 			continue
 		}
+		if !s.reserveReply(time.Now()) {
+			break
+		}
 		reply, _ := json.Marshal(packet{Service: ServiceName, Version: WireVersion, Kind: "room", QueryID: p.QueryID, Room: &a})
 		if s.writePacket(reply, source) {
 			s.record(func(d *Diagnostics) { d.RepliesSent++ })
 		}
 	}
 }
+func (s *Service) allowQuery(ip netip.Addr, id string, now time.Time) bool {
+	s.replyMu.Lock()
+	defer s.replyMu.Unlock()
+	key := querySource{ip, id}
+	if seen, ok := s.replied[key]; ok && now.Sub(seen) < RoomLifetime {
+		return false
+	}
+	if seen, ok := s.lastQueryByIP[ip]; ok && now.Sub(seen) < time.Second {
+		return false
+	}
+	for key, seen := range s.replied {
+		if now.Sub(seen) >= RoomLifetime {
+			delete(s.replied, key)
+		}
+	}
+	for source, seen := range s.lastQueryByIP {
+		if now.Sub(seen) >= time.Second {
+			delete(s.lastQueryByIP, source)
+		}
+	}
+	if len(s.replied) >= 256 || len(s.lastQueryByIP) >= 128 {
+		return false
+	}
+	s.replied[key] = now
+	s.lastQueryByIP[ip] = now
+	return true
+}
+
+func (s *Service) reserveReply(now time.Time) bool {
+	s.replyMu.Lock()
+	defer s.replyMu.Unlock()
+	expired := 0
+	for expired < len(s.replyTimes) && now.Sub(s.replyTimes[expired]) >= time.Second {
+		expired++
+	}
+	if expired > 0 {
+		s.replyTimes = s.replyTimes[:copy(s.replyTimes, s.replyTimes[expired:])]
+	}
+	if len(s.replyTimes) >= maxRepliesPerSecond {
+		return false
+	}
+	s.replyTimes = append(s.replyTimes, now)
+	return true
+}
+
 func (s *Service) readRooms(ctx context.Context) {
 	buffer := make([]byte, maxPacketBytes+1)
 	for {
@@ -491,14 +717,29 @@ func (s *Service) observeReply(data []byte, source netip.Addr, now time.Time) bo
 		return false
 	}
 	s.queryMu.Lock()
-	created, known := s.queries[p.QueryID]
+	query, known := s.queries[p.QueryID]
 	s.queryMu.Unlock()
-	if !known || now.Before(created) || now.Sub(created) >= RoomLifetime {
+	if !known || now.Before(query.created) || now.Sub(query.created) >= RoomLifetime {
 		return false
+	}
+	inSubnet := s.cache.prefix.Contains(source)
+	if !inSubnet {
+		if _, probed := query.directPeers[source]; !probed {
+			return false
+		}
 	}
 	accepted := s.cache.Observe(*p.Room, source)
 	if accepted {
-		s.record(func(d *Diagnostics) { d.RepliesReceived++ })
+		// Wire v2 replies echo a shared query ID. Their source is observable,
+		// but the path taken by the original query cannot be inferred.
+		s.record(func(d *Diagnostics) {
+			d.RepliesReceived++
+			if inSubnet {
+				d.SubnetRepliesReceived++
+			} else {
+				d.CrossSubnetRepliesReceived++
+			}
+		})
 	}
 	return accepted
 }

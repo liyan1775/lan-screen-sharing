@@ -35,6 +35,27 @@ func TestBootstrapOnlyReturnsHostTokenOnLoopback(t *testing.T) {
 	}
 }
 
+func TestBootstrapReturnsPersistedFriendIPs(t *testing.T) {
+	s := New(Config{PreferencesPath: t.TempDir() + "/preferences.json"})
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, localControlRequest(s, "/api/v1/preferences", `{"peerHosts":["10.208.140.20"]}`))
+	if w.Code != http.StatusOK {
+		t.Fatalf("could not save peer preference: %s", w.Body)
+	}
+	for _, role := range []string{"host", "viewer"} {
+		r := localControlRequest(s, "/api/v1/bootstrap?role="+role, "")
+		r.Method = http.MethodGet
+		w = httptest.NewRecorder()
+		s.Handler().ServeHTTP(w, r)
+		var result struct{ Preferences Preferences }
+		if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &result) != nil ||
+			len(result.Preferences.PeerHosts) != 1 || result.Preferences.PeerHosts[0] != "10.208.140.20" ||
+			result.Preferences.QualityTarget != "1080p60" {
+			t.Fatalf("bootstrap for %s did not include friend IP preferences: %d %s", role, w.Code, w.Body)
+		}
+	}
+}
+
 func TestBootstrapAllowsSameOriginBrowserFetchWithoutOriginHeader(t *testing.T) {
 	s := New(Config{})
 	r := httptest.NewRequest("GET", "http://127.0.0.1:8080/api/v1/bootstrap?role=host", nil)

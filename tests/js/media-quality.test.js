@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { parseHTML } from 'linkedom';
 import { MeshMedia } from '../../internal/web/assets/media.js';
 import { formatPerformanceHint, formatMediaDiagnostics } from '../../internal/web/assets/media-stats.js';
+import { bindQualityHUD, formatSharedQualityStatus } from '../../internal/web/assets/quality-hud.js';
 
 function mediaFixture() {
   const states = [];
@@ -74,12 +76,124 @@ test('a late stats response from a replaced connection cannot repopulate its his
   assert.equal(media.statsPrevious.size, 0);
 });
 
-test('video senders prefer frame rate and preserve basic targets if that preference is rejected', async () => {
-  const {media,states} = mediaFixture(); const values = [];
-  const sender = {getParameters:()=>({encodings:[{}]}),async setParameters(value){values.push(value);if(value.degradationPreference)throw new Error('preference unavailable');}};
-  assert.equal(await media.applyVideoQuality(sender),true);
-  assert.equal(values[0].degradationPreference,'maintain-framerate'); assert.equal(values[1].encodings[0].maxFramerate,60);
-  assert.equal(values[1].encodings[0].maxBitrate,8_000_000); assert.ok(states.some(s=>s.state==='quality_preference_unsupported'));
+test('video senders prefer resolution and skip rewriting matching parameters', async () => {
+  const { media } = mediaFixture();
+  let applied = { degradationPreference: 'balanced', encodings: [{ maxBitrate: 8_000_000, maxFramerate: 60, scaleResolutionDownBy: 1 }] };
+  let writes = 0;
+  const sender = {
+    getParameters: () => structuredClone(applied),
+    async setParameters(value) { writes++; applied = value; },
+  };
+  assert.equal(await media.applyVideoQuality(sender), true);
+  assert.equal(applied.degradationPreference, 'maintain-resolution');
+  assert.equal(await media.applyVideoQuality(sender, { confirm: true }), true);
+  assert.equal(writes, 1);
+});
+
+test('relay confirmation succeeds with basic targets when the browser rejects resolution priority', async () => {
+  const { media, states } = mediaFixture();
+  media.screenVideoTrack = { getSettings: () => ({ width: 3840, height: 2160 }) };
+  const attempts = [];
+  let applied = { encodings: [{}] };
+  const sender = {
+    getParameters: () => structuredClone(applied),
+    async setParameters(value) {
+      attempts.push(value);
+      if (value.degradationPreference) throw new Error('preference unavailable');
+      applied = value;
+    },
+  };
+  assert.equal(await media.applyVideoQuality(sender, { confirm: true }), true);
+  assert.equal(attempts.length, 2);
+  assert.equal(attempts[0].degradationPreference, 'maintain-resolution');
+  assert.equal(attempts[1].degradationPreference, undefined);
+  assert.deepEqual(applied.encodings[0], { maxBitrate: 8_000_000, maxFramerate: 60, scaleResolutionDownBy: 2 });
+  assert.deepEqual(states, [{
+    state: 'quality_preference_unsupported',
+    message: '浏览器未接受清晰度优先策略，已保留基本画质设置；请以实际统计为准。',
+  }]);
+});
+
+const reducedOutbound = {
+  direction: 'outbound-rtp', role: 'screenVideo', width: 1280, height: 720,
+  fps: 57, bitrate: 8_000_000, qualityLimitationReason: 'cpu',
+};
+const fullOutbound = { ...reducedOutbound, width: 1920, height: 1080 };
+const fullLabel = '1080p · 60fps';
+const reducedLabel = '实发 720p · 目标 1080p';
+
+test('shared quality prioritizes valid relay stats and shows the lowest resolution of partially reduced mesh links', () => {
+  const status = rows => formatSharedQualityStatus(rows, '1080p60', fullLabel);
+  const normal = { label: fullLabel, degraded: false };
+  assert.deepEqual(status([
+    { ...reducedOutbound, direction: 'inbound-rtp' },
+    { ...reducedOutbound, role: 'microphone' },
+    { ...reducedOutbound, width: 0 },
+  ]), normal);
+  assert.deepEqual(status([{ ...fullOutbound, width: 1904, height: 1064 }]), normal);
+  assert.deepEqual(status([{ ...fullOutbound, fps: 30 }]), normal);
+  assert.deepEqual(status([{ ...fullOutbound, width: 2560, height: 1440 }]), normal);
+  assert.deepEqual(status([{ ...fullOutbound, localRelay: true }, reducedOutbound]), normal);
+  assert.deepEqual(status([fullOutbound, { ...reducedOutbound, localRelay: true }]), { label: reducedLabel, degraded: true });
+  assert.deepEqual(status([{ ...fullOutbound, localRelay: true, width: 0 }, reducedOutbound]),
+    { label: reducedLabel, degraded: true });
+  assert.deepEqual(status([reducedOutbound, fullOutbound, { ...reducedOutbound, width: 854, height: 480 }]),
+    { label: '部分 480p · 目标 1080p', degraded: true });
+  assert.deepEqual(status([reducedOutbound, reducedOutbound]), { label: reducedLabel, degraded: true });
+  assert.deepEqual(formatSharedQualityStatus([{ ...reducedOutbound, width: 1024, height: 576 }], '720p30', '720p · 30fps'),
+    { label: '实发 1024×576 · 目标 720p', degraded: true });
+});
+
+test('shared capsule shows the measured downgrade, clears it on recovery, target change and stop, and skips redundant writes', () => {
+  const { document, MutationObserver } = parseHTML(`
+    <div id="quality-pill" hidden>
+      <button id="quality-trigger" hidden><span></span></button>
+      <div id="quality-picker" hidden></div>
+      <div id="quality-observer" hidden><span id="quality-received"></span></div>
+    </div>
+    <select><option value="1080p60" selected>1080p · 60 FPS</option>
+      <option value="720p60">720p · 60 FPS</option></select>
+  `);
+  const select = document.querySelector('select');
+  const hud = bindQualityHUD({ document, select, onSelect() {} });
+  const trigger = document.querySelector('#quality-trigger');
+  const summary = trigger.querySelector('span');
+  const buttons = [...document.querySelectorAll('.quality-option')];
+  const observer = new MutationObserver(() => {});
+  observer.observe(document.querySelector('#quality-pill'), { subtree: true, attributes: true, childList: true, characterData: true });
+  const sync = (rows, quality = '1080p60', kind = 'share') => hud.sync({ kind, quality, rows });
+  const assertStatus = (label, degraded) => {
+    assert.equal(summary.textContent, label);
+    assert.equal(trigger.getAttribute('aria-label'), degraded ? `共享画质 ${label}` : `共享画质目标 ${label}`);
+    assert.equal(trigger.getAttribute('data-degraded'), degraded ? 'true' : null);
+  };
+  const sample = [reducedOutbound];
+
+  sync([]);
+  assertStatus(fullLabel, false);
+  sync(sample);
+  assertStatus(reducedLabel, true);
+  assert.ok(observer.takeRecords().length > 0);
+  sync(sample);
+  sync([reducedOutbound]);
+  assert.deepEqual(observer.takeRecords(), []);
+
+  sync([fullOutbound]);
+  assertStatus(fullLabel, false);
+  sync(sample);
+  assertStatus(reducedLabel, true);
+  sync(sample, '720p60');
+  assertStatus('720p · 60fps', false);
+  assert.deepEqual(buttons.map(button => button.getAttribute('aria-pressed')), ['false', 'true']);
+  sync(sample);
+  sync(sample);
+  assertStatus(fullLabel, false);
+  sync([reducedOutbound]);
+  assertStatus(reducedLabel, true);
+  sync(sample, '1080p60', '');
+  assertStatus(fullLabel, false);
+  assert.equal(trigger.hidden, true);
+  observer.disconnect();
 });
 
 test('source frame counts expose real capture rate when source FPS is omitted', async () => {

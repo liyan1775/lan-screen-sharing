@@ -33,8 +33,8 @@ export function preferScreenCodecs(transceiver, capabilities, mode) {
 }
 
 export class ScreenRelay {
-  constructor(client, { peerIds, presenter, applyQuality, onTrack, onViewClosed, onError, onCodecChange = () => {} }) {
-    Object.assign(this, { client, peerIds, presenter, applyQuality, onTrack, onViewClosed, onError, onCodecChange });
+  constructor(client, { peerIds, presenter, applyQuality, onTrack, onViewClosed, onError, onCodecChange = () => {}, onSourceClosed = () => {} }) {
+    Object.assign(this, { client, peerIds, presenter, applyQuality, onTrack, onViewClosed, onError, onCodecChange, onSourceClosed });
     this.share = null;
     this.source = null;
     this.views = new Map();
@@ -183,6 +183,7 @@ export class ScreenRelay {
   async stopTransport() {
     const source = this.source; this.source = null;
     if (!source) return;
+    this.onSourceClosed();
     source.abort.abort();
     await Promise.allSettled(source.pc.getSenders().map(sender => sender.replaceTrack(null)));
     source.pc.close();

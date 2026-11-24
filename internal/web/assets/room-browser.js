@@ -1,7 +1,8 @@
 import { icon } from './icons.js';
+import { maxPeerHosts, privatePeerHost } from './preferences.js';
 
-export function createRoomBrowser({ documentRef = document, list, status, refreshButton, load, onJoin, onDiagnostics = () => {}, onRooms = () => {}, setIntervalImpl = setInterval, clearIntervalImpl = clearInterval }) {
-  let timer = null, loading = false, joining = false, stopped = false, started = false, active = true;
+export function createRoomBrowser({ documentRef = document, list, status, refreshButton, load, refreshDiscovery = async () => {}, onJoin, onDiagnostics = () => {}, onRooms = () => {}, setIntervalImpl = setInterval, clearIntervalImpl = clearInterval }) {
+  let timer = null, loading = null, joining = false, stopped = false, started = false, active = true;
   let networkGeneration = 0;
   const cards = new Map();
   const setStatus = text => { if (status.textContent !== text) status.textContent = text; };
@@ -52,17 +53,33 @@ export function createRoomBrowser({ documentRef = document, list, status, refres
     join.textContent = label; join.className = `button ${room.screenSharing && count < 3 && !room.own ? 'button-primary' : ''}`;
     join.setAttribute('aria-label', `${label} ${title}`); join.disabled = own || count >= 3;
   }
-  async function refresh({reset = false} = {}) {
+  async function refresh({reset = false, probe = false, afterSave = false} = {}) {
     if (reset) {
       networkGeneration++;
-      loading = false;
+      loading = null;
       cards.clear();
       list.replaceChildren();
     }
-    if (stopped || !active || loading || joining) return;
+    if (stopped || !active || joining) return;
+    if (loading) {
+      if (probe) networkGeneration++;
+      else if (afterSave) {
+        await loading;
+        return refresh({afterSave});
+      } else return;
+    }
     const generation = networkGeneration;
-    loading = true; refreshButton.disabled = true;
+    loading = readRooms(generation, probe);
+    try { await loading; }
+    finally { if (generation === networkGeneration) loading = null; }
+  }
+  async function readRooms(generation, probe) {
     try {
+      if (probe) {
+        try { await refreshDiscovery(); }
+        catch { /* The cached list and diagnostics are still useful. */ }
+      }
+      if (stopped || !active || generation !== networkGeneration) return;
       const result = await load();
       if (stopped || !active || generation !== networkGeneration) return;
       onDiagnostics(formatDiscoveryDiagnostics(result.diagnostics));
@@ -80,9 +97,13 @@ export function createRoomBrowser({ documentRef = document, list, status, refres
         ? '还没有发现房间。请让朋友先创建房间，稍等几秒或点击刷新。'
         : result.message || '自动发现暂不可用，可以使用手动加入。');
     } catch { if (!stopped && active && generation === networkGeneration) { onRooms({ count: 0, available: false }); setStatus('暂时无法读取房间列表，请稍后刷新或使用手动加入。'); } }
-    finally { if (generation === networkGeneration) { loading = false; refreshButton.disabled = false; } }
   }
-  refreshButton.addEventListener('click', refresh);
+  refreshButton.addEventListener('click', async () => {
+    if (refreshButton.disabled) return;
+    refreshButton.disabled = true;
+    try { await refresh({probe: true}); }
+    finally { refreshButton.disabled = false; }
+  });
   function startTimer() {
     if (!started || !active || stopped || timer !== null) return;
     void refresh(); timer = setIntervalImpl(() => void refresh(), 3000);
@@ -100,6 +121,81 @@ export function createRoomBrowser({ documentRef = document, list, status, refres
   };
 }
 
+export function bindPeerHosts({ form, input, list, status, getHosts, save, onSaved, ready = async () => {} }) {
+  const documentRef = form.ownerDocument;
+  const chips = new Map();
+  let pending = Promise.resolve();
+  function queue(change) {
+    const result = pending.then(change);
+    pending = result.catch(() => {});
+    return result;
+  }
+  function render() {
+    const hosts = getHosts();
+    for (const [host, chip] of chips) {
+      if (!hosts.includes(host)) { chip.remove(); chips.delete(host); }
+    }
+    for (const host of hosts) {
+      if (chips.has(host)) continue;
+      const chip = documentRef.createElement('li');
+      chip.className = 'peer-host-chip';
+      const address = documentRef.createElement('span');
+      address.textContent = host;
+      const remove = documentRef.createElement('button');
+      remove.type = 'button';
+      remove.setAttribute('aria-label', `移除好友 IP ${host}`);
+      remove.textContent = '×';
+      remove.addEventListener('click', async () => {
+        const wasFocused = documentRef.activeElement === remove;
+        const removed = await queue(() => getHosts().includes(host) &&
+          update(getHosts().filter(value => value !== host), '已移除好友 IP。'));
+        if (removed &&
+            wasFocused && documentRef.activeElement === documentRef.body) input.focus();
+      });
+      chip.append(address, remove);
+      chips.set(host, chip);
+      list.append(chip);
+    }
+    list.hidden = hosts.length === 0;
+  }
+  async function update(hosts, message, quiet = false) {
+    try {
+      await save(hosts);
+      render();
+      if (!quiet) status.textContent = message;
+      onSaved();
+      return true;
+    } catch {
+      if (!quiet) status.textContent = '暂时无法保存好友 IP，请稍后重试。';
+      else throw new Error('已加入房间，暂时无法记住好友 IP。');
+      return false;
+    }
+  }
+  function add(value, {quiet = false} = {}) {
+    const host = privatePeerHost(value);
+    return queue(async () => {
+      await ready();
+      const hosts = getHosts();
+      if (!host || hosts.includes(host) || hosts.length >= maxPeerHosts) {
+        if (!quiet) {
+          status.textContent = !host ? '请输入有效的私有 IPv4 地址，例如 10.208.1.20。'
+            : hosts.includes(host) ? '这个好友 IP 已保存。' : '最多保存 8 个好友 IP，请先移除一个。';
+          if (!host) input.setAttribute('aria-invalid', 'true');
+        }
+        return false;
+      }
+      return update([...hosts, host], '已保存好友 IP，正在查找房间。', quiet);
+    });
+  }
+  input.addEventListener('input', () => input.removeAttribute('aria-invalid'));
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    const value = input.value;
+    if (await add(value) && input.value === value) input.value = '';
+  });
+  return {add, render};
+}
+
 export function formatDiscoveryDiagnostics(d = {}) {
   const number = value => Number.isSafeInteger(value) && value >= 0 ? value : 0;
   const mode = { 'multicast+broadcast': '组播 + 广播', multicast: '组播', broadcast: '广播' }[d.transport] || '尚未启动';
@@ -107,6 +203,7 @@ export function formatDiscoveryDiagnostics(d = {}) {
   return [
     `网卡：${String(d.interfaceName || '未检测到').slice(0, 128)} · ${String(d.localIPv4 || '无 IPv4').slice(0, 64)}`,
     `查找方式：${mode} · ${d.running ? '运行中（不代表网络已放行）' : '未运行'} · UDP 49877`,
+    `好友 IP：${number(d.directPeers)} 个 · 直连查找包：发出 ${number(d.paths?.directUnicast?.queriesSent)}，收到 ${number(d.paths?.directUnicast?.queriesReceived)}`,
     `发出查找包：${number(d.queriesSent)}；收到其他程序查找包：${number(d.queriesReceived)}`,
     `发出房间回复：${number(d.repliesSent)}；收到有效房间回复：${number(d.repliesReceived)}`,
     `发送错误：${number(d.sendErrors)}；接收错误：${number(d.readErrors)}；最近错误：${errors[d.lastError] || '无'}`,

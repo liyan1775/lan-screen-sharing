@@ -9,11 +9,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"unicode"
 	"unicode/utf8"
 
+	"lan-screen-sharing/internal/discovery"
 	"lan-screen-sharing/internal/protocol"
 )
 
@@ -22,15 +24,16 @@ const maxPreferencesBytes = 8192
 
 type Preferences struct {
 	protocol.Profile
-	PreferredLANIPv4       string `json:"preferredLanIPv4"`
-	QualityTarget          string `json:"qualityTarget"`
-	ShareMode              string `json:"shareMode"`
-	PauseBackgroundPreview bool   `json:"pauseBackgroundPreview"`
-	ShareCursor            bool   `json:"shareCursor"`
-	MicMode                string `json:"micMode"`
-	MicDeviceID            string `json:"micDeviceId"`
-	MicDeviceLabel         string `json:"micDeviceLabel"`
-	SoundEffects           bool   `json:"soundEffects"`
+	PeerHosts              []string `json:"peerHosts"`
+	PreferredLANIPv4       string   `json:"preferredLanIPv4"`
+	QualityTarget          string   `json:"qualityTarget"`
+	ShareMode              string   `json:"shareMode"`
+	PauseBackgroundPreview bool     `json:"pauseBackgroundPreview"`
+	ShareCursor            bool     `json:"shareCursor"`
+	MicMode                string   `json:"micMode"`
+	MicDeviceID            string   `json:"micDeviceId"`
+	MicDeviceLabel         string   `json:"micDeviceLabel"`
+	SoundEffects           bool     `json:"soundEffects"`
 }
 
 type preferenceStore struct {
@@ -49,7 +52,7 @@ func openPreferences(path string) *preferenceStore {
 		}
 	}
 	store := &preferenceStore{path: path, data: Preferences{
-		Profile: protocol.Profile{AvatarColor: "blue"}, QualityTarget: "1080p60",
+		Profile: protocol.Profile{AvatarColor: "blue"}, QualityTarget: "1080p60", PeerHosts: []string{},
 		ShareMode: "combined", PauseBackgroundPreview: true, MicMode: "open", SoundEffects: true,
 	}}
 	if file, err := os.Open(path); err == nil {
@@ -66,7 +69,9 @@ func openPreferences(path string) *preferenceStore {
 func (s *preferenceStore) snapshot() Preferences {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.data
+	values := s.data
+	values.PeerHosts = slices.Clone(values.PeerHosts)
+	return values
 }
 
 func (s *preferenceStore) update(patch func(Preferences) (Preferences, error)) (Preferences, error) {
@@ -117,9 +122,10 @@ func decodePreferences(input io.Reader, next Preferences) (Preferences, error) {
 	if err != nil || start != json.Delim('{') {
 		return Preferences{}, errInvalidPreferences
 	}
+	var peerHosts []string
 	fields := map[string]any{
 		"nickname": &next.Nickname, "avatarColor": &next.AvatarColor,
-		"preferredLanIPv4": &next.PreferredLANIPv4, "qualityTarget": &next.QualityTarget,
+		"preferredLanIPv4": &next.PreferredLANIPv4, "peerHosts": &peerHosts, "qualityTarget": &next.QualityTarget,
 		"shareMode": &next.ShareMode, "pauseBackgroundPreview": &next.PauseBackgroundPreview,
 		"shareCursor": &next.ShareCursor, "micMode": &next.MicMode,
 		"micDeviceId": &next.MicDeviceID, "micDeviceLabel": &next.MicDeviceLabel, "soundEffects": &next.SoundEffects,
@@ -153,6 +159,22 @@ func decodePreferences(input io.Reader, next Preferences) (Preferences, error) {
 		len(next.MicDeviceLabel) > 640 || strings.ContainsFunc(next.MicDeviceLabel, unicode.IsControl) {
 		return Preferences{}, errInvalidPreferences
 	}
+	if _, omitted := fields["peerHosts"]; !omitted {
+		next.PeerHosts = peerHosts
+	}
+	peers := make([]string, 0, discovery.MaxDirectPeers)
+	for _, ip := range next.PeerHosts {
+		if !validPrivateIPv4(ip) {
+			return Preferences{}, fmt.Errorf("%w: peerHosts", errInvalidPreferences)
+		}
+		if !slices.Contains(peers, ip) {
+			if len(peers) == discovery.MaxDirectPeers {
+				return Preferences{}, fmt.Errorf("%w: peerHosts", errInvalidPreferences)
+			}
+			peers = append(peers, ip)
+		}
+	}
+	next.PeerHosts = peers
 	next.Nickname = name
 	return next, nil
 }
@@ -169,9 +191,17 @@ func (s *Server) servePreferences(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_PREFERENCES", "设置内容无效，请检查昵称长度和选项", false)
 		return
 	}
+	s.lanMu.Lock()
+	var peersChanged bool
 	values, err := s.preferences.update(func(current Preferences) (Preferences, error) {
-		return decodePreferences(bytes.NewReader(raw), current)
+		next, err := decodePreferences(bytes.NewReader(raw), current)
+		peersChanged = !slices.Equal(current.PeerHosts, next.PeerHosts)
+		return next, err
 	})
+	if err == nil && peersChanged {
+		s.applyDiscoveryPeersLocked(values.PeerHosts)
+	}
+	s.lanMu.Unlock()
 	switch {
 	case errors.Is(err, errInvalidPreferences):
 		writeError(w, http.StatusBadRequest, "INVALID_PREFERENCES", "设置内容无效，请检查昵称长度和选项", false)

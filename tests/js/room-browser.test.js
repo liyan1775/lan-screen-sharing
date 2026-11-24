@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createRoomBrowser, formatDiscoveryDiagnostics } from '../../internal/web/assets/room-browser.js';
+import { parseHTML } from 'linkedom';
+import { bindPeerHosts, createRoomBrowser, formatDiscoveryDiagnostics } from '../../internal/web/assets/room-browser.js';
 import { RoomClient } from '../../internal/web/assets/client.js';
 
 class Element {
@@ -96,10 +97,66 @@ test('room list uses the same-origin protected endpoint and keeps its nonce out 
  client.bootstrap={localControlToken:'test-local-nonce'};
  await client.loadRooms();
  assert.equal(called.url,'http://localhost:59818/api/v1/rooms');assert.equal(called.options.credentials,'same-origin');assert.equal(called.options.headers['X-Local-Control-Token'],'test-local-nonce');
+ await client.refreshDiscovery();
+ assert.equal(called.url,'http://localhost:59818/api/v1/discovery/refresh');
+ assert.equal(called.options.method,'POST');
+ assert.equal(called.options.credentials,'same-origin');
+ assert.equal(called.options.headers['X-Local-Control-Token'],'test-local-nonce');
+});
+
+test('manual refresh probes immediately even with an active read; polling only reads', async () => {
+  const calls = [];
+  let finishRead, tick;
+  const gate = new Promise(resolve => { finishRead = resolve; });
+  const refreshButton = new Element();
+  const browser = createRoomBrowser({list: new Element(), status: new Element(), refreshButton,
+    documentRef: {createElement: () => new Element()}, onJoin: async () => {},
+    load: async () => {
+      calls.push('GET');
+      if (calls.length === 1) await gate;
+      return {available: true, rooms: []};
+    },
+    refreshDiscovery: async () => { calls.push('POST'); },
+    setIntervalImpl: fn => { tick = fn; return 1; }, clearIntervalImpl: () => {},
+  });
+  browser.start();
+  const click = refreshButton.click();
+  assert.deepEqual(calls, ['GET', 'POST']);
+  await click;
+  assert.deepEqual(calls, ['GET', 'POST', 'GET']);
+  finishRead();
+  tick();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(calls, ['GET', 'POST', 'GET', 'GET']);
+  browser.stop();
+});
+
+test('adding and removing friends save first, update accessible chips and reload the room list', async () => {
+  const { document, Event } = parseHTML('<form><input></form><ul hidden></ul><p></p>');
+  const [form, input, list, status] = ['form', 'input', 'ul', 'p'].map(selector => document.querySelector(selector));
+  const actions = [];
+  let hosts = [];
+  const peers = bindPeerHosts({form, input, list, status, getHosts: () => hosts,
+    save: async values => { actions.push(values); hosts = values; }, onSaved: () => actions.push('reload'),
+  });
+  input.value = ' 10.208.1.20 ';
+  form.dispatchEvent(new Event('submit', {cancelable: true}));
+  await new Promise(resolve => setImmediate(resolve));
+  const remove = list.querySelector('button');
+  assert.equal(remove.getAttribute('aria-label'), '移除好友 IP 10.208.1.20');
+  assert.equal(input.value, '');
+  assert.equal(await peers.add('10.208.1.20'), false);
+  assert.equal(await peers.add('8.8.8.8'), false);
+  assert.equal(input.getAttribute('aria-invalid'), 'true');
+  remove.click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(list.hidden, true);
+  assert.deepEqual(actions, [['10.208.1.20'], 'reload', [], 'reload']);
 });
 
 test('discovery diagnostics show traffic and failures without copying invitations or control tokens',()=>{
-  const text=formatDiscoveryDiagnostics({interfaceName:'WLAN',localIPv4:'192.168.1.20',transport:'multicast+broadcast',running:true,queriesSent:4,queriesReceived:0,repliesReceived:0,sendErrors:1,lastError:'NETWORK_PERMISSION_DENIED',roomCode:'secret-code',hostControlToken:'secret-token'});
+  const text=formatDiscoveryDiagnostics({interfaceName:'WLAN',localIPv4:'192.168.1.20',transport:'multicast+broadcast',running:true,directPeers:2,paths:{directUnicast:{queriesSent:3,queriesReceived:1}},queriesSent:4,queriesReceived:0,repliesReceived:0,sendErrors:1,lastError:'NETWORK_PERMISSION_DENIED',roomCode:'secret-code',hostControlToken:'secret-token'});
+  assert.match(text,/好友 IP：2 个 · 直连查找包：发出 3，收到 1/);
   assert.match(text,/组播 \+ 广播/);assert.match(text,/系统拒绝网络权限/);assert.match(text,/不代表网络已放行/);assert.doesNotMatch(text,/secret/);
 });
 

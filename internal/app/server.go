@@ -159,6 +159,7 @@ func New(config Config) *Server {
 	s.localMux.HandleFunc("/api/v1/network", s.serveNetwork)
 	s.localMux.HandleFunc("/api/v1/preferences", s.servePreferences)
 	s.localMux.HandleFunc("/api/v1/rooms", s.serveDiscoveredRooms)
+	s.localMux.HandleFunc("/api/v1/discovery/refresh", s.serveDiscoveryRefresh)
 	s.localMux.HandleFunc("/api/v1/shutdown", s.serveShutdown)
 	s.localMux.HandleFunc("/api/v1/page-lease", s.servePageLease)
 	s.localMux.HandleFunc("/api/v1/screen-relay", s.serveScreenRelay)

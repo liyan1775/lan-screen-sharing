@@ -58,6 +58,27 @@ test('identity controls count Unicode code points and default labels stay tied t
   assert.equal(avatar.dataset.avatarColor, 'pink');
 });
 
+test('peer hosts default empty and only save up to eight unique canonical RFC 1918 addresses', async () => {
+  const sent = [];
+  const writer = createPreferenceWriter({onError: assert.fail, save: async patch => { sent.push(patch); return patch; }});
+  assert.deepEqual(writer.values.peerHosts, []);
+  writer.restore({peerHosts: null});
+  assert.deepEqual(writer.values.peerHosts, []);
+  const candidates = [' 10.208.1.20 ', '10.208.1.20', '172.16.0.1', '172.31.255.254', '192.168.1.1',
+    '172.15.1.1', '172.32.0.1', '127.0.0.1', '100.64.1.1', '169.254.1.1', '8.8.8.8', '::ffff:10.1.1.1',
+    '010.1.1.1', '10.256.1.1', '10.1.1.1:80', '10.1.1', 10, '10.0.0.1', '10.0.0.2', '10.0.0.3', '10.0.0.4', '10.0.0.5'];
+  const expected = ['10.208.1.20', '172.16.0.1', '172.31.255.254', '192.168.1.1', '10.0.0.1', '10.0.0.2', '10.0.0.3', '10.0.0.4'];
+  writer.restore({peerHosts: candidates});
+  assert.deepEqual(writer.values.peerHosts, expected);
+  writer.set({peerHosts: []});
+  await writer.flush();
+  writer.set({peerHosts: candidates});
+  await writer.flush();
+  writer.set({peerHosts: expected});
+  await writer.flush();
+  assert.deepEqual(sent, [{peerHosts: []}, {peerHosts: expected}]);
+});
+
 test('profile notification updates only the named member and older rosters cannot rewind it', () => {
   const client = new RoomClient({storageImpl: null});
   const send = (type, payload, peerId) => client.receive(JSON.stringify({type, payload, peerId, roomId: 'room-a'}));

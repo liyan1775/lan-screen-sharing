@@ -23,6 +23,30 @@ func (s *Server) roomAdvertisementsLocked() []discovery.Advertisement {
 	}
 	return result
 }
+func (s *Server) applyDiscoveryPeersLocked(peers []string) {
+	if service := s.discoveryService; service != nil {
+		service.SetDirectPeers(peers)
+		service.Refresh()
+	}
+}
+
+func (s *Server) serveDiscoveryRefresh(w http.ResponseWriter, r *http.Request) {
+	if !s.validControlPOST(r) {
+		writeError(w, http.StatusForbidden, "AUTH_REQUIRED", "刷新附近房间仅供本机程序页面使用", false)
+		return
+	}
+	s.lanMu.RLock()
+	service := s.discoveryService
+	if service == nil || !service.Diagnostics().Running {
+		s.lanMu.RUnlock()
+		writeError(w, http.StatusServiceUnavailable, "DISCOVERY_UNAVAILABLE", "附近房间查找暂不可用", true)
+		return
+	}
+	queued := service.Refresh()
+	s.lanMu.RUnlock()
+	writeJSON(w, map[string]bool{"queued": queued})
+}
+
 func (s *Server) serveDiscoveredRooms(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet || r.URL.RawQuery != "" || !validLocalBootstrapRequest(r) || !s.authorizeLocalControl(r, r.Header.Get("X-Local-Control-Token")) {
 		writeError(w, http.StatusForbidden, "AUTH_REQUIRED", "房间列表仅供本机程序页面使用", false)
@@ -52,6 +76,9 @@ func (s *Server) serveDiscoveredRooms(w http.ResponseWriter, r *http.Request) {
 		rooms = append(rooms, discovery.Room{ID: key, RoomID: a.RoomID, Name: a.Name, HostIPv4: ip, HostPort: a.Port, RoomCode: a.RoomCode, Members: a.Members, Capacity: 3, ScreenSharing: a.ScreenSharing, Own: true})
 	}
 	message := "正在通过局域网广播和组播查找房间；朋友创建房间后会显示在这里。"
+	if diagnostics.DirectPeers > 0 {
+		message = "正在通过局域网和已保存的好友 IP 查找房间。"
+	}
 	if !diagnostics.Running {
 		message = "房间查找暂不可用，可查看下方诊断，或使用“手动加入”。"
 		switch diagnostics.LastError {

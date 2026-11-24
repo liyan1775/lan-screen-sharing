@@ -8,12 +8,14 @@ export function applyMicrophonePermission(state, granted) {
     : { ...state, joined: true, microphone: 'denied', receiveOnly: true, code: 'MIC_PERMISSION_DENIED' };
 }
 
+export const DISPLAY_NOT_MONITOR_MESSAGE = '检测到单个应用窗口（无法稳定同步声音），请重新选择整块显示器或单个浏览器标签页。';
+
 export function inspectDisplaySurface(surface) {
-  if (surface === 'monitor') return { allowed: true, state: 'ready', message: '' };
+  if (surface === 'monitor' || surface === 'browser') return { allowed: true, state: 'ready', message: '' };
   return {
     allowed: false,
     state: 'DISPLAY_NOT_MONITOR',
-    message: '检测到所选内容不是整块显示器，请重新选择显示器。',
+    message: DISPLAY_NOT_MONITOR_MESSAGE,
   };
 }
 

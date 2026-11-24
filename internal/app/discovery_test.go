@@ -97,3 +97,44 @@ func TestRoomDiscoveryStartupFailureIsReportedWithoutRawErrorDetails(t *testing.
 		t.Fatal("startup failure was indistinguishable from an empty healthy list")
 	}
 }
+
+func TestDiscoveryRefreshRequiresLocalControlPOST(t *testing.T) {
+	s := New(Config{LANIPv4: "192.168.1.10"})
+	service := &testDiscoveryGeneration{}
+	const route = "/api/v1/discovery/refresh"
+	perform := func(r *http.Request) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		s.Handler().ServeHTTP(w, r)
+		return w
+	}
+	if w := perform(localControlRequest(s, route, "")); w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("refresh without discovery service: %d %s", w.Code, w.Body)
+	}
+	s.discoveryService = service
+	for _, change := range []func(*http.Request){
+		func(r *http.Request) { r.Method = http.MethodGet },
+		func(r *http.Request) { r.RemoteAddr = "192.168.1.50:50123" },
+		func(r *http.Request) { r.Header.Set("Origin", "https://elsewhere.invalid") },
+		func(r *http.Request) { r.Header.Del("X-Local-Control-Token") },
+		func(r *http.Request) { r.URL.RawQuery = "refresh=1" },
+	} {
+		r := localControlRequest(s, route, "")
+		change(r)
+		if w := perform(r); w.Code != http.StatusForbidden {
+			t.Fatalf("invalid refresh request returned %d", w.Code)
+		}
+	}
+	rooms := localControlRequest(s, "/api/v1/rooms?refresh=1", "")
+	rooms.Method = http.MethodGet
+	if w := perform(rooms); w.Code != http.StatusForbidden || service.refreshes != 0 {
+		t.Fatal("a GET request or an unauthorized request triggered discovery")
+	}
+	if w := perform(localControlRequest(s, route, "")); w.Code != http.StatusOK || w.Body.String() != "{\"queued\":true}\n" || service.refreshes != 1 {
+		t.Fatalf("local refresh was not queued: %d %s", w.Code, w.Body)
+	}
+	w := httptest.NewRecorder()
+	s.LANHandler().ServeHTTP(w, localControlRequest(s, route, ""))
+	if w.Code != http.StatusNotFound || service.refreshes != 1 {
+		t.Fatalf("LAN listener exposed local refresh: %d", w.Code)
+	}
+}

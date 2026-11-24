@@ -141,6 +141,8 @@ type lanDiscovery interface {
 	Close()
 	Rooms() []discovery.Room
 	Diagnostics() discovery.Diagnostics
+	SetDirectPeers([]string)
+	Refresh() bool
 }
 
 func (s *Server) networkStateLocked() lanState {
@@ -212,6 +214,7 @@ func (s *Server) startDiscoveryLocked(ctx context.Context) error {
 	s.discoveryError = discovery.ErrorCode(err)
 	if err == nil {
 		s.discoveryService = service
+		s.applyDiscoveryPeersLocked(s.preferences.snapshot().PeerHosts)
 	}
 	return err
 }

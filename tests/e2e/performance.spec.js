@@ -7,17 +7,31 @@ import { startOwnedService, shutdownOwnedServices } from './fixtures/services.js
 
 // Count product work, not the calls made by the test's own transport assertions.
 function observeBackgroundWork() {
-  const work = { stats: 0, voiceLinkStats: 0, roomRequests: 0, diagnosticsMutations: 0 };
+  const work = { stats: 0, voiceLinkStats: 0, roomRequests: 0, discoveryProbes: 0, diagnosticsMutations: 0, qualityMutations: 0, replayedSizes: 0, omittedSizes: 0 };
   window.__performanceWork = work;
   const nativeStats = RTCPeerConnection.prototype.getStats;
   RTCPeerConnection.prototype.getStats = function (...args) {
     work.stats++;
     if (!this.getTransceivers().some(transceiver => transceiver.receiver.track.kind === 'video')) work.voiceLinkStats++;
-    return nativeStats.apply(this, args);
+    const sample = nativeStats.apply(this, args);
+    if (!window.__repeatOutboundDimensions) return sample;
+    return sample.then(reports => {
+      const replay = new Map(reports);
+      for (const [id, report] of reports) {
+        if (report.type !== 'outbound-rtp' || (report.kind ?? report.mediaType) !== 'video' || !report.framesEncoded) continue;
+        const omitSize = work.replayedSizes === 1 && work.omittedSizes === 0;
+        if (omitSize) work.omittedSizes++;
+        else work.replayedSizes++;
+        replay.set(id, { ...report, frameWidth: omitSize ? undefined : 1280, frameHeight: omitSize ? undefined : 720 });
+      }
+      return replay;
+    });
   };
   const nativeFetch = window.fetch;
   window.fetch = function (...args) {
-    if (new URL(args[0], location.href).pathname === '/api/v1/rooms') work.roomRequests++;
+    const path = new URL(args[0], location.href).pathname;
+    if (path === '/api/v1/rooms') work.roomRequests++;
+    if (path === '/api/v1/discovery/refresh') work.discoveryProbes++;
     return nativeFetch.apply(this, args);
   };
   document.addEventListener('DOMContentLoaded', () => {
@@ -25,6 +39,19 @@ function observeBackgroundWork() {
     for (const id of ['actual-stats', 'capture-stats', 'performance-hint']) {
       observer.observe(document.getElementById(id), { childList: true, characterData: true, subtree: true });
     }
+    window.__qualityMutations = [];
+    const qualityObserver = new MutationObserver(records => {
+      work.qualityMutations += records.length;
+      const trigger = document.getElementById('quality-trigger');
+      window.__qualityMutations.push(...records.map(record => ({
+        type: record.type, attribute: record.attributeName, old: record.oldValue,
+        label: trigger.textContent, degraded: trigger.dataset.degraded, hidden: trigger.hidden,
+        sample: work.replayedSizes + work.omittedSizes,
+      })));
+    });
+    qualityObserver.observe(document.getElementById('quality-trigger'), {
+      attributes: true, attributeOldValue: true, childList: true, characterData: true, subtree: true,
+    });
   });
 }
 
@@ -64,6 +91,7 @@ test('idle, voice and screen sessions only perform the background work they need
   if (!baseline) {
     assert.ok(idle.every(row => row.stats === 0 && row.diagnosticsMutations === 0), 'idle pages do not poll media or rewrite diagnostics');
     assert.ok(idle.every(row => row.roomRequests > 0), 'visible room lists still refresh');
+    assert.ok(idle.every(row => row.discoveryProbes === 0), 'automatic room polling stays read-only');
   }
   const [host, ...viewers] = pages;
   await host.locator('#quick-create-room').click();
@@ -97,14 +125,27 @@ test('idle, voice and screen sessions only perform the background work they need
     await page.locator('.settings-section > summary').click();
     await page.waitForFunction(() => /实际 \d+×\d+/.test(document.querySelector('#actual-stats').textContent));
   }));
+  if (!baseline) {
+    // Keep native sampling. Replay one size and a short gap where Chromium
+    // omits dimensions, so both cases must keep the same capsule stable.
+    await host.evaluate(() => { window.__repeatOutboundDimensions = true; });
+    await host.waitForFunction(() => window.__performanceWork.replayedSizes === 1 &&
+      document.querySelector('#quality-trigger').dataset.degraded === 'true' &&
+      document.querySelector('#quality-trigger span').textContent.includes('实发 720p · 目标 1080p'));
+  }
   const diagnostics = await measure('sharingDiagnosticsOpen');
   if (!baseline) {
     assert.ok(diagnostics[0].stats >= 2 && diagnostics[0].stats <= 4, 'open diagnostics keep responsive two-second sampling');
     assert.ok(diagnostics.slice(1).every(row => row.stats >= 2 && row.stats <= 4 && row.voiceLinkStats === 0));
+    assert.ok(diagnostics[0].replayedSizes >= 1 && diagnostics[0].omittedSizes === 1, 'the capsule was fed a repeated size and a single missing-size reading');
+    const writes = await host.evaluate(count => count ? window.__qualityMutations.slice(-count) : [], diagnostics[0].qualityMutations);
+    assert.deepEqual(writes, [], 'repeated outbound sizes and a short gap never rewrite the sharing capsule');
+    await host.evaluate(() => { window.__repeatOutboundDimensions = false; });
   }
   await Promise.all(pages.map(page => page.locator('#settings-dialog [data-close-dialog]').click()));
   await host.locator('#stop-share').click();
   await Promise.all(pages.map(page => page.waitForFunction(() => document.querySelector('#app').dataset.stage === 'voice')));
+  if (!baseline) assert.equal(await host.locator('#quality-trigger').getAttribute('data-degraded'), null);
   const stopped = await measure('screenStopped');
   if (!baseline) assert.ok(stopped.every(row => row.stats === 0 && row.roomRequests === 0 && row.diagnosticsMutations === 0));
   await viewers[0].locator('#leave-room').click();
