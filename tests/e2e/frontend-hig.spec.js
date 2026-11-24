@@ -1,4 +1,4 @@
-import test from 'node:test';
+import nodeTest from 'node:test';
 import {checkLiquidGlass} from './fixtures/liquid-glass.js';
 import assert from 'node:assert/strict';
 import {mkdir,writeFile,readFile} from 'node:fs/promises';
@@ -83,7 +83,10 @@ async function checkSettingsSelects(page) {
   }
 }
 
-test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearance, zoom and errors', {timeout:180000}, async t=>{
+const suiteName='HIG frontend flows: actual rooms, text, media controls, keyboard, appearance, zoom and errors';
+const suiteTimeout=180000;
+
+async function runHig(after) {
   assert.ok(process.env.LANSW_EXE && process.env.LANSW_BROWSER_PATH,'provide the candidate executable and installed browser');
   await mkdir(output,{recursive:true});
   const services=[],contexts=[],errors=[],external=[],browserInternal=[],testProfiles=[],evidence={completed:false,environment:'Windows / isolated Edge / synthetic capture / native WebRTC',checks:[],screens:[],axe:[],ax:[],sourceHashes:{}};
@@ -93,7 +96,7 @@ test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearan
   const browser=await chromium.launch({headless:true,executablePath:process.env.LANSW_BROWSER_PATH,args});
   evidence.browserVersion=browser.version();
   evidence.mdnsHostObfuscationDisabled=process.env.LANSW_TEST_DISABLE_MDNS==='1';
-  t.after(async()=>{
+  after(async()=>{
     await Promise.allSettled(contexts.map(context=>context.close()));await browser.close();await shutdownOwnedServices(services);
     for(const profile of testProfiles)await profile.cleanup();
     evidence.errors=errors;evidence.externalRequestCount=external.length;evidence.externalRequests=external;evidence.browserInternalRequestCount=browserInternal.length;
@@ -178,6 +181,7 @@ test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearan
   }
 
   await host.locator('#connection-status').filter({hasText:'已就绪'}).waitFor();
+  assert.equal(await host.locator('#discovery-panel .peer-hosts, #discovery-panel #peer-host-form').count(),0);
   assert.equal(await host.evaluate(()=>window.__lanScreenTest.captures.length),0,'entry must not request any capture');
   assert.deepEqual(await host.locator('#empty-rooms .radar-ring').evaluateAll(rings=>rings.map(ring=>getComputedStyle(ring).animationDelay)),['0s','-1.2s','-2.4s']);
   await capture(host,'01-entry-dark');await axe(host,'entry dark');
@@ -190,23 +194,91 @@ test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearan
   await host.unroute('**/api/v1/rooms');
   // Discovery intentionally excludes all of this computer's own addresses.
   const peerIP = ['10.255.255.254', '10.255.255.253'].find(ip => !availableLANIPv4s().includes(ip));
-  const peerInput = host.locator('#peer-host-input');
+  const helpSummary = host.locator('#discovery-panel .discovery-help > summary');
+  const openPeers = host.getByRole('button',{name:'添加查找地址',exact:true});
+  const peerDialog = host.locator('#settings-dialog');
+  const peerTitle = peerDialog.getByRole('heading',{name:'指定查找的地址',level:4});
+  const peerInput = peerDialog.getByRole('textbox',{name:'局域网 IPv4 地址'});
+  const addPeer = peerDialog.locator('#peer-host-form').getByRole('button',{name:'添加',exact:true});
+  const peerStatus = peerDialog.locator('#peer-host-status');
+  const peerList = peerDialog.getByRole('list',{name:'已指定的查找地址'});
+  const removePeer = peerList.getByRole('button',{name:`移除查找地址 ${peerIP}`});
+  const diagnostics = host.locator('#discovery-diagnostics');
+  const isFocused = locator => locator.evaluate(node => document.activeElement === node);
+  async function openPeerSettings() {
+    await helpSummary.click();
+    await openPeers.press('Enter');
+    await peerDialog.waitFor();
+    assert.equal(await isFocused(peerInput),true);
+    await settle(host);
+    const dialogBox = await peerDialog.boundingBox();
+    for (const control of [peerTitle,peerInput]) {
+      const box = await control.boundingBox();
+      assert.ok(box.y >= dialogBox.y && box.y + box.height <= dialogBox.y + dialogBox.height);
+    }
+  }
+  assert.equal(await openPeers.isVisible(),false);
+  await openPeerSettings();
   assert.equal(await peerInput.getAttribute('autocomplete'),'off');
+  assert.equal(await peerInput.getAttribute('placeholder'),'例如 10.208.1.20');
+  for (const control of [peerInput,addPeer]) assert.ok((await control.boundingBox()).height >= 44);
+  for (const theme of ['dark','light']) {
+    await host.emulateMedia({colorScheme:theme});
+    await axe(host,`查找地址设置 ${theme} 390`);
+    assert.ok(await peerDialog.evaluate(node => node.scrollWidth <= node.clientWidth));
+    colorContrast(await peerInput.evaluate(node => ({
+      color:getComputedStyle(node,'::placeholder').color,
+      backgroundColor:getComputedStyle(node).backgroundColor,
+    })), `${theme} 查找地址占位文字`);
+  }
   await peerInput.fill(peerIP);
-  await host.locator('#peer-host-form button').click();
-  const removePeer = host.getByRole('button',{name:`移除好友 IP ${peerIP}`});
+  await addPeer.click();
   await removePeer.waitFor();
-  await host.locator('#discovery-panel .discovery-help > summary').click();
-  await host.locator('#discovery-diagnostics').filter({hasText:'好友 IP：1 个'}).waitFor();
-  await axe(host,'saved friend and discovery diagnostics dark narrow');
-  await host.emulateMedia({colorScheme:'light'});
-  await axe(host,'saved friend and discovery diagnostics light narrow');
-  await removePeer.focus();
+  await peerInput.fill(peerIP);
+  await peerInput.press('Enter');
+  await peerStatus.filter({hasText:'该地址已添加。'}).waitFor();
+  assert.equal(await peerList.getByRole('listitem').count(),1);
+  await closeSettings(host);
+  assert.equal(await isFocused(openPeers),true);
+  assert.ok((await openPeers.boundingBox()).height >= 44);
+  await diagnostics.filter({hasText:'指定查找的地址：1 个'}).waitFor();
+  for (const theme of ['light','dark']) {
+    await host.emulateMedia({colorScheme:theme});
+    await axe(host,`查找地址快捷入口 ${theme} 390`);
+  }
+  await host.reload();
+  await openPeerSettings();
+  await removePeer.waitFor();
+  for (const theme of ['dark','light']) {
+    await host.emulateMedia({colorScheme:theme});
+    await axe(host,`已保存查找地址 ${theme} 390`);
+    await capture(host,`peer-addresses-${theme}-390`);
+  }
+  const extraAddresses = Array.from({length:16},(_, index) => `10.255.255.${240 - index}`)
+    .filter(ip => !availableLANIPv4s().includes(ip)).slice(0,8);
+  for (const ip of extraAddresses.slice(0,7)) {
+    await peerInput.fill(ip);
+    await peerInput.press('Enter');
+    await peerList.getByRole('button',{name:`移除查找地址 ${ip}`}).waitFor();
+  }
+  await peerInput.fill(extraAddresses[7]);
+  await peerInput.press('Enter');
+  await peerStatus.filter({hasText:'最多添加 8 个地址，请先移除一个。'}).waitFor();
+  assert.equal(await peerList.getByRole('listitem').count(),8);
+  for (const ip of extraAddresses.slice(0,7)) {
+    const remove = peerList.getByRole('button',{name:`移除查找地址 ${ip}`});
+    await remove.click();
+    await remove.waitFor({state:'detached'});
+  }
   await removePeer.press('Enter');
   await removePeer.waitFor({state:'detached'});
-  await host.locator('#discovery-diagnostics').filter({hasText:'好友 IP：0 个'}).waitFor();
-  assert.equal(await peerInput.evaluate(node => document.activeElement === node),true);
-  await host.locator('#discovery-panel .discovery-help > summary').click();
+  assert.equal(await isFocused(peerInput),true);
+  await peerInput.press('Escape');
+  await peerDialog.waitFor({state:'hidden'});
+  assert.equal(await isFocused(openPeers),true);
+  await diagnostics.filter({hasText:'指定查找的地址：0 个'}).waitFor();
+  await helpSummary.click();
+  evidence.checks.push({check:'address shortcut scroll and focus, persisted address, room refresh and keyboard removal',passed:true});
   const refreshResponse = host.waitForResponse(response =>
     new URL(response.url()).pathname === '/api/v1/discovery/refresh' && response.request().method() === 'POST');
   await host.locator('#refresh-rooms').click();
@@ -231,7 +303,7 @@ test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearan
   await host.locator('#error-message').waitFor({state:'visible'});await capture(host,'17-stale-room');await axe(host,'stale room failure');await ax(host,'stale room alert');
   fixtureRooms=[];await host.unroute('**/api/v1/rooms');await host.locator('#refresh-rooms').click();
   await host.locator('#quick-manual-join').click();
-  assert.equal(await host.locator('#remember-peer-host').isChecked(),true);
+  assert.equal(await host.getByRole('checkbox',{name:'记住该地址，下次自动显示房间'}).isChecked(),true);
   assert.equal(await host.locator('#join-port').getAttribute('autocomplete'),'off');
   assert.equal(await host.locator('#join-manual-fields').getAttribute('open'),null,'individual connection fields start collapsed');
   await capture(host,'22-paste-invite-dark');await axe(host,'single invitation dark');
@@ -482,6 +554,15 @@ test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearan
   await settings(host);
   assert.equal(await host.locator('#network-interface').isDisabled(),true);
   assert.equal(await host.locator('#network-switch-note').isVisible(),true);
+  assert.equal(await peerInput.isEnabled(),true);
+  assert.equal(await addPeer.isEnabled(),true);
+  await peerInput.fill(peerIP);
+  await addPeer.click();
+  await removePeer.waitFor();
+  assert.equal(await removePeer.isEnabled(),true);
+  await removePeer.press('Enter');
+  await removePeer.waitFor({state:'detached'});
+  assert.equal(await isFocused(peerInput),true);
   await host.locator('#nickname').fill(nextName);
   await host.locator('input[value="pink"]').check();
   await closeSettings(host);
@@ -849,4 +930,17 @@ test('HIG frontend flows: actual rooms, text, media controls, keyboard, appearan
   assert.deepEqual(errors,[]);assert.deepEqual(external,[]);
   evidence.checks.push({check:'all core paths above',passed:true,realHardwareCapture:false});
   evidence.completed=true;
-});
+}
+
+// Keep the existing Node test entry point and register the same suite with the Playwright CLI.
+if (process.env.NODE_TEST_CONTEXT) {
+  nodeTest(suiteName, {timeout:suiteTimeout}, context => runHig(callback => context.after(callback)));
+} else {
+  const {test} = await import('playwright/test');
+  test(suiteName, async () => {
+    test.setTimeout(suiteTimeout);
+    let cleanup;
+    try { await runHig(callback => { cleanup = callback; }); }
+    finally { await cleanup?.(); }
+  });
+}

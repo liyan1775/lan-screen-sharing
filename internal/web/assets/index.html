@@ -19,17 +19,13 @@
     <div id="discovery-skeleton" class="discovery-skeleton" aria-hidden="true"><span></span><span></span><span></span></div>
     <div id="empty-rooms" class="empty-rooms" hidden><span class="empty-mark discovery-mark" data-icon="people" aria-hidden="true"></span><div><h2>附近还没有房间</h2><p>创建房间，邀请朋友加入。</p><button id="empty-create-room" class="button button-primary" type="button" data-button-icon="plus">创建房间</button></div></div>
     <p class="entry-help">没有找到朋友的房间？<button id="choose-viewer" class="text-button" type="button" data-button-icon="arrow-right">手动加入</button></p>
-    <section class="peer-hosts" aria-labelledby="peer-hosts-title">
-      <h2 id="peer-hosts-title">常用好友 IP（校园网直连探测）</h2>
-      <form id="peer-host-form" class="peer-host-form">
-        <label class="sr-only" for="peer-host-input">好友局域网 IPv4</label>
-        <input id="peer-host-input" type="text" inputmode="decimal" placeholder="例如 10.208.1.20" autocomplete="off" spellcheck="false" aria-describedby="peer-host-status">
-        <button class="button" type="submit">添加</button>
-      </form>
-      <ul id="peer-host-list" class="peer-host-list" aria-label="已保存的好友 IP" hidden></ul>
-      <p id="peer-host-status" class="hint" role="status" aria-atomic="true"></p>
-    </section>
-    <details class="discovery-help"><summary>未发现房间？查看检查方法与诊断</summary><p class="hint">校园网或企业网常会屏蔽广播。第一次可以用「手动加入」，也可以添加好友 IP 直接查找。请确认两台电脑可以互通，且朋友已创建房间。要让房间出现在列表里，请让朋友勾选允许发现。若系统提示网络权限，请允许本程序在你信任的网络通信。</p><pre id="discovery-diagnostics">正在读取查找状态…</pre><button id="copy-discovery-diagnostics" class="button button-light" type="button">复制查找诊断</button></details>
+    <details class="discovery-help">
+      <summary>未发现房间？查看检查方法与诊断</summary>
+      <p class="hint">先确认你和朋友连着同一个网络，并请朋友创建房间、勾选允许发现。若系统询问是否允许联网，请在你信任的网络上选择允许。还是找不到时，可以添加朋友的局域网地址，或请朋友发邀请链接给你手动加入。</p>
+      <button id="open-peer-hosts" class="button" type="button">添加查找地址</button>
+      <pre id="discovery-diagnostics">正在读取查找状态…</pre>
+      <button id="copy-discovery-diagnostics" class="button button-light" type="button">复制查找诊断</button>
+    </details>
   </section></div>
   <section id="room-panel" class="room-layout" hidden>
     <div class="room-main">
@@ -57,7 +53,7 @@
           <details id="join-manual-fields" class="join-manual-fields"><summary>分别填写地址、端口和房间码</summary>
             <div class="form-grid"><label>房主局域网 IPv4<input pattern="(?:[0-9]{1,3}\.){3}[0-9]{1,3}" id="join-address" type="text" inputmode="decimal" placeholder="例如 192.168.1.20" autocomplete="off"></label><label>信令端口<input id="join-port" type="number" min="1" max="65535" placeholder="例如 45678" autocomplete="off"></label><label class="full-field">房间码<input id="join-code" type="text" maxlength="8" placeholder="8 位房间码" autocomplete="off"></label></div>
           </details>
-          <label class="room-visibility"><span>记住此好友 IP，下次自动在「附近的房间」探测</span><input id="remember-peer-host" type="checkbox" checked></label>
+          <label class="room-visibility"><span>记住该地址，下次自动显示房间</span><input id="remember-peer-host" type="checkbox" checked></label>
           <button id="join-room" class="button button-primary" type="submit" title="加入房间（Ctrl 或 ⌘ + Enter）" aria-keyshortcuts="Control+Enter Meta+Enter">加入房间<span class="shortcut-hint" aria-hidden="true"></span></button>
           <p class="hint">麦克风稍后单独开启；拒绝麦克风权限仍可接收画面和房间语音。</p>
         </form>
@@ -126,6 +122,17 @@
     <label id="network-choice-row" hidden>局域网网卡<select id="network-interface" aria-describedby="network-note network-switch-note"></select></label>
     <p class="hint network-note" id="network-note" hidden></p>
     <p class="hint" id="network-switch-note" hidden>离开房间后可切换网卡</p>
+    <section class="peer-hosts" aria-labelledby="peer-hosts-title">
+      <h4 id="peer-hosts-title">指定查找的地址</h4>
+      <p id="peer-host-help" class="hint">自动发现不到时，额外向这些局域网地址查找房间。</p>
+      <form id="peer-host-form" class="peer-host-form">
+        <label class="sr-only" for="peer-host-input">局域网 IPv4 地址</label>
+        <input id="peer-host-input" type="text" inputmode="decimal" placeholder="例如 10.208.1.20" autocomplete="off" spellcheck="false" aria-describedby="peer-host-help peer-host-status">
+        <button class="button" type="submit">添加</button>
+      </form>
+      <ul id="peer-host-list" class="peer-host-list" aria-label="已指定的查找地址" hidden></ul>
+      <p id="peer-host-status" class="hint" role="status" aria-atomic="true"></p>
+    </section>
   </section>
   <section aria-labelledby="voice-settings-title" class="settings-basic">
     <h3 id="voice-settings-title">语音</h3>

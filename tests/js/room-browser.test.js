@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { parseHTML } from 'linkedom';
 import { bindPeerHosts, createRoomBrowser, formatDiscoveryDiagnostics } from '../../internal/web/assets/room-browser.js';
 import { RoomClient } from '../../internal/web/assets/client.js';
@@ -131,9 +132,13 @@ test('manual refresh probes immediately even with an active read; polling only r
   browser.stop();
 });
 
-test('adding and removing friends save first, update accessible chips and reload the room list', async () => {
-  const { document, Event } = parseHTML('<form><input></form><ul hidden></ul><p></p>');
-  const [form, input, list, status] = ['form', 'input', 'ul', 'p'].map(selector => document.querySelector(selector));
+test('address management lives in LAN settings and saves changes before refreshing rooms', async () => {
+  const { document, Event } = parseHTML(await readFile(new URL('../../internal/web/assets/index.html', import.meta.url), 'utf8'));
+  assert.equal(document.querySelector('#discovery-panel .peer-hosts, #discovery-panel #peer-host-form'), null);
+  assert.ok(document.querySelector('#discovery-panel .discovery-help #open-peer-hosts'));
+  const settings = document.querySelector('#settings-dialog [aria-labelledby="network-settings-title"]');
+  assert.equal(settings.querySelector('#network-switch-note').nextElementSibling.querySelector('h4').textContent, '指定查找的地址');
+  const [form, input, list, status] = ['#peer-host-form', '#peer-host-input', '#peer-host-list', '#peer-host-status'].map(selector => settings.querySelector(selector));
   const actions = [];
   let hosts = [];
   const peers = bindPeerHosts({form, input, list, status, getHosts: () => hosts,
@@ -143,20 +148,39 @@ test('adding and removing friends save first, update accessible chips and reload
   form.dispatchEvent(new Event('submit', {cancelable: true}));
   await new Promise(resolve => setImmediate(resolve));
   const remove = list.querySelector('button');
-  assert.equal(remove.getAttribute('aria-label'), '移除好友 IP 10.208.1.20');
+  assert.equal(remove.getAttribute('aria-label'), '移除查找地址 10.208.1.20');
   assert.equal(input.value, '');
   assert.equal(await peers.add('10.208.1.20'), false);
+  assert.equal(status.textContent, '该地址已添加。');
   assert.equal(await peers.add('8.8.8.8'), false);
   assert.equal(input.getAttribute('aria-invalid'), 'true');
   remove.click();
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(list.hidden, true);
+  assert.equal(status.textContent, '已移除地址。');
   assert.deepEqual(actions, [['10.208.1.20'], 'reload', [], 'reload']);
+});
+
+test('saved addresses render immediately and queued additions respect the eight-address limit', async () => {
+  const { document } = parseHTML('<form><input></form><ul hidden></ul><p></p>');
+  const [form, input, list, status] = ['form', 'input', 'ul', 'p'].map(selector => document.querySelector(selector));
+  let hosts = Array.from({length: 7}, (_, i) => `10.208.1.${i + 1}`);
+  let saves = 0;
+  const peers = bindPeerHosts({form, input, list, status, getHosts: () => hosts,
+    save: async values => { saves++; hosts = values; }, onSaved: () => {},
+  });
+  peers.render();
+  assert.equal(list.hidden, false);
+  assert.equal(list.children.length, 7);
+  assert.deepEqual(await Promise.all([peers.add('10.208.1.8'), peers.add('10.208.1.9')]), [true, false]);
+  assert.equal(list.children.length, 8);
+  assert.equal(saves, 1);
+  assert.equal(status.textContent, '最多添加 8 个地址，请先移除一个。');
 });
 
 test('discovery diagnostics show traffic and failures without copying invitations or control tokens',()=>{
   const text=formatDiscoveryDiagnostics({interfaceName:'WLAN',localIPv4:'192.168.1.20',transport:'multicast+broadcast',running:true,directPeers:2,paths:{directUnicast:{queriesSent:3,queriesReceived:1}},queriesSent:4,queriesReceived:0,repliesReceived:0,sendErrors:1,lastError:'NETWORK_PERMISSION_DENIED',roomCode:'secret-code',hostControlToken:'secret-token'});
-  assert.match(text,/好友 IP：2 个 · 直连查找包：发出 3，收到 1/);
+  assert.match(text,/指定查找的地址：2 个 · 直连查找包：发出 3，收到 1/);
   assert.match(text,/组播 \+ 广播/);assert.match(text,/系统拒绝网络权限/);assert.match(text,/不代表网络已放行/);assert.doesNotMatch(text,/secret/);
 });
 

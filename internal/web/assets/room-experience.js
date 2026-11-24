@@ -182,6 +182,13 @@ export function createRoomExperience(documentRef = document) {
   $('#confirm-accept').addEventListener('click', () => $('#confirm-dialog').close('confirm'));
   for (const id of ['voice-sound', 'watch-sound', 'members-sound']) $(`#${id}`).addEventListener('click', event => open('sound-dialog', event.currentTarget));
   for (const id of ['open-settings', 'entry-settings', 'entry-identity', 'share-options']) $(`#${id}`).addEventListener('click', event => open('settings-dialog', event.currentTarget));
+  $('#open-peer-hosts').addEventListener('click', event => {
+    open('settings-dialog', event.currentTarget);
+    const input = $('#peer-host-input');
+    $('#peer-hosts-title').scrollIntoView({block: 'nearest'});
+    input.scrollIntoView({block: 'nearest'});
+    input.focus({preventScroll: true});
+  });
   $('#invite-room').addEventListener('click', event => open('invite-dialog', event.currentTarget));
   $('#room-menu').addEventListener('click', event => open('members-dialog', event.currentTarget));
 

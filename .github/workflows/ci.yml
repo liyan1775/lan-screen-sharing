@@ -31,13 +31,13 @@ jobs:
       - run: npm run experience:test
       - name: Build Windows executable
         shell: pwsh
-        run: ./scripts/build.ps1 -BuildVersion 1.1.0 -OutputPath ./dist/release-1.1.0/局域网屏幕共享-1.1.0.exe
+        run: ./scripts/build.ps1 -BuildVersion 1.1.1 -OutputPath ./dist/release-1.1.1/局域网屏幕共享-1.1.1.exe
       - name: Install isolated Chromium test runtime
         run: node node_modules/playwright-core/cli.js install chromium
       - name: Frontend and synthetic media browser regression
         shell: pwsh
         run: |
-          $env:LANSW_EXE = (Resolve-Path './dist/release-1.1.0/局域网屏幕共享-1.1.0.exe').Path
+          $env:LANSW_EXE = (Resolve-Path './dist/release-1.1.1/局域网屏幕共享-1.1.1.exe').Path
           $env:LANSW_BROWSER_PATH = (& node --input-type=module -e "import { chromium } from 'playwright-core'; process.stdout.write(chromium.executablePath());").Trim()
           node --test tests/e2e/frontend-hig.spec.js
           if ($LASTEXITCODE -ne 0) { throw 'Frontend browser checks failed.' }
@@ -49,4 +49,4 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Product introduction checks failed.' }
       - name: Package and verify Windows release
         shell: pwsh
-        run: ./scripts/package-release.ps1 -ExePath './dist/release-1.1.0/局域网屏幕共享-1.1.0.exe' -Version 1.1.0
+        run: ./scripts/package-release.ps1 -ExePath './dist/release-1.1.1/局域网屏幕共享-1.1.1.exe' -Version 1.1.1

@@ -1,6 +1,6 @@
 ﻿param(
   [Parameter(Mandatory=$true)][string]$ExePath,
-  [string]$Version = '1.1.0',
+  [string]$Version = '1.1.1',
   [string]$OutputRoot = ''
 )
 
