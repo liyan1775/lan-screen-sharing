@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseHTML } from 'linkedom';
 import { MeshMedia } from '../../internal/web/assets/media.js';
-import { formatPerformanceHint, formatMediaDiagnostics } from '../../internal/web/assets/media-stats.js';
+import { formatPerformanceHint, formatMediaDiagnostics, formatVideoLinks } from '../../internal/web/assets/media-stats.js';
+import { MediaDiagnosticsHistory } from '../../internal/web/assets/media-history.js';
 import { bindQualityHUD, formatSharedQualityStatus } from '../../internal/web/assets/quality-hud.js';
 
 function mediaFixture() {
@@ -24,8 +25,10 @@ test('changing quality updates capture constraints before sender encoding, inclu
   assert.deepEqual(order[0][1].width, { ideal: 1280, max: 1280 });
   assert.deepEqual(order[0][1].height, { ideal: 720, max: 720 });
   assert.equal(order[1][1].maxFramerate, 30);
+  assert.equal(order[1][1].maxBitrate, 2_500_000);
   assert.deepEqual(order[2][1].frameRate, { ideal: 60, max: 60 });
   assert.equal(order[3][1].maxFramerate, 60);
+  assert.equal(order[3][1].maxBitrate, 8_000_000);
   assert.equal(media.screenVideoTrack.contentHint, 'motion');
 });
 
@@ -40,7 +43,7 @@ test('sender fallback fits both dimensions of large, ultrawide and portrait sour
     assert.ok(height / encoding.scaleResolutionDownBy <= 1080);
     assert.ok(encoding.scaleResolutionDownBy >= 1);
     assert.equal(encoding.maxFramerate, 60);
-    assert.equal(encoding.maxBitrate, 8_000_000);
+    assert.equal(encoding.maxBitrate, 15_000_000);
   }
 });
 
@@ -107,11 +110,79 @@ test('relay confirmation succeeds with basic targets when the browser rejects re
   assert.equal(attempts.length, 2);
   assert.equal(attempts[0].degradationPreference, 'maintain-resolution');
   assert.equal(attempts[1].degradationPreference, undefined);
-  assert.deepEqual(applied.encodings[0], { maxBitrate: 8_000_000, maxFramerate: 60, scaleResolutionDownBy: 2 });
+  assert.deepEqual(applied.encodings[0], { maxBitrate: 15_000_000, maxFramerate: 60, scaleResolutionDownBy: 2 });
   assert.deepEqual(states, [{
     state: 'quality_preference_unsupported',
     message: '浏览器未接受清晰度优先策略，已保留基本画质设置；请以实际统计为准。',
   }]);
+});
+
+test('screen senders use high network priority when exposed and retry without it on rejection', async () => {
+  for (const support of ['supported', 'rejected', 'absent']) {
+    const { media, states } = mediaFixture();
+    let params = {encodings:[support === 'absent' ? {} : {networkPriority:'low'}]};
+    const attempts = [];
+    const sender = {
+      getParameters: () => structuredClone(params),
+      async setParameters(value) {
+        attempts.push(value);
+        if (support === 'rejected' && 'networkPriority' in value.encodings[0]) throw new TypeError('unsupported');
+        params = value;
+        // The browser may still report a default network priority after fallback.
+        if (support === 'rejected') params = {...value, encodings:[{...value.encodings[0], networkPriority:'low'}]};
+      },
+    };
+    assert.equal(await media.applyVideoQuality(sender, {confirm:true}), true);
+    assert.equal(attempts.length, support === 'rejected' ? 2 : 1);
+    if (support !== 'absent') assert.equal(attempts[0].encodings[0].networkPriority, 'high');
+    if (support !== 'supported') assert.equal('networkPriority' in attempts.at(-1).encodings[0], false);
+    assert.equal(attempts.at(-1).encodings[0].maxBitrate, 15_000_000);
+    assert.equal(attempts.at(-1).degradationPreference, 'maintain-resolution');
+    assert.deepEqual(states, [], 'optional network priority must not report a failure');
+    await media.applyVideoQuality(sender);
+    assert.equal(attempts.length, support === 'rejected' ? 2 : 1, 'do not repeat a rejected optional parameter');
+  }
+});
+
+test('interval QP uses encoded/decoded frame counts and diagnostics preserve keyframes and packet loss in each direction', async () => {
+  const { media } = mediaFixture();
+  const common = {kind:'video', frameWidth:1920, frameHeight:1080};
+  let reports;
+  const pc = { getStats: async () => reports };
+  media.peers.set('friend', { pc });
+  function sample(timestamp, sending, receiving) {
+    reports = new Map([
+      ['out', {...common, type:'outbound-rtp', id:'out', timestamp, bytesSent:timestamp, remoteId:'remote', ...sending}],
+      ['remote', {type:'remote-inbound-rtp', id:'remote', localId:'out', packetsLost:3}],
+      ['in', {...common, type:'inbound-rtp', id:'in', timestamp, bytesReceived:timestamp, ...receiving}],
+    ]);
+    return media.getStatsSnapshot();
+  }
+  const first = await sample(1000, {framesSent:18,framesEncoded:20,qpSum:400,keyFramesEncoded:0},
+    {framesDecoded:10,qpSum:200,keyFramesDecoded:1,packetsLost:0});
+  assert.deepEqual(first.map(r => r.averageQp), [null,null]);
+  assert.deepEqual(first.map(r => r.packetsLost), [3,0]);
+  const rows = await sample(2000, {framesSent:26,framesEncoded:30,qpSum:645,keyFramesEncoded:2},
+    {framesDecoded:14,qpSum:314,keyFramesDecoded:3,packetsLost:7});
+  assert.deepEqual(rows.map(r => r.averageQp), [24.5,28.5]);
+  assert.equal(rows[0].keyFramesEncoded, 2);
+  assert.equal(rows[1].keyFramesDecoded, 3);
+  const text = formatVideoLinks(rows);
+  const report = formatMediaDiagnostics({rows, target:'1080p60'});
+  assert.match(report, /我的共享目标：1080p60（设置值，非实测） · 码率上限 15 Mbps/);
+  const history = new MediaDiagnosticsHistory();
+  history.record({rows, target:'1080p60'});
+  for (const result of [text, report, history.format()]) {
+    assert.match(result, /编码关键帧 2 · QP 24.5 · 丢包 3/);
+    assert.match(result, /解码关键帧 3 · QP 28.5 · 丢包 7/);
+  }
+  const flat = await sample(3000, {framesEncoded:30,qpSum:650}, {framesDecoded:1,qpSum:22});
+  assert.deepEqual(flat.map(r => r.averageQp), [null,null], 'no new frames or a reset cannot yield a QP');
+  const missing = await sample(4000, {framesEncoded:40}, {framesDecoded:2,qpSum:1});
+  assert.deepEqual(missing.map(r => r.averageQp), [null,null], 'an unreported or decreasing sum is ignored');
+  media.peers.set('friend', {pc});
+  const replacement = await sample(5000, {framesEncoded:50,qpSum:1200}, {framesDecoded:12,qpSum:221});
+  assert.deepEqual(replacement.map(r => r.averageQp), [null,null], 'new peer connections do not share an interval baseline');
 });
 
 const reducedOutbound = {

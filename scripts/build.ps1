@@ -1,7 +1,7 @@
 ﻿param(
   [string]$GoExe = '',
   [string]$GoProxy = '',
-  [string]$BuildVersion = '1.1.1',
+  [string]$BuildVersion = '1.2.0',
   [string]$OutputPath = ''
 )
 $ErrorActionPreference = 'Stop'

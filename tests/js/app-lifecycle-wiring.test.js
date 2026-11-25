@@ -4,11 +4,13 @@ import { readFile } from 'node:fs/promises';
 
 test('automatic recovery and its terminal cleanup are wired into the app', async () => {
   const app = await readFile(new URL('../../internal/web/assets/app.js', import.meta.url), 'utf8');
-  assert.match(app, /import \{ bindLocalConnectionLifecycle \} from '\.\/connection-lifecycle\.js'/);
+  assert.match(app, /import \{ bindLocalConnectionLifecycle, guardRoomUnload \} from '\.\/connection-lifecycle\.js'/);
   assert.match(app, /bindLocalConnectionLifecycle\(client, media, \(\) => \{/);
   assert.match(app, /ui\.roleChooser\.hidden = false/);
   assert.match(app, /ui\.roomPanel\.hidden = true/);
-  assert.match(app, /client\.prepareRestore\(\)\) connectionLifecycle\.recover\(\)/);
+  assert.match(app, /restoringPage = client\.prepareRestore\(\)/);
+  assert.match(app, /if \(restoringPage\) \{\s*connectionLifecycle\.recover\(\)/);
+  assert.match(app, /onAbandoned: clearRoomUI/);
   assert.match(app, /onRecovered:/);
 });
 

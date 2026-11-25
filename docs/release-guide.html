@@ -9,11 +9,11 @@
     :root{color-scheme:dark;font:16px/1.7 system-ui,"Microsoft YaHei UI",sans-serif;color:#f5f5f7;background:#08090d}
     *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#18295a 0,transparent 36rem)}
     main{max-width:52rem;margin:auto;padding:clamp(2rem,7vw,5rem) 1.25rem 3rem}
-    h1,h2,p,ol{margin:0}h1{font-size:clamp(2.7rem,9vw,5rem);letter-spacing:-.06em;line-height:1.12}
+    h1,h2,p,ol,ul{margin:0}h1{font-size:clamp(2.7rem,9vw,5rem);letter-spacing:-.06em;line-height:1.12}
     h2{font-size:1.4rem;line-height:1.3;margin-bottom:.65rem}p,li{color:#c2c7d6}strong{color:#f5f5f7}
     .version{letter-spacing:.07em;color:#aec8ff;font-size:.88rem;margin-bottom:.8rem}
     .intro{font-size:1.2rem;margin-top:1rem}.panel{margin-top:1rem;padding:clamp(1.1rem,4vw,1.75rem);border:1px solid #384154;border-radius:1.3rem;background:#192235aa;backdrop-filter:blur(16px)}
-    header{margin-bottom:2rem}ol{padding-left:1.4rem}li+li,p+p{margin-top:.7rem}
+    header{margin-bottom:2rem}ol,ul{padding-left:1.4rem}li+li,p+p{margin-top:.7rem}li>ul{margin-top:.7rem}
     a{color:#aec8ff;text-underline-offset:.18em}a:focus-visible{outline:2px solid #aec8ff;outline-offset:4px}
     footer{margin-top:1.6rem;font-size:.9rem}code{overflow-wrap:anywhere}
   </style>
@@ -28,19 +28,28 @@
   <section class="panel">
     <h2>三步开始共享</h2>
     <ol>
-      <li><strong>完整解压，打开程序。</strong> 每位成员都双击 <code>局域网屏幕共享.exe</code>，在桌面版 Edge 或 Chrome 打开程序提供的本机页面。请让大家使用同一版本。</li>
+      <li><strong>完整解压，打开程序。</strong> 每位成员都双击 <code>局域网屏幕共享.exe</code>。程序会优先用 Edge 或 Chrome 打开不带标签栏的独立窗口，和日常网页分开，免得误关共享。打不开独立窗口时，会改用默认浏览器。请让大家使用同一版本。</li>
       <li><strong>加入同一个房间。</strong> 一人创建房间，邀请最多两位朋友。朋友可以从“附近的房间”加入，也可以粘贴整段邀请。</li>
-      <li><strong>共享整个显示器。</strong> 点击“共享我的屏幕”，在浏览器选择整个显示器并确认。按需要授权麦克风与系统声音，系统声音取决于浏览器和采集选择。</li>
+      <li><strong>选择要共享的内容。</strong> 点击“选择内容并开始共享”，在浏览器的选择窗口中按需要选择：
+        <ul>
+          <li><strong>整个屏幕</strong>适合打游戏或展示多个软件。想让朋友听到游戏声时，在浏览器选择器中开启共享音频。</li>
+          <li><strong>单个浏览器标签页</strong>适合一起看 B 站或网页视频，帧率更稳，也不会露出桌面。开启共享音频后，只分享所选标签页的声音。</li>
+          <li><strong>单个应用窗口</strong>适合只展示一个软件。在浏览器选择窗口里点“共享”就会立刻开始，只传送该窗口的画面，不传送应用声音。房间语音照常使用。</li>
+        </ul>
+      </li>
     </ol>
   </section>
   <section class="panel">
     <h2>边看边聊</h2>
+    <p>想收起画面继续聊天时，共享者点击“停止共享”即可，房间语音不受影响。进房后如果暂时听不到对方声音，不必刷新页面，直接点击界面提示里的“重试语音连接”或“启用声音”即可。</p>
     <p>从“我的身份”或设置更改昵称与头像颜色。设置里还可以选麦克风、本机试音，以及使用自由麦或按键说话。部分偏好会保存在本机，下次打开时继续使用。</p>
     <p>观看画面时，左上角显示实收画质，右上角可以放大细节、截屏或全屏。画中画需要浏览器支持。房间文字里的网页链接可打开，整条消息可一键复制。打开外部链接需要能访问对应网站。</p>
+    <p>1080p60 最高 15 Mbps，720p60 最高 8 Mbps，实际随画面与网络变化。</p>
   </section>
   <section class="panel">
     <h2>找不到房间？</h2>
-    <p>确认电脑连在能互相访问的私有 IPv4 局域网，例如同一台路由器下。程序会优先推荐实际使用的局域网网卡。自动发现失败时，可检查 Windows 防火墙是否允许专用网络通信，再试整段邀请。</p>
+    <p>确认大家连在能互相访问的局域网，例如同一台路由器下。自动发现不到房间时，点“手动加入”，粘贴朋友发来的整段邀请。默认勾选“记住该地址，下次自动显示房间”，也可在“设置 → 局域网 → 指定查找的地址”里管理这些地址。</p>
+    <p>如果手动加入也失败，检查 Windows 防火墙是否允许专用网络通信。</p>
     <p>若进入的是旧版本的房间，请所有人先退出旧程序，打开同版程序并重新创建房间。停播后还能继续语音与文字，房主退出后房间结束。</p>
   </section>
   <footer>

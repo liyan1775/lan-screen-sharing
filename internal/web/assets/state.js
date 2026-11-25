@@ -8,10 +8,10 @@ export function applyMicrophonePermission(state, granted) {
     : { ...state, joined: true, microphone: 'denied', receiveOnly: true, code: 'MIC_PERMISSION_DENIED' };
 }
 
-export const DISPLAY_NOT_MONITOR_MESSAGE = '检测到单个应用窗口（无法稳定同步声音），请重新选择整块显示器或单个浏览器标签页。';
+export const DISPLAY_NOT_MONITOR_MESSAGE = '无法识别所选共享来源，请重新选择整个屏幕、单个浏览器标签页或应用窗口。';
 
 export function inspectDisplaySurface(surface) {
-  if (surface === 'monitor' || surface === 'browser') return { allowed: true, state: 'ready', message: '' };
+  if (['monitor', 'browser', 'window'].includes(surface)) return { allowed: true, state: 'ready', message: '' };
   return {
     allowed: false,
     state: 'DISPLAY_NOT_MONITOR',
@@ -43,6 +43,6 @@ export function roomSummary(snapshot, selfPeerId = '') {
     ...member,
     self: member.peerId === selfPeerId,
     label: `${member.role === 'host' ? '房主' : '成员'}${member.peerId === snapshot?.presenterPeerId ? ' · 正在共享' : ''}`,
-    stateLabel: member.state === 'reconnecting' ? '重连中' : '已连接',
+    stateLabel: member.state === 'reconnecting' ? '房间重连中' : '已入座',
   }));
 }

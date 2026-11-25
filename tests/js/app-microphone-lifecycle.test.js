@@ -45,11 +45,13 @@ test('member UI joins a discovered room in one click and preserves mic across sh
   const previous = {
     document: Object.getOwnPropertyDescriptor(globalThis, 'document'),
     navigator: Object.getOwnPropertyDescriptor(globalThis, 'navigator'),
-    location: globalThis.location, fetch: globalThis.fetch, WebSocket: globalThis.WebSocket,
+    location: globalThis.location, fetch: globalThis.fetch, WebSocket: globalThis.WebSocket, window: globalThis.window,
     setInterval: globalThis.setInterval, setTimeout: globalThis.setTimeout,
   };
   const microphones = [];
   let nextSystemAudio = null;
+  let nextDisplaySurface = 'monitor';
+  let displayError;
   let displayConstraints;
   const { document, window } = parseHTML(await readFile(new URL('../../internal/web/assets/index.html', import.meta.url), 'utf8'));
   // Exercise the production DOM, retaining an awaitable click for asynchronous app handlers.
@@ -83,6 +85,7 @@ test('member UI joins a discovered room in one click and preserves mic across sh
   MeshMedia.prototype.setMicrophoneFromCapture = function (...args) { mediaInstance = this; return originalSetMicrophoneFromCapture.apply(this, args); };
   RoomClient.prototype.loadLocalControl = function (...args) { appClient = this; return originalLoadLocalControl.apply(this, args); };
   globalThis.document = document;
+  globalThis.window = new EventTarget();
   Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { mediaDevices: {
     calls: 0,
     getUserMedia() {
@@ -93,7 +96,9 @@ test('member UI joins a discovered room in one click and preserves mic across sh
     },
     getDisplayMedia(constraints) {
       displayConstraints = constraints;
-      const video = { readyState:'live', stopped:false, getSettings:()=>({displaySurface:'monitor',width:1920,height:1080,frameRate:60}), addEventListener(){}, stop(){this.stopped=true;this.readyState='ended';} };
+      if (displayError) return Promise.reject(Object.assign(new Error('picker cancelled'), {name:displayError}));
+      const surface = nextDisplaySurface;
+      const video = { readyState:'live', stopped:false, getSettings:()=>({displaySurface:surface,width:1920,height:1080,frameRate:60}), addEventListener(){}, stop(){this.stopped=true;this.readyState='ended';} };
       return Promise.resolve({getVideoTracks:()=>[video],getAudioTracks:()=>nextSystemAudio?[nextSystemAudio]:[],getTracks:()=>nextSystemAudio?[video,nextSystemAudio]:[video]});
     },
   } } });
@@ -122,6 +127,14 @@ test('member UI joins a discovered room in one click and preserves mic across sh
 
   await import(`../../internal/web/assets/app.js?mic-lifecycle=${Date.now()}`);
   assert.ok(appClient);
+  const unloadIsBlocked = () => {
+    const event = new Event('beforeunload', { cancelable: true });
+    Object.defineProperty(event, 'returnValue', { value: undefined, writable: true });
+    globalThis.window.dispatchEvent(event);
+    assert.equal(event.returnValue, event.defaultPrevented ? '' : undefined);
+    return event.defaultPrevented;
+  };
+  assert.equal(unloadIsBlocked(), false, 'entry page can close without a warning');
   const toggle = document.querySelector('#toggle-mic');
   toggle.textContent = '开启麦克风'; toggle.dataset.enabled = 'false';
   const choose = document.querySelector('#choose-viewer');
@@ -149,6 +162,7 @@ test('member UI joins a discovered room in one click and preserves mic across sh
   assert.equal(firstJoin.payload.roomCode,'ABCD2345','one click must use the discovery invitation without typing');
   socket.respond({ v: 1, type: 'room.joined', requestId: firstJoin.requestId, roomId: 'room-one', peerId: 'viewer-one', payload: { members: [], peerId: 'viewer-one', resumeToken: 'resume-one' } });
   await join;
+  assert.equal(unloadIsBlocked(), true);
   await toggle.click();
   assert.equal(globalThis.navigator.mediaDevices.calls, 1);
   const firstMicrophone = microphones[0];
@@ -160,9 +174,11 @@ test('member UI joins a discovered room in one click and preserves mic across sh
 
   const leave = document.querySelector('#leave-room').click();
   await until(() => socket.sent.some((message) => message.type === 'viewer.leave'));
+  assert.equal(unloadIsBlocked(), false, 'explicit leave does not prompt while waiting for acknowledgement');
   const leaveRequest = socket.sent.findLast((message) => message.type === 'viewer.leave');
   socket.respond({ v: 1, type: 'peer.left', requestId: leaveRequest.requestId, roomId: 'room-one', peerId: 'viewer-one', payload: { peerId: 'viewer-one' } });
   await leave;
+  assert.equal(unloadIsBlocked(), false);
   assert.equal(firstMicrophone.stopCount, 1);
   assert.equal(mediaInstance.microphoneTrack, null);
 
@@ -213,6 +229,31 @@ test('member UI joins a discovered room in one click and preserves mic across sh
   micMode.value = 'open';
   micMode.dispatchEvent(new window.Event('change'));
 
+  const status = document.querySelector('#connection-status');
+  const rest = status.textContent;
+  const errorBanner = document.querySelector('#error-message');
+  const watchToast = document.querySelector('#watch-toast');
+  const start = document.querySelector('#start-share');
+  const stop = document.querySelector('#stop-share');
+  displayError = 'NotAllowedError';
+  await start.click();
+  assert.equal(errorBanner.hidden, true, 'cancelling the picker never enters the persistent error banner');
+  assert.equal(status.textContent, rest);
+  assert.equal(watchToast.querySelector('[role=status]').textContent, '已取消屏幕选择。');
+  await watchToast.querySelector('button').click();
+  assert.equal(watchToast.textContent, '');
+  displayError = undefined;
+
+  await start.click();
+  assert.equal(errorBanner.hidden, false, 'a pending no-audio decision is actionable and stays visible');
+  assert.match(status.textContent, /等待你的选择/);
+  assert.match(start.textContent, /继续仅共享/);
+  await stop.click();
+  assert.equal(errorBanner.hidden, true);
+  assert.equal(status.textContent, rest);
+  assert.equal(watchToast.textContent, '已取消屏幕捕获，画面未共享。');
+  document.querySelector('#share-mode').value = 'combined';
+
   const sharedAudio = {kind:'audio',readyState:'live',stopped:false,getSettings:()=>({restrictOwnAudio:false}),stop(){this.stopped=true;},addEventListener(){}};
   nextSystemAudio = sharedAudio;
   assert.equal(document.querySelector('#share-mode').value, 'combined', 'system audio must be included by default without opening settings');
@@ -228,7 +269,8 @@ test('member UI joins a discovered room in one click and preserves mic across sh
   assert.ok(capturedVideo, 'ordinary member can use the actual app sharing handler');
   socket.respond({v:1,type:'room.state',roomId:'room-two',payload:{members:[],presenterPeerId:'viewer-one',screenSharing:true,presentationRevision:2}});
   assert.equal(document.querySelector('#app').dataset.stage,'watch');
-  assert.equal(document.querySelector('#voice-only-warning').hidden,false);
+  assert.equal(document.querySelector('#voice-only').hidden,true);
+  assert.equal(document.querySelector('#stop-share').title,'所有人停止观看，房间语音继续');
   assert.equal(document.querySelector('#stop-share').disabled, false);
   assert.equal(mediaInstance.systemAudioTrack, sharedAudio, 'normal combined start must not require a manual verification pass');
   assert.equal(sharedAudio.stopped,false);
@@ -266,19 +308,20 @@ test('member UI joins a discovered room in one click and preserves mic across sh
   globalThis.location.href = 'http://127.0.0.1:41000/?private=test-only';
   await document.querySelector('#copy-background-site').click();
   assert.equal(copiedReport,'http://127.0.0.1:41000/','the Edge site exception address must exclude queries and control information');
+  document.querySelector('#settings-dialog').close();
   mediaInstance.peers.delete('stats-only'); mediaInstance.getStatsSnapshot = originalGetStats;
-  await document.querySelector('#voice-only').click();
+  await document.querySelector('#stop-share').click();
   assert.equal(capturedVideo.stopped,true);
-  assert.equal(mediaInstance.microphoneTrack,secondMicrophone,'voice-only action retains the microphone');
+  assert.equal(mediaInstance.microphoneTrack,secondMicrophone,'stopping the screen retains the microphone');
   assert.equal(secondMicrophone.stopCount,0);
-  assert.equal(mediaInstance.voiceOnly,true);
+  assert.equal(mediaInstance.voiceOnly,false, 'stopping a local share does not pause a future share from another member');
+  assert.equal(document.querySelector('#voice-only .button-label').textContent,'只聊语音');
   assert.equal(document.querySelector('#app').dataset.stage,'voice');
   socket.respond({v:1,type:'room.state',roomId:'room-two',payload:{members:[],presenterPeerId:'',screenSharing:false,presentationRevision:3}});
   socket.respond({v:1,type:'room.state',roomId:'room-two',payload:{members:[],presenterPeerId:'viewer-one',screenSharing:true,presentationRevision:2}});
   assert.equal(appClient.room.screenSharing,false,'a late old snapshot cannot resurrect the stopped presentation');
   assert.equal(appClient.room.presenterPeerId,'');
 
-  await document.querySelector('#voice-only').click();
   const readings = [];
   mediaInstance.peers.set('remote-presenter',{pc:{close(){}}});
   mediaInstance.getStatsSnapshot = options => new Promise(resolve => readings.push({options, resolve}));
@@ -309,6 +352,28 @@ test('member UI joins a discovered room in one click and preserves mic across sh
   await until(() => quality.textContent === '720p · 30fps');
   mediaInstance.getStatsSnapshot = originalGetStats;
   mediaInstance.peers.delete('remote-presenter');
+
+  socket.respond({v:1,type:'room.state',roomId:'room-two',payload:{members:[],presenterPeerId:'',screenSharing:false,presentationRevision:6}});
+  nextDisplaySurface = 'window';
+  nextSystemAudio = null;
+  const shareWindow = document.querySelector('#start-share').click();
+  await until(() => socket.sent.filter(message => message.type === 'share.claim').length === 2);
+  const windowClaim = socket.sent.findLast(message => message.type === 'share.claim');
+  socket.respond({v:1,type:'room.state',requestId:windowClaim.requestId,roomId:'room-two',payload:{members:[],presenterPeerId:'viewer-one',screenSharing:false,presentationRevision:7}});
+  await shareWindow;
+  assert.equal(document.querySelector('#app').dataset.stage, 'watch', 'local window preview does not wait for the room to echo sharing state');
+  assert.equal(document.querySelector('#stop-share').disabled, false);
+  assert.equal(document.querySelector('#stop-system-audio').disabled, true);
+  assert.equal(document.querySelector('#manual-verify-start').disabled, true);
+  assert.equal(document.querySelector('#window-audio-note'), null);
+  assert.equal(errorBanner.hidden, true);
+  assert.match(watchToast.textContent, /已开始共享画面与房间语音，不含共享声音/);
+  assert.equal(document.querySelector('#connection-status').textContent, '正在共享应用窗口 · 无应用声音');
+  assert.match(document.querySelector('#system-audio-note').textContent, /此窗口未共享声音，房间语音不受影响/);
+  assert.match(document.querySelector('#system-audio-diagnostics').textContent, /采集来源：单个应用窗口/);
+  assert.equal(socket.sent.findLast(message => message.type === 'media.state').payload.hasSystemAudio, false);
+  await document.querySelector('#stop-share').click();
+  assert.doesNotMatch(document.querySelector('#connection-status').textContent, /无应用声音/);
 
   socket.respond({ v: 1, type: 'error', payload: { code: 'SIGNAL_CONNECTION_LOST', retryable: true, message: 'private bridge diagnostic' } });
   assert.equal(mediaInstance.microphoneTrack, secondMicrophone);

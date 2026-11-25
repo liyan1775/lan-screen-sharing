@@ -47,6 +47,8 @@ export class RoomClient extends EventTarget {
     this.storage = storageImpl;
     this.sessionEpoch = 0;
     this.recovering = false;
+    this.wasPresentingBeforeRestore = false;
+    this.localPresentation = null;
     this.profileRoomId = '';
     this.memberProfiles = new Map();
   }
@@ -377,16 +379,21 @@ export class RoomClient extends EventTarget {
     return this.joinRoom({ ...this.joinDetails, resumeToken: this.resumeToken, restartMedia:true });
   }
 
-  saveSession() {
+  saveSession({ presenting } = {}) {
     if (!this.bootstrap?.serviceId || !this.room?.roomId || !this.reconnectWanted) return;
     if (this.role === 'viewer' && (!this.joinDetails || !this.resumeToken)) return;
+    const { roomId } = this.room;
+    if (typeof presenting === 'boolean') this.localPresentation = { roomId, presenting };
+    const currentPresentation = this.localPresentation?.roomId === roomId ? this.localPresentation.presenting
+      : this.room.screenSharing === true && this.room.presenterPeerId === this.peerId;
     try {
-      this.storage?.setItem('lan-screen-sharing.room', JSON.stringify({v:1, serviceId:this.bootstrap.serviceId, role:this.role, roomId:this.room.roomId, peerId:this.peerId,
+      this.storage?.setItem('lan-screen-sharing.room', JSON.stringify({v:1, serviceId:this.bootstrap.serviceId, role:this.role, roomId, peerId:this.peerId, presenting:currentPresentation,
         ...(this.role === 'viewer' ? {joinDetails:{...this.joinDetails, resumeToken:this.resumeToken}} : {})}));
     } catch { /* Storage may be disabled; live-page reconnection still works. */ }
   }
 
   prepareRestore() {
+    this.wasPresentingBeforeRestore = false;
     try {
       const raw = this.storage?.getItem('lan-screen-sharing.room');
       if (!raw || raw.length > 4096) return false;
@@ -394,6 +401,7 @@ export class RoomClient extends EventTarget {
       if (saved.v !== 1 || !this.bootstrap?.serviceId || saved.serviceId !== this.bootstrap.serviceId || !['host','viewer'].includes(saved.role) || !/^[a-zA-Z0-9_-]{1,64}$/.test(saved.roomId)) { this.cancelRecovery(); return false; }
       if (saved.role === 'viewer' && (!saved.joinDetails?.resumeToken || typeof saved.joinDetails.hostIPv4 !== 'string' || typeof saved.joinDetails.roomCode !== 'string')) { this.cancelRecovery(); return false; }
       this.role = saved.role; this.room = {roomId:saved.roomId, members:[]}; this.peerId = saved.peerId || '';
+      this.wasPresentingBeforeRestore = saved.presenting === true;
       this.joinDetails = saved.joinDetails || null; this.resumeToken = saved.joinDetails?.resumeToken || ''; this.reconnectWanted = true;
       return true;
     } catch { this.cancelRecovery(); return false; }
@@ -401,6 +409,7 @@ export class RoomClient extends EventTarget {
 
   cancelRecovery() {
     this.reconnectWanted = false; this.sessionEpoch += 1;
+    this.localPresentation = null;
     try { this.storage?.removeItem('lan-screen-sharing.room'); } catch { /* Optional browser storage. */ }
   }
 

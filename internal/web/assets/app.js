@@ -1,14 +1,14 @@
 import { MeshMedia } from './media.js';
 import { isolationStatus, roomSummary } from './state.js';
 import { RoomClient, ERROR_TEXT } from './client.js';
-import { resetShareControls } from './ui-state.js';
-import { bindLocalConnectionLifecycle } from './connection-lifecycle.js';
+import { bindToast, createRoomUIState, resetShareControls } from './ui-state.js';
+import { bindLocalConnectionLifecycle, guardRoomUnload } from './connection-lifecycle.js';
 import { setPreviewStream } from './preview-playback.js';
 import { PageLease } from './page-lease.js';
 import { bindScreenFullscreen } from './fullscreen.js';
 import { formatCaptureStats, formatVideoLinks, formatPerformanceHint, formatMediaDiagnostics } from './media-stats.js';
 import { bindPeerHosts, createRoomBrowser } from './room-browser.js';
-import { formatSystemAudioDiagnostics } from './system-audio-isolation.js';
+import { formatSystemAudioDiagnostics, CAPTURE_SOURCE_NOTE, WINDOW_VIDEO_ONLY_NOTE } from './system-audio-isolation.js';
 import { bindPlayerPointer } from './player-pointer.js';
 import { MediaDiagnosticsHistory } from './media-history.js';
 import { createMediaStatsPoller } from './media-stats-poller.js';
@@ -33,6 +33,9 @@ const ui = {
 };
 
 const client = new RoomClient();
+const roomUI = createRoomUIState(client.storage);
+const toasts = new Map([...document.querySelectorAll('.toast')].map(node => ['#' + node.id, bindToast(node)]));
+const appToast = $('#app-toast'), appToastHome = appToast.parentElement, appToastNext = appToast.nextElementSibling;
 const screenStage = $('.screen-stage');
 const playerPointer = bindPlayerPointer({ stage: ui.sharePanel });
 const viewerTools = bindViewerTools({
@@ -41,7 +44,7 @@ const viewerTools = bindViewerTools({
   onNotice: showRoomToast, onDrag: playerPointer.setInteracting, onPipChange: updatePresentation,
 });
 const screenFullscreen = bindScreenFullscreen({
-  stage: ui.sharePanel, gestureTarget: screenStage, button: $('#fullscreen-screen'), onError: showError,
+  stage: ui.sharePanel, gestureTarget: screenStage, button: $('#fullscreen-screen'), onError: showRoomToast,
   beforeEnter: viewerTools.beforeFullscreen, canDoubleClick: viewerTools.canDoubleClick, onModeRetry: showRoomToast,
 });
 const soundEffects = createSoundEffects();
@@ -50,6 +53,8 @@ let pageLease = null;
 const localControlReady = client.loadLocalControl().then((bootstrap) => {
   pageLease = new PageLease({ token: bootstrap.localControlToken });
   void pageLease.start();
+  restoringPage = client.prepareRestore();
+  if (!restoringPage) roomUI.clear();
   restorePreferences(bootstrap.preferences ?? {});
   renderNetwork(bootstrap);
   return true;
@@ -60,6 +65,7 @@ const media = new MeshMedia(client, {
     if (mapped.role === 'screenVideo') updatePresentation();
   },
   onAudioSource: ({ peerId, role }) => { addAudioControl(peerId, role); updatePresentation(); },
+  audioControlFor: (peerId, role) => roomUI.audio(peerId, role),
   onState: (state) => handleMediaState(state),
   onText: message => {
     textUI?.receive(message);
@@ -67,16 +73,18 @@ const media = new MeshMedia(client, {
   },
   onReaction: reaction => reactions.receive(reaction),
 });
-const experience = createRoomExperience(document);
+const experience = createRoomExperience(document, {onAudioFilter: audioFilter => roomUI.set({audioFilter})});
 const reactions = createRoomReactions({transport: media.text});
 textUI = createRoomTextUI({ documentRef:document, transport:media.text,
   nameForPeer: peerId => memberNames().find(member => member.peerId === peerId)?.displayName,
-  selfPeerId: () => client.peerId, onNotice: showRoomToast });
-const preferences = createPreferenceWriter({ save: patch => client.savePreferences(patch), onError: error => showError(error.message) });
+  selfPeerId: () => client.peerId, onNotice: showRoomToast, onOpenChange: textOpen => roomUI.set({textOpen}) });
+const preferences = createPreferenceWriter({ save: patch => client.savePreferences(patch), onError: error => showRoomToast(error.message) });
 let voiceSuspended = false;
-const voice = createVoiceControls({ document, window: globalThis, devices: navigator.mediaDevices, media, preferences,
+const voice = createVoiceControls({ document, window: globalThis, devices: navigator.mediaDevices, permissions: navigator.permissions, media, preferences,
   canUseRoom: () => !!client.room && !voiceSuspended && !client.explicitlyLeaving && !ui.roomPanel.hidden,
-  onError: showError, onNotice: showToast, onChange: syncPresentationStage,
+  onError: text => text ? showError(text, 'mic') : clearError('mic'), onNotice: showRoomToast, onChange: syncPresentationStage,
+  onActiveChange: micActive => roomUI.set({micActive}),
+  onRestoreFeedback: showMicRestoreFeedback,
 });
 const qualityHUD = bindQualityHUD({ document, select: ui.quality, onSelect: setQualityTarget });
 const nicknameInput = $('#nickname');
@@ -89,6 +97,9 @@ let profileTimer, profilePending, profileSending = false;
 let activeRole = '';
 let currentRoomName = '';
 let awaitingRecoveredPeers = false;
+let restoringPage = false;
+let pendingMicRestore = null, micRestoreAttempt = null;
+let intentionalRoomExit = false;
 let latestMediaRows = [];
 let statsInFlight = null;
 let statsUnavailable = false;
@@ -97,7 +108,8 @@ let statsGeneration = 0;
 let statsInputs = [];
 let qualityUpdate = null;
 let speakingTimer = null;
-let toastTimer = null;
+let activeToast = null, errorContext = '', uiPhase = '';
+let baseStatus = ['正在连接本机服务…', 'connecting'];
 const mediaHistory = new MediaDiagnosticsHistory();
 const statsPoller = createMediaStatsPoller({ sample: sampleStats, getState: () => ({
   active: statsKind() === 'share' && media.peers.size > 0,
@@ -108,6 +120,7 @@ const statsPoller = createMediaStatsPoller({ sample: sampleStats, getState: () =
 }) });
 const nearbyRooms = createRoomBrowser({
   list: $('#discovered-rooms'), status: $('#discovery-status'), refreshButton: $('#refresh-rooms'),
+  onRetry: () => clearError('entry'),
   onDiagnostics: (text) => {
     const diagnostics = $('#discovery-diagnostics');
     if (diagnostics.textContent !== text) diagnostics.textContent = text;
@@ -127,13 +140,14 @@ const nearbyRooms = createRoomBrowser({
       setJoinInvite(room);
       await joinRoomFromInputs();
     } catch (error) {
-      showRoomList(); showError(error.message); throw error;
+      showRoomList(); showError(error.message, 'entry'); throw error;
     }
   },
 });
 const peerHosts = bindPeerHosts({
   form: $('#peer-host-form'), input: $('#peer-host-input'), list: $('#peer-host-list'), status: $('#peer-host-status'),
   getHosts: () => preferences.values.peerHosts,
+  onNotice: showRoomToast,
   ready: () => localControlReady,
   save: async hosts => {
     const saved = await client.savePreferences({peerHosts: hosts});
@@ -145,7 +159,9 @@ const peerHosts = bindPeerHosts({
 void localControlReady.then((ready) => {
   if (ready) {
     nearbyRooms.start();
-    if (client.prepareRestore()) connectionLifecycle.recover();
+    if (restoringPage) {
+      connectionLifecycle.recover();
+    }
     else if (!activeRole) setStatus('本机程序已就绪', 'neutral');
   } else {
     $('#discovery-skeleton').hidden = true;
@@ -155,6 +171,7 @@ void localControlReady.then((ready) => {
 });
 
 const connectionLifecycle = bindLocalConnectionLifecycle(client, media, () => {
+  restoringPage = false;
   ui.roomPanel.hidden = true; ui.roleChooser.hidden = false; ui.sharePanel.hidden = true;
   ui.hostPanel.hidden = true; ui.viewerPanel.hidden = true; activeRole = '';
   $('#discovery-panel').hidden = false;
@@ -168,29 +185,111 @@ const connectionLifecycle = bindLocalConnectionLifecycle(client, media, () => {
   setStatus('房间未能恢复，请重新加入', 'error');
   showError('30 秒内未能恢复连接，或原房间已结束。采集已停止，请重新加入房间。');
 }, {
-  onRecovering: () => { voiceSuspended = true; voice.suspend(); syncNetworkAvailability(); setStatus('连接暂时中断，正在自动恢复房间…', 'connecting'); },
-  onRecovered: () => { voiceSuspended = false; syncNetworkAvailability(); showError(''); setStatus('房间已恢复', 'connected'); void syncRoomProfile(); },
+  onAbandoned: clearRoomUI,
+  onRecovering: () => {
+    voiceSuspended = true; micRestoreAttempt = null;
+    voice.suspend(); syncNetworkAvailability(); syncPresentationStage();
+  },
+  onRecovered: () => {
+    voiceSuspended = false; syncNetworkAvailability(); clearError('connection');
+    syncPresentationStage(); void syncRoomProfile();
+    void restoreRoomMicrophone();
+  },
 });
 
-function showError(text) {
+window.addEventListener('beforeunload', event => guardRoomUnload(event, {
+  inRoom: !!client.room,
+  recovering: connectionLifecycle.recovering || client.recovering,
+  sharing: !!media.screenVideoTrack,
+  intentionalExit: intentionalRoomExit || client.explicitlyLeaving,
+}));
+
+function showError(text, context = 'general') {
+  errorContext = text ? context : '';
   ui.error.textContent = text; ui.error.hidden = !text;
   document.querySelectorAll('.dialog-feedback').forEach(node => { node.textContent = text; node.hidden = !text || !node.closest('dialog').open; });
 }
-function showToast(text, selector = '#app-toast') {
-  const toast = $(selector);
-  if (toastTimer !== null) {
-    clearTimeout(toastTimer.timer);
-    toastTimer.node.textContent = '';
-  }
-  toast.textContent = text;
-  toastTimer = { node: toast, timer: setTimeout(() => {
-    toast.textContent = '';
-    toastTimer = null;
-  }, 3200) };
+function clearError(context) {
+  if (errorContext === context) showError('');
+}
+function showToast(text, selector = ui.roomPanel.hidden || !client.room ? '#app-toast' : '#watch-toast') {
+  const dialog = $('dialog[open]');
+  if ($('#invite-dialog').open) selector = '#invite-toast';
+  else if (ui.settings.open) selector = '#settings-toast';
+  else if (dialog) {
+    selector = '#app-toast';
+    if (appToast.parentElement !== dialog) dialog.prepend(appToast);
+  } else if (appToast.parentElement !== appToastHome) appToastHome.insertBefore(appToast, appToastNext);
+  const toast = toasts.get(selector);
+  if (activeToast !== toast) activeToast?.dismiss();
+  activeToast = toast;
+  toast.show(text);
 }
 
 function showRoomToast(text) {
-  showToast(text, ui.roomPanel.hidden ? '#app-toast' : '#watch-toast');
+  showToast(text);
+}
+
+function noticeInCurrentView(selector) {
+  const phase = uiPhase, room = roomUI.current, dialog = $('dialog[open]');
+  return text => {
+    if (phase === uiPhase && room === roomUI.current && (!dialog || dialog.open)) {
+      showToast(text, selector);
+      return true;
+    }
+    return false;
+  };
+}
+
+function clearRoomUI() {
+  pendingMicRestore = null;
+  micRestoreAttempt = null;
+  awaitingRecoveredPeers = false;
+  roomUI.clear();
+  showMicRestoreFeedback('');
+  toasts.get('#restore-share-note').dismiss();
+}
+
+function beginRoomUI(restore = false) {
+  const saved = roomUI.begin(client.bootstrap?.serviceId, client.room.roomId, restore);
+  media.setVoiceOnly(saved.voiceOnly);
+  experience.setAudioFilter(saved.audioFilter);
+  textUI.sync(client.room.roomId);
+  textUI.setOpen(saved.textOpen);
+  if (media.audioElements.size) {
+    clearAudioControls();
+    for (const audio of media.audioElements.values()) {
+      const {sourcePeerId:peerId, trackRole:role} = audio.dataset;
+      media.setAudioControl(peerId, role, roomUI.audio(peerId, role) ?? {volume:1, muted:false});
+      addAudioControl(peerId, role);
+    }
+  }
+  pendingMicRestore = saved.micActive ? saved : null;
+  if (restore && !pendingMicRestore) voice.restore();
+}
+
+function showMicRestoreFeedback(message) {
+  const feedback = $('#mic-restore-feedback');
+  const banner = feedback.parentElement;
+  banner.hidden = !message;
+  feedback.textContent = message;
+  if (message) $('#toggle-mic').setAttribute('aria-describedby', feedback.id);
+  else $('#toggle-mic').removeAttribute('aria-describedby');
+}
+
+async function restoreRoomMicrophone() {
+  const roomState = pendingMicRestore;
+  if (!roomState || roomState !== roomUI.current || micRestoreAttempt) return;
+  const attempt = micRestoreAttempt = {};
+  const result = await voice.restoreRoomMicrophone();
+  if (attempt !== micRestoreAttempt || roomState !== roomUI.current) return;
+  micRestoreAttempt = null;
+  if (!result) return;
+  pendingMicRestore = null;
+  const active = result.active && !!media.microphoneTrack && media.microphoneTrack.readyState !== 'ended';
+  roomUI.set({micActive:active});
+  if (active) showRoomToast('已恢复麦克风');
+  else showMicRestoreFeedback(result.message || '麦克风已断开，请重新开启麦克风。');
 }
 
 function restorePreferences(saved) {
@@ -207,7 +306,7 @@ function restorePreferences(saved) {
   soundEffects.setEnabled(values.soundEffects);
   void media.setQuality(values.qualityTarget);
   void media.setShareCursor(values.shareCursor);
-  voice.restore();
+  voice.restore({refresh: !restoringPage});
   updateSystemAudioUI();
   renderLocalIdentity();
 }
@@ -310,7 +409,7 @@ networkSelect.addEventListener('change', async () => {
   networkChanging = true;
   networkRevision++;
   syncNetworkAvailability();
-  showError('');
+  clearError('settings');
   try {
     const network = await client.switchNetwork(next);
     preferences.restore({preferredLanIPv4: network.lanIPv4});
@@ -319,7 +418,7 @@ networkSelect.addEventListener('change', async () => {
     showToast('已切换局域网网卡', ui.settings.open ? '#settings-toast' : '#app-toast');
   } catch (error) {
     renderNetwork(await client.refreshBootstrap().catch(() => client.bootstrap ?? {}));
-    showError(error.message);
+    if (ui.settings.open) showError(error.message, 'settings');
   } finally {
     networkChanging = false;
     syncNetworkAvailability();
@@ -369,45 +468,70 @@ function syncSpeakingIndicators() {
 }
 function syncPresentationStage() {
   const joined = !ui.roomPanel.hidden && !!client.room;
-  const watching = joined && !!client.room.screenSharing && !media.voiceOnly;
+  const localSharing = !!media.screenVideoTrack;
+  const remoteSharing = client.room?.screenSharing === true && client.room.presenterPeerId !== client.peerId;
+  const watching = joined && (localSharing || remoteSharing) && !media.voiceOnly;
+  const presenter = localSharing || remoteSharing ? client.room?.presenterPeerId : '';
   textUI?.sync(joined ? client.room.roomId || client.room.id : '');
   ui.app.dataset.stage = joined ? (watching ? 'watch' : 'voice') : (ui.roomPanel.hidden ? 'entry' : 'setup');
+  const nextPhase = joined ? 'room' : ui.app.dataset.stage;
+  if (uiPhase !== nextPhase) {
+    if (uiPhase) {
+      showError(''); activeToast?.dismiss(); peerHosts.clearStatus();
+      for (const field of ui.viewerPanel.querySelectorAll('[aria-invalid]')) field.removeAttribute('aria-invalid');
+    }
+    uiPhase = nextPhase;
+  }
   $('#room-heading-title').textContent = joined ? (client.room?.name || currentRoomName || (activeRole === 'host' ? $('#room-name').value.trim() : '') || '房间') : (activeRole === 'host' ? '创建房间' : '手动加入');
   $('#leave-room').hidden = !joined || activeRole !== 'viewer';
   $('#end-room').hidden = !joined || activeRole !== 'host';
-  const warning = $('#voice-only-warning'), voiceOnly = $('#voice-only');
-  warning.hidden = !(media.screenVideoTrack || media.pendingScreenStream);
-  if (warning.hidden) {
-    voiceOnly.removeAttribute('aria-describedby');
-    voiceOnly.removeAttribute('title');
-  } else {
-    voiceOnly.setAttribute('aria-describedby', warning.id);
-    voiceOnly.title = warning.textContent;
-  }
   if (!watching) viewerTools.setPresentation('', false);
-  $('#voice-stage-message').textContent = media.voiceOnly && client.room?.screenSharing
-    ? '只聊语音中；你可以随时恢复观看。' : '先聊着，准备好时可以共享画面。';
   let invite = '';
   try { invite = formatRoomInvite({ hostIPv4: ui.hostAddress.value, hostPort: ui.hostPort.value, roomCode: ui.roomCode.textContent }); }
   catch { /* A complete invitation is available only after creating or joining a room. */ }
   if ($('#invite-text').value !== invite) $('#invite-text').value = invite;
+  const members = memberNames();
+  const remoteMembers = members.filter(member => member.peerId !== client.peerId);
+  const failedVoicePeers = remoteMembers.filter(member => media.peers.get(member.peerId)?.voiceStatus === 'failed')
+    .map(member => ({peerId:member.peerId, name:member.displayName}));
+  const voicePending = remoteMembers.some(({peerId}) => ['connecting', 'retrying'].includes(media.peers.get(peerId)?.voiceStatus));
+  const recovering = connectionLifecycle.recovering || client.recovering;
+  const voiceConnection = joined && !recovering && (failedVoicePeers.length ? 'failed' : voicePending ? 'connecting' : '');
+  const [statusText, statusState] = intentionalRoomExit ? baseStatus
+    : recovering ? ['连接暂时中断，正在自动恢复房间…', 'connecting']
+    : !joined ? baseStatus
+    : media.pendingScreenStream ? ['未获取共享声音，等待你的选择', 'error']
+    : localSharing ? [media.systemAudioDiagnostics?.displaySurface === 'window' ? '正在共享应用窗口 · 无应用声音' : '正在共享屏幕', 'connected']
+    : activeRole === 'host' && remoteMembers.length === 0 ? ['房间已创建，等待朋友加入', 'connected']
+    : failedVoicePeers.length ? ['语音连接需要重试', 'error']
+    : remoteMembers.some(({peerId}) => media.peers.get(peerId)?.voiceStatus !== 'connected')
+      ? [activeRole === 'host' ? '已有朋友加入，正在连接语音…' : '正在连接语音…', 'connecting']
+      : ['媒体已连接', 'connected'];
+  if (ui.status.textContent !== statusText) ui.status.textContent = statusText;
+  ui.status.dataset.state = statusState;
   voice.sync();
   experience.sync({ stage: ui.app.dataset.stage, roomName: $('#room-heading-title').textContent, memberCount: client.room?.members?.length || 0,
     roomId: client.room?.roomId || '',
-    presenterPeerId: client.room?.presenterPeerId || '', presenterName: memberNames().find(member => member.peerId === client.room?.presenterPeerId)?.displayName,
-    microphone: !!media.microphoneTrack, micMode: voice.mode, talking: voice.talking, voiceOnly: media.voiceOnly, screenSharing: !!client.room?.screenSharing });
+    presenterPeerId: presenter || '', presenterName: members.find(member => member.peerId === presenter)?.displayName,
+    microphone: !!media.microphoneTrack, micMode: voice.mode, talking: voice.talking, voiceOnly: media.voiceOnly, localSharing,
+    screenSharing: localSharing || remoteSharing, hasSystemAudio: remoteSharing && client.room.hasSystemAudio === true,
+    needsAudioActivation: joined && media.blockedAudio.size > 0,
+    voiceConnection, failedVoicePeers });
   reactions.sync(joined ? client.room.roomId : '', watching);
   syncBackgroundWork();
 }
-function setStatus(text, state = 'neutral') { if (ui.status.textContent !== text) ui.status.textContent = text; ui.status.dataset.state = state; syncPresentationStage(); }
+
+function setStatus(text, state = 'neutral') { baseStatus = [text, state]; syncPresentationStage(); }
 function showRoom() { ui.roleChooser.hidden = true; ui.roomPanel.hidden = false; ui.role.textContent = activeRole === 'host' ? '房主' : '成员'; }
 function showRoomList() {
   if (client.room) return;
+  restoringPage = false;
+  clearRoomUI();
   activeRole = ''; currentRoomName = '';
   ui.roomPanel.hidden = true; ui.roleChooser.hidden = false; ui.sharePanel.hidden = true;
   ui.hostPanel.hidden = true; ui.viewerPanel.hidden = true;
   $('#discovery-panel').hidden = false;
-  syncPresentationStage();
+  setStatus('本机程序已就绪');
 }
 function memberNames(snapshot = client.room) {
   return roomSummary(snapshot, client.peerId || snapshot?.members?.[0]?.peerId || '').sort((a,b) => (a.seatIndex ?? 0) - (b.seatIndex ?? 0)).map((member) => ({
@@ -489,19 +613,34 @@ function clearAudioControls() { document.querySelectorAll('.audio-source').forEa
 
 function addAudioControl(peerId, role) {
   if ([...document.querySelectorAll('.audio-source')].some(row => row.dataset.peerId === peerId && row.dataset.role === role)) return;
+  const saved = roomUI.audio(peerId, role);
   const row = document.createElement('div'); row.className = 'audio-source'; row.dataset.peerId = peerId; row.dataset.role = role;
   const title = document.createElement('strong'); title.textContent = audioLabel(peerId, role);
-  const mute = document.createElement('button'); mute.type = 'button'; mute.textContent = '静音'; mute.setAttribute('aria-pressed', 'false'); mute.setAttribute('aria-label', '静音' + title.textContent);
-  mute.addEventListener('click', () => { const next = mute.getAttribute('aria-pressed') !== 'true'; media.setAudioControl(peerId, role, { muted: next }); mute.setAttribute('aria-pressed', String(next)); mute.textContent = next ? '取消静音' : '静音'; mute.setAttribute('aria-label', mute.textContent + title.textContent); experience.syncAudio(); });
+  const mute = document.createElement('button'); mute.type = 'button';
+  const renderMute = muted => {
+    mute.textContent = muted ? '取消静音' : '静音';
+    mute.setAttribute('aria-pressed', String(muted));
+    mute.setAttribute('aria-label', mute.textContent + title.textContent);
+  };
+  renderMute(saved?.muted === true);
+  mute.addEventListener('click', () => {
+    const muted = mute.getAttribute('aria-pressed') !== 'true';
+    media.setAudioControl(peerId, role, {muted});
+    roomUI.setAudio(peerId, role, {muted});
+    renderMute(muted);
+    experience.syncAudio();
+  });
   const volume = document.createElement('input');
   volume.type = 'range';
   volume.min = '0';
   volume.max = '1';
   volume.step = '0.05';
-  volume.value = '1';
+  volume.value = String(saved?.volume ?? 1);
   volume.setAttribute('aria-label', title.textContent + '音量');
   volume.addEventListener('input', () => {
-    media.setAudioControl(peerId, role, { volume: volume.value });
+    const value = Number(volume.value);
+    media.setAudioControl(peerId, role, {volume:value});
+    roomUI.setAudio(peerId, role, {volume:value});
     experience.syncAudio();
   });
   const output = document.createElement('output');
@@ -528,43 +667,56 @@ function handleMediaState(state) {
     showRoomToast(text);
     return;
   }
-  if (['disconnected', 'failed', 'peer_closed'].includes(state.state)) voice.release();
+  if (state.state === 'peer_closed') voice.release();
   if (state.state === 'closed') voice.suspend({close:true});
-  if (state.state === 'autoplay_blocked') $('#enable-audio').hidden = false;
   if (state.state === 'audio_source_ended') document.querySelectorAll('.audio-source').forEach(row => { if (row.dataset.peerId === state.peerId && row.dataset.role === state.role) row.remove(); });
   if (state.state === 'audio_isolation') $('#system-audio-diagnostics').textContent = formatSystemAudioDiagnostics(state.diagnostics, navigator.userAgent);
-  if (['remote_screen_ended','screen_started','capture_pending','capture_idle'].includes(state.state)) updatePresentation();
+  if (['remote_screen_ended','screen_started','capture_pending','capture_idle','capture_discarded'].includes(state.state)) updatePresentation();
+  if (state.state === 'screen_started') {
+    toasts.get('#restore-share-note').dismiss();
+    clearError('share');
+    client.saveSession({ presenting: true });
+  }
   if (state.state === 'screen_stopped') {
+    clearError('share');
+    client.saveSession({ presenting: false });
     resetShareControls({ start: $('#start-share'), stop: $('#stop-share'), verify: $('#manual-verify-start'), checklist: $('#manual-checklist'), manualCheck: ui.manualCheck });
     updatePresentation();
+    if (state.ended && client.room) showRoomToast('已停止屏幕共享，房间语音不受影响。');
+  }
+  if (state.state === 'capture_discarded') {
+    clearError('share');
+    resetShareControls({ start: $('#start-share'), stop: $('#stop-share'), verify: $('#manual-verify-start'), checklist: $('#manual-checklist'), manualCheck: ui.manualCheck });
+    ui.isolation.textContent = media.isolation.label; ui.isolation.dataset.state = media.isolation.state;
+    updateSystemAudioUI();
+    if (state.ended && client.room) showRoomToast('待确认的屏幕画面已停止，未开始共享。');
   }
   if (state.state === 'closed') { viewerTools.setPresentation('', false); screenFullscreen.setAvailable(false); playerPointer.setAvailable(false); }
-  if (state.state === 'closed') { $('#voice-only .button-label').textContent = '只聊语音'; $('#voice-only').setAttribute('aria-pressed', 'false'); }
   if (state.state === 'quality') ui.targetText.textContent = state.targetText;
-  else if (state.state === 'capture_quality_unsupported') showError(state.message);
-  else if (state.state === 'quality_unsupported' || state.state === 'quality_preference_unsupported' || state.state === 'screen_relay_error' || state.state === 'autoplay_blocked' || state.state === 'ICE_FAILED' || state.state === 'DISPLAY_NOT_MONITOR' || state.state === 'missing_audio') showError(state.message);
+  else if (['capture_quality_unsupported', 'quality_unsupported', 'quality_preference_unsupported'].includes(state.state) && client.room) showRoomToast(state.message);
+  else if (['screen_relay_error', 'DISPLAY_NOT_MONITOR', 'missing_audio'].includes(state.state) && client.room) showError(state.message, 'share');
   else if (state.state === 'peer_closed') document.querySelectorAll('.audio-source').forEach((row) => { if (row.dataset.peerId === state.peerId) row.remove(); });
   else if (state.state === 'closed') { $('#toggle-mic').textContent = '开启麦克风'; $('#toggle-mic').dataset.enabled = 'false'; clearAudioControls(); ui.isolation.textContent = state.isolation.label; ui.isolation.dataset.state = state.isolation.state; document.querySelector('.screen-stage')?.classList.remove('has-video'); setPreviewStream(ui.remoteScreen, null); ui.shareMode.value = preferences.values.shareMode; resetShareControls({ start: $('#start-share'), stop: $('#stop-share'), verify: $('#manual-verify-start'), checklist: $('#manual-checklist'), manualCheck: ui.manualCheck }); updateSystemAudioUI(); }
-  else if (state.state === 'connected') setStatus('媒体已连接', 'connected');
   syncPresentationStage();
 }
 
 function showSharedCapture(result) {
   media.setVoiceOnly(false);
-  $('#voice-only').textContent = '只聊语音'; $('#voice-only').setAttribute('aria-pressed', 'false');
+  roomUI.set({voiceOnly:false});
   screenFullscreen.setAvailable(true);
   playerPointer.setAvailable(true);
   ui.remoteScreen.muted = true; setPreviewStream(ui.remoteScreen, result.stream);
   ui.isolation.textContent = result.isolation.label; ui.isolation.dataset.state = result.isolation.state;
   document.querySelector('.screen-stage').classList.add('has-video');
   $('#start-share').disabled = true;
-  $('#stop-share').disabled = false; $('#stop-share').textContent = '停止屏幕共享';
+  $('#stop-share').disabled = false; $('#stop-share').textContent = '停止共享';
   updateSystemAudioUI();
   updatePresentation();
 }
 
 function updateSystemAudioUI() {
   const active = !!media.systemAudioTrack && media.systemAudioTrack.readyState !== 'ended' && media.captureMode === 'combined';
+  const windowSharing = !!media.screenVideoTrack && media.systemAudioDiagnostics?.displaySurface === 'window';
   $('#stop-system-audio').disabled = !active;
   $('#manual-verify-start').disabled = !active;
   $('#system-audio-note').textContent = active
@@ -573,9 +725,10 @@ function updateSystemAudioUI() {
       : media.isolation.state === 'browser_reported' || media.isolation.state === 'manual_pass'
       ? '系统声音正在共享；隔离状态见下方，听感检查为可选。'
       : '系统声音正在共享；隔离未确认，可能包含房间语音。需要时可单独停止系统声音。'
-    : ui.shareMode.value === 'combined'
-      ? '打游戏请选择整块显示器；和朋友看 B 站或网页视频时，推荐选择单个浏览器标签页，帧率更稳，也不会露出桌面。需要声音时，请在浏览器选择窗口中开启共享音频。'
-      : '当前选择不共享系统声音；画面与房间语音仍可正常共享。';
+    : windowSharing ? WINDOW_VIDEO_ONLY_NOTE
+    : CAPTURE_SOURCE_NOTE + (ui.shareMode.value === 'combined'
+      ? '需要共享整屏或标签页的声音时，请在浏览器选择器中开启共享音频。'
+      : '当前选择不共享系统声音。');
 }
 
 function showPendingAudioChoice() {
@@ -584,8 +737,8 @@ function showPendingAudioChoice() {
   ui.shareMode.value = 'limited';
   $('#start-share').textContent = '继续仅共享画面与房间语音'; $('#manual-verify-start').hidden = true;
   $('#manual-checklist').hidden = true;
-  showError('未获取所选内容的声音，画面尚未共享。你可以继续仅共享画面与房间语音，或取消后重新选择并开启共享音频。');
-  setStatus('未获取共享声音，等待你的选择', 'error');
+  showError('未获取所选内容的声音，画面尚未共享。你可以继续仅共享画面与房间语音，或取消后重新选择并开启共享音频。', 'share');
+  syncPresentationStage();
 }
 
 async function chooseRole(role) {
@@ -615,11 +768,13 @@ $('#quick-create-room').addEventListener('click', () => chooseRole('host'));
 $('#empty-create-room').addEventListener('click', () => chooseRole('host'));
 $('#quick-manual-join').addEventListener('click', () => { currentRoomName = ''; void chooseRole('viewer'); });
 $('#copy-discovery-diagnostics').addEventListener('click', async () => {
-  try { await navigator.clipboard.writeText($('#discovery-diagnostics').textContent); $('#copy-discovery-diagnostics').textContent = '已复制'; showToast('已复制查找诊断'); }
-  catch { showError('无法自动复制，请选中查找诊断文字后手动复制。'); }
+  const notice = noticeInCurrentView();
+  try { await navigator.clipboard.writeText($('#discovery-diagnostics').textContent); notice('已复制查找诊断'); }
+  catch { notice('无法自动复制，请选中查找诊断文字后手动复制。'); }
 });
 $('#browse-rooms').addEventListener('click', () => { showRoomList(); void nearbyRooms.refresh(); });
 $('#host-panel').addEventListener('submit', event => event.preventDefault());
+$('#room-name').addEventListener('input', () => { if (errorContext === 'create') { clearError('create'); setStatus('本机信令已连接', 'connected'); } });
 for (const [form, button] of [[ui.hostPanel, $('#create-room')], [ui.viewerPanel, $('#join-room')]]) {
   form.addEventListener('keydown', event => {
     if (event.defaultPrevented || event.isComposing || event.repeat || event.key !== 'Enter' ||
@@ -646,21 +801,22 @@ $('#create-room').addEventListener('click', async event => {
     if (inviteCard) inviteCard.hidden = !ui.hostAddress.value || !ui.hostPort.value;
     if (!ui.hostAddress.value || !ui.hostPort.value) showError('没有可用的局域网信令地址。请检查网络或用 --lan-ip 选择有效的私网 IPv4 后重启程序。');
     media.setIdentity(client.peerId || client.room?.members?.[0]?.peerId || '', 'host');
-    updateMembers(); setStatus('房间已创建，等待朋友加入', 'connected'); ui.sharePanel.hidden = false;
+    updateMembers(); ui.sharePanel.hidden = false;
     $('#host-share-controls').hidden = false;
     $('#create-room').disabled = true;
-  } catch (error) { showError(error.message); setStatus('房间创建失败', 'error'); }
+  } catch (error) { showError(error.message, 'create'); setStatus('房间创建失败', 'error'); }
   finally { $('#browse-rooms').disabled = false; if (!client.room) $('#create-room').disabled = false; }
 });
 
 $('#copy-invite').addEventListener('click', async () => {
+  const notice = noticeInCurrentView('#invite-toast');
   try {
     await navigator.clipboard.writeText($('#invite-text').value);
-    showToast('已复制邀请信息', '#invite-toast');
-    $('#copy-invite').textContent = '已复制'; setTimeout(() => { $('#copy-invite').textContent = '复制邀请信息'; }, 1500);
+    notice('已复制邀请信息');
   } catch {
-    $('#invite-text').focus(); $('#invite-text').select();
-    showError('无法自动复制，已选中完整邀请信息，请按 Ctrl+C 复制。');
+    if (notice('无法自动复制，已选中完整邀请信息，请手动复制。')) {
+      $('#invite-text').focus(); $('#invite-text').select();
+    }
   }
 });
 
@@ -673,17 +829,24 @@ function setJoinInvite(details) {
   $('#join-code').value = normalized.roomCode;
   for (const id of ['join-invite', 'join-address', 'join-port', 'join-code']) $(`#${id}`).removeAttribute('aria-invalid');
 }
-$('#join-invite').addEventListener('input', () => { $('#join-invite').removeAttribute('aria-invalid'); });
+function clearJoinError() {
+  for (const id of ['join-invite', 'join-address', 'join-port', 'join-code']) $(`#${id}`).removeAttribute('aria-invalid');
+  if (errorContext === 'join') {
+    clearError('join');
+    setStatus('本机信令已连接', 'connected');
+  }
+}
+$('#join-invite').addEventListener('input', clearJoinError);
 for (const id of ['join-address', 'join-port', 'join-code']) {
   $(`#${id}`).addEventListener('input', () => {
-    $('#join-invite').value = ''; $('#join-invite').removeAttribute('aria-invalid');
-    $(`#${id}`).removeAttribute('aria-invalid');
+    $('#join-invite').value = ''; clearJoinError();
   });
 }
 $('#viewer-panel').addEventListener('submit', event => event.preventDefault());
 $('#join-room').addEventListener('click', async event => {
   event.preventDefault();
   soundEffects.unlock();
+  clearJoinError();
   const pasted = $('#join-invite').value.trim();
   const manual = !pasted && $('#join-manual-fields').open;
   if (manual && !ui.viewerPanel.reportValidity()) return;
@@ -692,7 +855,7 @@ $('#join-room').addEventListener('click', async event => {
       ? { hostIPv4: $('#join-address').value, hostPort: $('#join-port').value, roomCode: $('#join-code').value }
       : parseRoomInvite(pasted));
   } catch (error) {
-    showError(error.message);
+    showError(error.message, 'join');
     const field = manual ? $('#join-address') : $('#join-invite');
     field.setAttribute('aria-invalid', 'true'); field.focus();
     return;
@@ -712,60 +875,64 @@ async function joinRoomFromInputs({remember = false} = {}) {
     const inviteCard = ui.hostAddress.closest('.invite-card'); if (inviteCard) inviteCard.hidden = false;
     updateMembers({ ...snapshot, members: snapshot.members ?? [] });
     ui.sharePanel.hidden = false; ui.viewerPanel.hidden = true;
-    setStatus('已加入房间，正在连接媒体…', 'connected');
     if (remember) {
       try { await peerHosts.add(hostIPv4, {quiet: true}); }
       catch (error) { showRoomToast(error.message); }
     }
-  } catch (error) { showError(error.message); setStatus('加入失败', 'error'); throw error; }
+  } catch (error) { showError(error.message, 'join'); setStatus('加入失败', 'error'); throw error; }
   finally { $('#browse-rooms').disabled = false; $('#join-room').disabled = false; }
 }
 
 $('#start-share').addEventListener('click', async () => {
-  showError('');
+  const roomState = roomUI.current;
+  const stillInRoom = () => roomState && roomState === roomUI.current;
+  const reportFailure = (error, fallback = '屏幕采集未能开始。') => {
+    if (!stillInRoom()) return;
+    if (error.code === 'CAPTURE_CANCELLED') showRoomToast('已取消屏幕共享。');
+    else if (error.name === 'NotAllowedError' || error.name === 'AbortError') showRoomToast('已取消屏幕选择。');
+    else showError(ERROR_TEXT[error.code] ?? fallback, 'share');
+  };
+  clearError('share');
   const mode = ui.shareMode.value;
   if (media.pendingScreenStream) {
-    if (mode !== 'limited') { showError('未获取所选内容的声音，画面尚未共享。请选择“画面 + 房间语音（无共享声音）”后继续，或取消本次共享。'); return; }
+    if (mode !== 'limited') { showPendingAudioChoice(); return; }
     try {
       const result = await media.acceptPendingScreenAsLimited();
+      if (!stillInRoom()) return;
       showSharedCapture(result);
       $('#start-share').textContent = '选择内容并开始共享';
       $('#manual-checklist').hidden = true;
-      setStatus('仅共享画面与房间语音', 'connected');
-      showError('已共享画面与房间语音。');
-    } catch (error) { showError(error.message); }
+      showRoomToast('已开始共享画面与房间语音，不含共享声音。');
+    } catch (error) { reportFailure(error, error.message); }
     return;
   }
   // startScreenFromGesture calls getDisplayMedia before its first await, preserving the click activation.
   try {
     const result = await media.startScreenFromGesture(mode);
+    if (!stillInRoom()) return;
     if (result.captureState === 'missing_audio') { showPendingAudioChoice(); return; }
     showSharedCapture(result);
     $('#start-share').textContent = '选择内容并开始共享';
-    setStatus('正在共享屏幕', 'connected');
-  } catch (error) {
-    if (error.code === 'CAPTURE_CANCELLED') return;
-    if (error.name === 'NotAllowedError') showError('已取消屏幕选择。');
-    else showError(ERROR_TEXT[error.code] ?? '屏幕采集未能开始。');
-  }
+    if (!result.hasSystemAudio) showRoomToast('已开始共享画面与房间语音，不含共享声音。');
+  } catch (error) { reportFailure(error); }
 });
 
 $('#stop-share').addEventListener('click', async () => {
+  clearError('share');
   viewerTools.setPresentation('', false);
   screenFullscreen.setAvailable(false);
   setPreviewStream(ui.remoteScreen, null);
   if (media.pendingScreenStream) {
     await media.discardPendingScreen();
-    $('#stop-share').disabled = true; $('#stop-share').textContent = '停止屏幕共享';
-    $('#start-share').disabled = false; $('#start-share').textContent = '选择内容并开始共享'; $('#manual-verify-start').hidden = false; $('#manual-verify-start').disabled = false;
-    ui.isolation.textContent = media.isolation.label; ui.isolation.dataset.state = media.isolation.state;
-    setStatus('已取消待处理的屏幕捕获', 'connected'); showError('已取消屏幕捕获，画面未共享。');
+    showRoomToast('已取消屏幕捕获，画面未共享。');
     return;
   }
-  await media.setScreenStream(null);
+  try { await media.setScreenStream(null); }
+  catch { if (client.room) showError('未能确认停止共享，请重试。', 'share'); return; }
   setPreviewStream(ui.remoteScreen, null); document.querySelector('.screen-stage').classList.remove('has-video');
   ui.isolation.textContent = media.isolation.label; ui.manualCheck.hidden = false; $('#manual-checklist').hidden = true;
-  $('#stop-share').disabled = true; $('#start-share').disabled = false; $('#manual-verify-start').hidden = false; $('#manual-verify-start').disabled = false; setStatus('屏幕已停止，成员语音仍保持连接', 'connected');
+  $('#stop-share').disabled = true; $('#start-share').disabled = false; $('#manual-verify-start').hidden = false;
+  if (client.room) showRoomToast('已停止屏幕共享，房间语音不受影响。');
   updateSystemAudioUI();
 });
 
@@ -803,48 +970,49 @@ $('#share-cursor').addEventListener('change', async () => {
   await media.setShareCursor(shareCursor);
 });
 $('#copy-media-diagnostics').addEventListener('click', async () => {
+  const notice = noticeInCurrentView();
   await sampleStats();
   const report = [formatMediaDiagnostics({ track: media.screenVideoTrack, rows: latestMediaRows, target: ui.quality.value, shareCursor: media.shareCursor,
     visibility: document.visibilityState,
     audio: formatSystemAudioDiagnostics(media.systemAudioDiagnostics, navigator.userAgent) }), mediaHistory.format()].join('\n\n');
-  try { await navigator.clipboard.writeText(report); $('#copy-media-diagnostics').textContent = '媒体诊断已复制'; showToast('已复制媒体诊断', '#settings-toast'); }
-  catch { showError('无法自动复制，请手动复制画质统计与系统声音兼容性诊断。'); }
+  try { await navigator.clipboard.writeText(report); notice('已复制媒体诊断'); }
+  catch { notice('无法自动复制，请手动复制画质统计与系统声音兼容性诊断。'); }
 });
 $('#copy-background-site').addEventListener('click', async () => {
+  const notice = noticeInCurrentView();
   try {
     await navigator.clipboard.writeText(new URL('/', location.href).href);
-    $('#copy-background-site').textContent = '已复制，可粘贴到 Edge 的站点例外';
-    showToast('已复制页面地址', '#settings-toast');
-  } catch { showError('无法自动复制，请复制浏览器地址栏中的 localhost 地址。'); }
+    notice('已复制页面地址，可粘贴到 Edge 的站点例外。');
+  } catch { notice('无法自动复制，请复制浏览器地址栏中的 localhost 地址。'); }
 });
 
-$('#voice-only').addEventListener('click', async () => {
+$('#voice-only').addEventListener('click', () => {
+  if (media.screenVideoTrack) return;
   const voiceOnly = !media.voiceOnly;
   if (voiceOnly) viewerTools.setPresentation('', false);
-  if (voiceOnly && (media.screenVideoTrack || media.pendingScreenStream)) await media.setScreenStream(null);
   media.setVoiceOnly(voiceOnly);
-  $('#voice-only .button-label').textContent = voiceOnly ? '恢复观看' : '只聊语音';
-  $('#voice-only').setAttribute('aria-pressed', String(voiceOnly));
+  roomUI.set({voiceOnly});
   updatePresentation();
 });
 
+$('#retry-voice').addEventListener('click', () => media.retryVoiceConnections());
 $('#enable-audio').addEventListener('click', async () => {
-  const ok = await media.resumeAudio(); if (!ok) showError('仍有音频播放被浏览器阻止，请检查网站声音权限。'); else showError('');
-  $('#enable-audio').hidden = ok;
+  await media.resumeAudio();
 });
 
 $('#stop-system-audio').addEventListener('click', async () => {
+  clearError('share');
   try {
     await media.setSystemAudioTrack(null);
     ui.shareMode.value = 'limited'; $('#manual-checklist').hidden = true;
-    showError(''); setStatus('系统声音已停止，画面与成员语音继续', 'connected');
-  } catch { showError('系统声音采集已停止，但部分连接未确认；如仍有异常，请停止共享后重新加入。'); }
+    showRoomToast('系统声音已停止，画面与成员语音继续。');
+  } catch { if (client.room) showError('系统声音采集已停止，但部分连接未确认；如仍有异常，请停止共享后重新加入。', 'share'); }
   updateSystemAudioUI();
 });
 
 $('#manual-verify-start').addEventListener('click', () => {
   if (!media.systemAudioTrack || media.captureMode !== 'combined') return;
-  showError('');
+  clearError('share');
   $('#manual-checklist').hidden = false;
   $('#manual-check-status').textContent = '可让成员轮流说话，听共享声音是否正常、语音是否重复。结果仅记录听感，不会自动停止系统声音；你可以随时点击“停止共享系统声音”。';
 });
@@ -855,30 +1023,44 @@ async function finishManualCheck(result) {
   media.isolation = isolationStatus({ supported: true, requested: true, settings: { restrictOwnAudio: true }, manualResult: result });
   ui.isolation.textContent = media.isolation.label; ui.isolation.dataset.state = media.isolation.state;
   $('#manual-checklist').hidden = true;
-  if (result === 'fail') showError('已记录可能存在回声，系统声音继续共享；需要时请点“停止共享系统声音”。');
-  else showError('');
+  showRoomToast(result === 'fail' ? '已记录可能存在回声；需要时可停止共享系统声音。' : '已记录听感正常。');
   media.publishMediaState();
   updateSystemAudioUI();
 }
 
-$('#leave-room').addEventListener('click', async () => {
+async function withIntentionalRoomExit(action) {
+  if (intentionalRoomExit) return;
+  intentionalRoomExit = true;
+  try { await action(); }
+  finally { intentionalRoomExit = false; }
+}
+
+$('#leave-room').addEventListener('click', () => withIntentionalRoomExit(async () => {
+  clearRoomUI();
   voiceSuspended = true; voice.suspend({close:true});
   setPreviewStream(ui.remoteScreen, null);
   client.reconnectWanted = false;
   connectionLifecycle.cancel();
   showError(''); setStatus('正在离开房间…', 'connecting');
+  let leaveError;
   try { await client.leaveRoom(); }
   catch (error) {
     client.close(); client.room = null; client.peerId = ''; client.resumeToken = ''; client.joinDetails = null;
-    showError('未能确认离开房间，已断开本机连接。' + error.message);
+    leaveError = '未能确认离开房间，已断开本机连接。' + error.message;
   }
   await media.closeAll();
   showRoomList();
-  setStatus('已离开房间', 'neutral'); updateMembers(null);
-});
+  updateMembers(null);
+  showRoomToast(leaveError || '已离开房间。');
+}));
 
 $('#end-room').addEventListener('click', async () => {
   if (!await experience.confirm({title:'结束这个房间？', description:'所有成员的语音、画面和文字连接都会断开。朋友需要新的邀请才能再次加入。', action:'结束房间'}, $('#end-room'))) return;
+  await withIntentionalRoomExit(endRoomFromUI);
+});
+
+async function endRoomFromUI() {
+  clearRoomUI();
   voiceSuspended = true; voice.suspend({close:true});
   connectionLifecycle.cancel();
   setPreviewStream(ui.remoteScreen, null);
@@ -886,17 +1068,21 @@ $('#end-room').addEventListener('click', async () => {
   try {
     await client.endRoom(); await media.closeAll();
     showRoomList();
-    setStatus('房间已结束', 'neutral');
+    showRoomToast('房间已结束，可以加入其他房间。');
   } catch {
     client.cancelRecovery(); client.close(); client.room = null; client.peerId = '';
     await media.closeAll(); showRoomList(); updateMembers(null);
-    setStatus('已退出本机房间', 'neutral');
-    showError('未能向其他成员确认结束。本机已停止采集并退出；如果房主连接没有恢复，房间将在保留期后关闭。');
+    showRoomToast('未能向其他成员确认结束。本机已停止采集并退出；如果房主连接没有恢复，房间将在保留期后关闭。');
   }
-});
+}
 
 $('#exit-program').addEventListener('click', async () => {
   if (!await experience.confirm({title:'退出本机程序？', description:client.room && activeRole === 'host' ? '你是房主。退出将结束房间，所有成员都会断开连接。' : '本机的语音、画面和文字连接会停止。再次使用时需要重新运行程序。', action:'退出程序'}, $('#exit-program'))) return;
+  await withIntentionalRoomExit(exitProgramFromUI);
+});
+
+async function exitProgramFromUI() {
+  clearRoomUI();
   voiceSuspended = true; voice.suspend({close:true});
   await localControlReady;
   await preferences.flush();
@@ -911,7 +1097,9 @@ $('#exit-program').addEventListener('click', async () => {
     else if (client.room && client.role === 'host') await client.endRoom();
   } catch { /* Local shutdown still ends this process's rooms. */ }
   await media.closeAll();
+  client.room = null; client.peerId = ''; client.explicitlyLeaving = false;
   client.close();
+  showRoomList();
   try {
     const result = await fetch('/api/v1/shutdown', { method: 'POST', credentials: 'same-origin', headers: { 'X-Local-Control-Token': client.bootstrap?.localControlToken ?? '' } });
     if (!result.ok) throw new Error('shutdown rejected');
@@ -920,7 +1108,7 @@ $('#exit-program').addEventListener('click', async () => {
     showError('退出请求未能发送。请重试；关闭最后一个项目页面后程序也会自动退出。');
     setStatus('本机程序仍在运行', 'error');
   }
-});
+}
 
 client.addEventListener('message', (event) => {
   const message = event.detail;
@@ -930,9 +1118,19 @@ client.addEventListener('message', (event) => {
     return;
   }
   if (message.recovered) {
+    const refresh = restoringPage;
+    restoringPage = false;
+    const ownPresentation = client.room?.presenterPeerId === client.peerId;
     activeRole = client.role; currentRoomName = client.room?.name || '';
     showRoom(); ui.hostPanel.hidden = true; ui.viewerPanel.hidden = true; ui.sharePanel.hidden = false;
     media.setIdentity(client.peerId, client.role);
+    if (refresh) {
+      beginRoomUI(true);
+      if (!media.screenVideoTrack && (client.wasPresentingBeforeRestore || (ownPresentation && client.room.screenSharing))) {
+        toasts.get('#restore-share-note').show('页面已刷新，之前的共享已停止；如需继续，请重新选择内容开始共享。');
+        client.saveSession({ presenting: false });
+      }
+    }
     for (const peerId of [...media.peers.keys()]) void media.closePeer(peerId);
     awaitingRecoveredPeers = true;
     const invite = client.role === 'host'
@@ -942,13 +1140,14 @@ client.addEventListener('message', (event) => {
       ui.hostAddress.value = invite.hostIPv4 || ''; ui.hostPort.value = invite.hostPort || ''; ui.roomCode.textContent = invite.roomCode || '';
       const card = ui.hostAddress.closest('.invite-card'); if (card) card.hidden = !ui.hostAddress.value;
     }
-    if (client.room?.presenterPeerId === client.peerId) {
+    if (ownPresentation) {
       if (!media.screenVideoTrack) void client.releasePresentation().catch(() => {});
       else media.publishMediaState();
     }
   }
   if (message.type === 'room.created') {
     voiceSuspended = false;
+    beginRoomUI();
     $('#room-name').disabled = true; $('#room-discoverable').disabled = true;
     const peerId = message.peerId;
     client.peerId = peerId; media.setIdentity(peerId, 'host');
@@ -957,26 +1156,27 @@ client.addEventListener('message', (event) => {
     const card = ui.hostAddress.closest('.invite-card'); if (card) card.hidden = !ui.hostAddress.value || !ui.hostPort.value;
     ui.sharePanel.hidden = false; $('#create-room').disabled = true; updateMembers();
   } else if (message.type === 'room.joined') {
-    if (!message.recovered) voiceSuspended = false;
+    if (!message.recovered) { voiceSuspended = false; beginRoomUI(); }
     const snapshot = client.room;
     updateMembers(snapshot); media.setIdentity(client.peerId, 'viewer');
     if (!awaitingRecoveredPeers) for (const member of snapshot.members) if (member.peerId !== client.peerId) media.addPeer(member.peerId, member.role);
-    if (client.room?.presenterPeerId === client.peerId) {
+    if (!message.recovered && client.room?.presenterPeerId === client.peerId) {
       if (!media.screenVideoTrack && !media.captureAttempt) void client.releasePresentation().catch(() => {});
       else media.publishMediaState();
     }
-    setStatus('已加入房间，正在建立语音连接', 'connected');
   } else if (message.type === 'peer.joined') {
     if (message.peerId !== client.peerId) media.addPeer(message.peerId, message.payload?.role ?? 'viewer');
     updateMembers();
   } else if (message.type === 'peer.left') {
     // Always clear local membership/media state, even when the leave request already rejected.
     const departed = message.payload?.peerId ?? message.peerId;
+    const selfLeft = message.selfLeft || departed === client.peerId;
+    if (selfLeft) clearRoomUI();
     void media.closePeer(departed);
-    if (message.selfLeft || departed === client.peerId) {
+    if (selfLeft) {
       setPreviewStream(ui.remoteScreen, null);
       void media.closeAll(); showRoomList();
-      setStatus('已离开房间', 'neutral');
+      if (!intentionalRoomExit) showRoomToast('已离开房间。');
     }
     updateMembers();
   } else if (message.type === 'room.state') {
@@ -988,33 +1188,43 @@ client.addEventListener('message', (event) => {
     const member = client.room?.members?.find(member => member.peerId === message.peerId);
     if (member) media.addPeer(member.peerId, member.role);
   } else if (message.type === 'room.ended') {
+    clearRoomUI();
+    connectionLifecycle.cancel();
     profilePending = null;
     setPreviewStream(ui.remoteScreen, null);
     void media.closeAll(); showRoomList();
     $('#create-room').disabled = false;
-    setStatus(message.payload?.reason === 'session_replaced' ? '房间已在另一个页面恢复，本页已退出' : '房间已结束，可以加入其他房间', 'neutral'); showError('');
+    if (!intentionalRoomExit) {
+      const reason = message.payload?.reason;
+      showRoomToast(reason === 'session_replaced' ? '房间已在另一个页面恢复，本页已退出。'
+        : reason === 'expired' ? '房间已过期，可以加入其他房间。' : '房间已结束，可以加入其他房间。');
+    }
   } else if (message.type === 'rtc.description' || message.type === 'rtc.candidate' || message.type.startsWith('screen.')) {
-    media.handleSignal(message.type, message.payload ?? {}).catch(() => showError('媒体协商失败，请重新加入房间。'));
+    if (client.room && message.roomId === client.room.roomId) {
+      const roomState = roomUI.current;
+      void media.handleSignal(message.type, message.payload ?? {}).catch(() => {
+        if (roomState && roomState === roomUI.current) showRoomToast('未能处理媒体连接，请稍后重试。');
+      });
+    }
   }
   if (message.type.startsWith('room.') || message.type.startsWith('peer.')) updatePresentation();
 });
 
 function updatePresentation() {
-  syncPresentationStage();
   $('#discovery-panel').hidden = !!client.room || (!!activeRole && !ui.roomPanel.hidden);
   $('#browse-rooms').hidden = !!client.room;
   const presenter = client.room?.presenterPeerId ?? '';
-  media.setPresenter(presenter);
+  media.setPresenter(presenter, client.room?.screenSharing === true && client.room.hasSystemAudio === true);
   const own = presenter === client.peerId && !!presenter;
   const occupiedByOther = !!presenter && !own;
-  document.querySelectorAll('.audio-source').forEach((row) => { row.hidden = row.dataset.role === 'systemAudio' && row.dataset.peerId !== presenter; });
-  const stream = !media.voiceOnly && client.room?.screenSharing
-    ? (own ? media.screenStream : media.remoteScreens.get(presenter)) : null;
+  const stream = media.voiceOnly ? null : media.screenStream ??
+    (occupiedByOther && client.room?.screenSharing ? media.remoteScreens.get(presenter) : null);
   const hasVideo = !!stream?.getVideoTracks?.().some((track) => track.readyState !== 'ended');
   const pauseLocalPreview = own && media.pauseBackgroundPreview && !viewerTools.keepsPreview() && (document.visibilityState === 'hidden' || document.hasFocus?.() === false);
   const playing = hasVideo && !pauseLocalPreview;
-  viewerTools.setPresentation(!media.voiceOnly && client.room?.screenSharing ? JSON.stringify([client.room.roomId, presenter]) : '', playing);
-  if (ui.remoteScreen.srcObject !== (playing ? stream : null)) setPreviewStream(ui.remoteScreen, playing ? stream : null, () => showError('浏览器阻止画面播放，请点击“启用声音”后重试。'));
+  viewerTools.setPresentation(!media.voiceOnly && client.room && (media.screenVideoTrack || (occupiedByOther && client.room.screenSharing))
+    ? JSON.stringify([client.room.roomId, presenter || client.peerId]) : '', playing);
+  if (ui.remoteScreen.srcObject !== (playing ? stream : null)) setPreviewStream(ui.remoteScreen, playing ? stream : null, () => showRoomToast('浏览器阻止画面播放，请点击画面后重试。'));
   screenStage.classList.toggle('has-video', playing);
   screenFullscreen.setAvailable(playing);
   playerPointer.setAvailable(playing);
@@ -1031,8 +1241,13 @@ function updatePresentation() {
 
 client.addEventListener('errorMessage', (event) => {
   const error = event.detail;
-  showError(error.text);
-  if (error.code === 'MIC_PERMISSION_DENIED') $('#toggle-mic').textContent = '重试麦克风';
+  if (error.code === 'SIGNAL_CONNECTION_LOST' && error.retryable) return; // Recovery owns the status.
+  if (error.requestId) return; // Request handlers own their own validation and failure messages.
+  if (error.code === 'CAPTURE_CANCELLED') {
+    if (client.room) showRoomToast('已取消屏幕共享。');
+    return;
+  }
+  showError(error.text, 'connection');
 });
 client.addEventListener('connected', () => setStatus('本机信令已连接', 'connected'));
 
@@ -1163,7 +1378,19 @@ ui.settings.addEventListener('toggle', async () => {
     if (current && networkRevision === revision) renderNetwork(current);
   }
 });
-ui.settings.addEventListener('close', () => { void preferences.flush(); void syncRoomProfile(); });
+ui.settings.addEventListener('close', () => {
+  toasts.get('#settings-toast').dismiss(); peerHosts.clearStatus(); clearError('settings');
+  void preferences.flush(); void syncRoomProfile();
+});
+$('#invite-dialog').addEventListener('close', () => toasts.get('#invite-toast').dismiss());
+for (const dialog of document.querySelectorAll('dialog')) dialog.addEventListener('close', () => {
+  if (appToast.parentElement === dialog) {
+    toasts.get('#app-toast').dismiss();
+    appToastHome.insertBefore(appToast, appToastNext);
+  }
+  const feedback = dialog.querySelector('.dialog-feedback');
+  if (feedback) { feedback.hidden = true; feedback.textContent = ''; }
+});
 ui.diagnostics.addEventListener('toggle', syncBackgroundWork);
 $('#members-dialog').addEventListener('toggle', syncSpeakingIndicators);
 document.addEventListener('visibilitychange', () => {

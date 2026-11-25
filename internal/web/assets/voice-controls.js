@@ -64,18 +64,20 @@ export function bindPushToTalk({ document, window, button, canTalk, onChange }) 
 
 const audioInputs = list => list.filter(input => input.kind === 'audioinput' && input.deviceId && !['default', 'communications'].includes(input.deviceId));
 const deviceLabel = label => Array.from((label || '').replace(/\p{Cc}/gu, '').trim()).slice(0,160).join('');
+const restorePermissionMessage = '麦克风已关闭，请在浏览器中允许麦克风后再开启。';
+const restoreDeviceMessage = '未能自动恢复麦克风，请检查设备连接和浏览器权限，再点击开启麦克风。';
 function rememberedDevice(inputs, label) {
   if (!label) return null;
   const matches = inputs.filter(input => deviceLabel(input.label) === label);
   return matches.length === 1 ? matches[0] : null;
 }
 
-export async function captureMicrophone(devices, deviceId, isCurrent, {label = '', signal} = {}) {
+export async function captureMicrophone(devices, deviceId, isCurrent, {label = '', signal, allowFallback = true} = {}) {
   const request = id => devices.getUserMedia({ audio: id ? { deviceId: { exact: id } } : true, video: false });
   try {
     return { stream: await request(deviceId), deviceId };
   } catch (error) {
-    if (!deviceId || !['NotFoundError', 'OverconstrainedError'].includes(error.name) || !isCurrent()) throw error;
+    if (!allowFallback || !deviceId || !['NotFoundError', 'OverconstrainedError'].includes(error.name) || !isCurrent()) throw error;
   }
   const stream = await request('');
   if (!label || !isCurrent()) return {stream, deviceId:''};
@@ -144,7 +146,9 @@ function createLevelMeter({ window, meter }) {
   };
 }
 
-export function createVoiceControls({ document, window, devices, media, preferences, canUseRoom, onError, onNotice, onChange }) {
+export function createVoiceControls({ document, window, devices, permissions, media, preferences, canUseRoom, onError, onNotice, onChange,
+  onRestoreFeedback = () => {},
+  onActiveChange = () => {} }) {
   const $ = selector => document.querySelector(selector);
   const device = $('#mic-device'), mode = $('#mic-mode'), toggle = $('#toggle-mic');
   const test = $('#test-mic'), note = $('#mic-note'), settings = $('#settings-dialog'), ptt = $('#push-to-talk');
@@ -207,6 +211,8 @@ export function createVoiceControls({ document, window, devices, media, preferen
     if (close) {
       roomStream = null; activeDeviceId = ''; retry = false;
       if (media.microphoneTrack) media.stopMicrophone();
+      onRestoreFeedback('');
+      notify('');
     }
     stopTest();
     sync();
@@ -245,8 +251,7 @@ export function createVoiceControls({ document, window, devices, media, preferen
       selectDevice(match?.deviceId || '');
       if (!match) {
         const message = '已选麦克风不可用，已改用系统默认麦克风。';
-        notify(message);
-        if (!settings.open) onNotice(message);
+        onNotice(message);
       }
     } else if (saved && ids.has(saved)) {
       const label = deviceLabel(inputs.find(input => input.deviceId === saved)?.label);
@@ -254,6 +259,7 @@ export function createVoiceControls({ document, window, devices, media, preferen
     }
     if (missing(activeDeviceId) && media.microphoneTrack && !roomRequest) {
       media.stopMicrophone();
+      onActiveChange(false);
       pushToTalk.release();
       roomStream = null; activeDeviceId = '';
       const message = '麦克风已断开，请重新开启麦克风。';
@@ -265,44 +271,64 @@ export function createVoiceControls({ document, window, devices, media, preferen
     if (!roomRequest) renderDevices();
   }
 
-  async function openRoomMicrophone(id) {
+  async function openRoomMicrophone(id, { automatic = false } = {}) {
     const request = new AbortController();
     roomRequest = request;
     stopTest();
+    notify('');
+    onError('');
     sync();
     const isCurrent = () => roomRequest === request && canUseRoom();
     const label = id === values.micDeviceId && !seenIds.has(id) ? values.micDeviceLabel : '';
     let selectedId = id, selectedLabel;
     try {
-      const capture = captureMicrophone(devices, id, isCurrent, {label, signal:request.signal}).then(result => {
+      if (automatic) {
+        let permission;
+        try { permission = await permissions?.query({name:'microphone'}); }
+        catch { /* The browser may not support querying this permission. Try capture. */ }
+        if (!isCurrent()) return null;
+        if (permission?.state === 'denied') return { active:false, message:restorePermissionMessage };
+      }
+      const capture = captureMicrophone(devices, id, isCurrent, {label, signal:request.signal, allowFallback:!automatic}).then(result => {
         selectedId = result.deviceId;
         selectedLabel = result.label;
         return result.stream;
       });
       const {stream, track} = await media.setMicrophoneFromCapture(capture, sending);
-      if (!isCurrent()) return;
+      if (!isCurrent()) return null;
+      if (track.readyState === 'ended') {
+        media.stopMicrophone();
+        throw new Error('麦克风音轨已结束。');
+      }
       roomStream = stream;
       activeDeviceId = selectedId;
       selectDevice(selectedId, selectedLabel);
-      if (id && !selectedId) notify('所选麦克风不可用，已使用系统默认麦克风。');
+      if (id && !selectedId) onNotice('所选麦克风不可用，已使用系统默认麦克风。');
       track.addEventListener?.('ended', () => {
         if (media.microphoneTrack !== track) return;
         cancelRoomRequest();
         media.stopMicrophone();
+        onActiveChange(false);
         pushToTalk.release();
         roomStream = null; activeDeviceId = '';
         const message = '麦克风已断开，请重新开启麦克风。';
         notify(message);
+        if (automatic) onRestoreFeedback(message);
         if (!settings.open) onNotice(message);
         onChange();
         void refreshDevices();
       }, {once:true});
       retry = false;
-      onError('');
+      onRestoreFeedback('');
+      onActiveChange(true);
       void refreshDevices();
+      return { active:true };
     } catch (error) {
-      if (!isCurrent() || error.code === 'CAPTURE_CANCELLED') return;
+      if (!isCurrent()) return null;
       device.value = values.micDeviceId;
+      if (automatic) return { active:false, message:['NotAllowedError', 'PermissionDeniedError', 'SecurityError'].includes(error.name)
+        ? restorePermissionMessage : restoreDeviceMessage };
+      if (error.code === 'CAPTURE_CANCELLED') return null;
       retry = !media.microphoneTrack;
       const message = error.code === 'MIC_SWITCH_FAILED' ? error.message
         : media.microphoneTrack ? '无法使用所选麦克风，仍在使用原来的麦克风。'
@@ -323,7 +349,10 @@ export function createVoiceControls({ document, window, devices, media, preferen
     cancelRoomRequest();
     pushToTalk.release();
     roomStream = null; activeDeviceId = ''; retry = false;
+    notify('');
+    onError('');
     media.stopMicrophone();
+    onActiveChange(false);
     onChange();
   });
   device.addEventListener('change', async () => {
@@ -382,11 +411,16 @@ export function createVoiceControls({ document, window, devices, media, preferen
     else stopTest();
     onChange();
   });
-  settings.addEventListener('close', () => { stopTest(); onChange(); });
+  settings.addEventListener('close', () => { stopTest(); notify(''); onChange(); });
   window.addEventListener?.('pagehide', () => suspend({close:true}));
   return {
     sync, suspend, release: pushToTalk.release,
-    restore() { sync(); renderDevices(); void refreshDevices(); },
+    restore({refresh = true} = {}) { sync(); renderDevices(); if (refresh) void refreshDevices(); },
+    restoreRoomMicrophone() {
+      if (!canUseRoom() || roomRequest) return null;
+      if (media.microphoneTrack?.readyState === 'live') return { active:true };
+      return openRoomMicrophone(values.micDeviceId, {automatic:true});
+    },
     get talking() { return !!media.microphoneTrack && pttMode() && sending(); },
     get mode() { return values.micMode; },
   };

@@ -7,9 +7,15 @@ import path from 'node:path';
 import {chromium} from 'playwright-core';
 import {installSyntheticMedia} from './fixtures/synthetic-media.js';
 import {availableLANIPv4s,createTestPreferences,startOwnedService,shutdownOwnedServices,selectedLANIPv4} from './fixtures/services.js';
+import {closeEntryWithoutUnloadDialog,reloadWithUnloadCheck} from './fixtures/unload.js';
 
 const output=path.resolve(process.env.LANSW_HIG_EVIDENCE || '.superpowers/sdd/lan-screen-sharing/build/hig-evidence');
-const assetFiles=['index.html','styles.css','app.js','client.js','preferences.js','connection-lifecycle.js','page-lease.js','room-browser.js','room-invite.js','room-experience.js','room-text.js','room-text-ui.js','media.js','screen-relay.js','media-stats-poller.js','media-stats.js','fullscreen.js','preview-playback.js','voice-controls.js','quality-hud.js','viewer-tools.js','room-reactions.js','sound-effects.js','icons.js','player-pointer.js'];
+const brandAssets = {
+  '/favicon.ico':'icons/favicon.ico',
+  '/assets/manifest.webmanifest':'manifest.webmanifest',
+  '/assets/icons/icon-32.png':'icons/icon-32.png',
+};
+const assetFiles=['index.html','styles.css','app.js','client.js','preferences.js','connection-lifecycle.js','page-lease.js','room-browser.js','room-invite.js','room-experience.js','room-text.js','room-text-ui.js','media.js','screen-relay.js','media-stats-poller.js','media-stats.js','fullscreen.js','preview-playback.js','voice-controls.js','quality-hud.js','viewer-tools.js','room-reactions.js','sound-effects.js','icons.js','player-pointer.js','state.js','system-audio-isolation.js','ui-state.js','media-history.js',...Object.values(brandAssets)];
 const microphones=[{deviceId:'desk-mic',label:'桌面麦克风'},{deviceId:'headset-mic',label:'耳机麦克风'}];
 
 function colorContrast({color, backgroundColor}, label) {
@@ -104,7 +110,25 @@ async function runHig(after) {
     evidence.buildSHA256=createHash('sha256').update(await readFile(process.env.LANSW_EXE)).digest('hex');
     await writeFile(path.join(output,'evidence.json'),JSON.stringify(evidence,null,2));
   });
+  const exitingContexts=new WeakMap();
+  const expectedExitConsole=[];
   function monitorRequests(context) {
+    context.on('response',response=>{
+      if(response.status()===404)errors.push('HTTP 404: '+new URL(response.url()).pathname);
+    });
+    context.on('console',message=>{
+      if(message.type()!=='error')return;
+      const text=message.text(), location=message.location().url;
+      const exiting=exitingContexts.get(context);
+      // This one context deliberately shuts down its own server while Edge
+      // still has an open page. Do not hide asset or JavaScript failures.
+      const localLeaseRefusal=exiting && text.startsWith("WebSocket connection to '"+
+        exiting.replace('http:','ws:')+"/ws/page' failed:") && text.endsWith('net::ERR_CONNECTION_REFUSED');
+      const stoppedRequest=exiting && text==='Failed to load resource: net::ERR_CONNECTION_REFUSED' &&
+        (!location || (location.startsWith(exiting+'/api/v1/') || location===exiting+'/ws/page'));
+      if(localLeaseRefusal || stoppedRequest)expectedExitConsole.push({text,location});
+      else errors.push('Console error: '+text+(location?' ('+location+')':''));
+    });
     context.on('request', request => {
       const url = new URL(request.url());
       if (url.protocol === 'data:' || url.protocol === 'about:') return;
@@ -134,9 +158,17 @@ async function runHig(after) {
   const [host,viewer,other]=pages;
   evidence.servedHashes={};
   for(const file of assetFiles) {
-    const response=await fetch(services[0].baseURL+(file==='index.html'?'/':'/assets/'+file));assert.equal(response.ok,true);
+    const response=await fetch(services[0].baseURL+(file==='index.html'?'/':file==='icons/favicon.ico'?'/favicon.ico':'/assets/'+file));assert.equal(response.ok,true);
     const actual=createHash('sha256').update(Buffer.from(await response.arrayBuffer())).digest('hex');const expected=createHash('sha256').update(await readFile('internal/web/assets/'+file)).digest('hex');assert.equal(actual,expected,'embedded '+file+' matches reviewed source');evidence.servedHashes[file]=actual;
   }
+  const urls=Object.keys(brandAssets);
+  const linkedURLs=await host.locator('link[rel="icon"], link[rel="manifest"]').evaluateAll(links=>links.map(link=>link.getAttribute('href')));
+  const brandResponses=await Promise.all(urls.map(async url=>({
+    url, linked:linkedURLs.includes(url),
+    status:(await host.request.get(services[0].baseURL+url,{maxRedirects:0})).status(),
+  })));
+  assert.deepEqual(brandResponses,urls.map(url=>({url,linked:true,status:200})));
+  evidence.checks.push({check:'linked brand assets served to the browser',responses:brandResponses});
   async function settle(page){
     await page.evaluate(async()=>{
       await document.fonts.ready;
@@ -161,7 +193,7 @@ async function runHig(after) {
     const result=await page.evaluate(async()=>{const r=await window.axe.run(document,{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21aa','best-practice']}});return{violations:r.violations.map(v=>({id:v.id,impact:v.impact,nodes:v.nodes.map(n=>({target:n.target,summary:n.failureSummary}))})),incomplete:r.incomplete.map(v=>({id:v.id,impact:v.impact,nodes:v.nodes.map(n=>n.target)})),passes:r.passes.length};});
     evidence.axe.push({state,...result});assert.deepEqual(result.violations,[],state+' has accessibility violations');
   }
-  async function noOverflow(page,state){const result=await page.evaluate(()=>({width:innerWidth,content:document.documentElement.scrollWidth}));assert.ok(result.content<=result.width+1,state+' overflows horizontally');evidence.checks.push({check:state+' horizontal fit',...result});}
+  async function noOverflow(page,state){const result=await page.evaluate(()=>({width:innerWidth,content:document.documentElement.scrollWidth}));assert.ok(result.content<=result.width,state+' overflows horizontally: '+JSON.stringify(result));evidence.checks.push({check:state+' horizontal fit',...result});}
   async function settings(page){await page.locator('#open-settings').click();}
   async function closeSettings(page){await page.locator('#settings-dialog [data-close-dialog]').click();}
   const microphoneRequests=page=>page.evaluate(()=>window.__lanScreenTest.captures.filter(item=>item.type==='microphone-request').length);
@@ -188,9 +220,9 @@ async function runHig(after) {
   await host.evaluate(()=>{window.__qaStatusChanges=0;window.__qaStatusObserver=new MutationObserver(()=>window.__qaStatusChanges++);window.__qaStatusObserver.observe(document.querySelector('#discovery-status'),{childList:true,characterData:true,subtree:true});});await host.waitForTimeout(6500);assert.equal(await host.evaluate(()=>window.__qaStatusChanges),0,'unchanged discovery polls do not repeat live announcements');await host.evaluate(()=>window.__qaStatusObserver.disconnect());evidence.checks.push({check:'unchanged discovery status has no repeated DOM mutation across two polls',passed:true});
   await host.emulateMedia({colorScheme:'light'});await capture(host,'02-entry-light');await axe(host,'entry light');
   await host.setViewportSize({width:390,height:844});
-  await noOverflow(host,'entry light narrow');await capture(host,'02b-entry-light-390');
+  await axe(host,'entry light 390');await capture(host,'02b-entry-light-390');
   await host.emulateMedia({colorScheme:'dark'});
-  await noOverflow(host,'entry dark narrow');await capture(host,'01b-entry-dark-390');
+  await axe(host,'entry dark 390');await capture(host,'01b-entry-dark-390');
   await host.unroute('**/api/v1/rooms');
   // Discovery intentionally excludes all of this computer's own addresses.
   const peerIP = ['10.255.255.254', '10.255.255.253'].find(ip => !availableLANIPv4s().includes(ip));
@@ -246,7 +278,7 @@ async function runHig(after) {
     await host.emulateMedia({colorScheme:theme});
     await axe(host,`查找地址快捷入口 ${theme} 390`);
   }
-  await host.reload();
+  await reloadWithUnloadCheck(host,false);
   await openPeerSettings();
   await removePeer.waitFor();
   for (const theme of ['dark','light']) {
@@ -329,6 +361,44 @@ async function runHig(after) {
   await stageSpring(host,'#voice-stage');
   assert.deepEqual(await host.locator('#members > .member-seat, #members > .voice-activity').evaluateAll(nodes=>nodes.map(node=>node.getAnimations()[0]?.effect.getTiming().delay)),[0,60,120,150]);
   evidence.checks.push({check:'voice stage enters with four staggered springs',passed:true});
+  for (const width of [1280,390]) {
+    await host.setViewportSize({width,height:800});
+    for (const theme of ['light','dark']) {
+      await host.emulateMedia({colorScheme:theme});
+      const shareOptions=host.locator('#share-options');
+      await shareOptions.click();
+      const dialog=host.locator('#settings-dialog');
+      await dialog.evaluate(node => Promise.allSettled(node.getAnimations().map(animation => animation.finished)));
+      const section=await dialog.evaluate(node => {
+        const header=node.querySelector('.dialog-heading').getBoundingClientRect();
+        const bottom=Math.min(node.getBoundingClientRect().bottom,innerHeight);
+        const visible=['sharing-settings-title','share-mode','quality-target'].every(id => {
+          const box=document.getElementById(id).getBoundingClientRect();
+          return box.top>=header.bottom && box.bottom<=bottom;
+        });
+        return {visible, focused:document.activeElement.id, scrolled:node.scrollTop>0};
+      });
+      assert.deepEqual(section,{visible:true,focused:'quality-target',scrolled:true},`${width} ${theme} sharing shortcut`);
+      await dialog.evaluate(node => { node.querySelector('.settings-section').open=true; node.scrollTop=node.scrollHeight; });
+      const heading=await dialog.evaluate(node => {
+        const header=node.querySelector('.dialog-heading'), box=header.getBoundingClientRect();
+        const button=header.querySelector('button'), close=button.getBoundingClientRect();
+        const {position,color,backgroundColor,borderBottomWidth}=getComputedStyle(header);
+        return {position,color,backgroundColor,borderBottomWidth, pinned:Math.abs(box.top-node.getBoundingClientRect().top)<1,
+          closeReachable:button.contains(document.elementFromPoint(close.x+close.width/2,close.y+close.height/2))};
+      });
+      assert.equal(heading.position,'sticky');
+      assert.ok(heading.pinned && heading.closeReachable && heading.borderBottomWidth==='1px',JSON.stringify(heading));
+      colorContrast(heading,`settings heading ${width} ${theme}`);
+      await dialog.evaluate(node => { node.querySelector('.settings-section').open=false; });
+      await closeSettings(host);
+      await host.waitForFunction(() => document.activeElement.id==='share-options');
+      await dialog.waitFor({state:'hidden'});
+    }
+  }
+  await host.setViewportSize({width:1440,height:1000});
+  await host.emulateMedia({colorScheme:'dark'});
+  evidence.checks.push({check:'share shortcut focuses quality and returns focus, with opaque sticky settings heading at 1280 and 390 in both themes',passed:true});
   await host.locator('#invite-room').click();
   const invite=await host.evaluate(()=>({address:document.querySelector('#host-address').value,port:document.querySelector('#host-port').value,code:document.querySelector('#room-code').textContent,text:document.querySelector('#invite-text').value}));
   assert.equal(invite.text,`${invite.address}:${invite.port}  房间码 ${invite.code}`);await capture(host,'25-copy-invitation-dark');await axe(host,'copy invitation dark');
@@ -354,9 +424,9 @@ async function runHig(after) {
   await host.emulateMedia({colorScheme:'light'});
   await capture(host,'04b-voice-light');await axe(host,'voice light wide');
   await host.setViewportSize({width:390,height:844});
-  await noOverflow(host,'voice light review narrow');await capture(host,'04c-voice-light-390');
+  await axe(host,'voice light 390');await capture(host,'04c-voice-light-390');
   await host.emulateMedia({colorScheme:'dark'});
-  await noOverflow(host,'voice dark review narrow');await capture(host,'04d-voice-dark-390');
+  await axe(host,'voice dark 390');await capture(host,'04d-voice-dark-390');
   await host.setViewportSize({width:1440,height:1000});
   await host.locator('#room-menu').click();assert.equal(await host.locator('#member-summary .member-seat').count(),3);await trap(host,'members-dialog');await ax(host,'voice members');await capture(host,'21-voice-members');await host.locator('#members-dialog [data-close-dialog]').click();
   assert.equal(await host.evaluate(()=>window.__lanScreenTest.captures.length),0,'voice entry must not implicitly enable microphone');
@@ -396,7 +466,7 @@ async function runHig(after) {
     window.__lanScreenTest.microphones=[{deviceId:'default',label:'系统默认麦克风'}];
     navigator.mediaDevices.dispatchEvent(new Event('devicechange'));
   });
-  await host.locator('#mic-note').filter({hasText:'已改用系统默认麦克风'}).waitFor();
+  await host.locator('#settings-toast [role="status"]').filter({hasText:'已改用系统默认麦克风'}).waitFor();
   assert.equal(await host.locator('#mic-device').inputValue(),'');
   assert.equal(await microphoneRequests(host),1,'device removal does not run capture by itself');
   await host.evaluate(device=>{
@@ -488,6 +558,27 @@ async function runHig(after) {
   assert.equal(await host.locator('#exit-program').evaluate(n=>document.activeElement===n),true);await closeSettings(host);
   await host.locator('#end-room').click();await host.locator('#confirm-dialog').waitFor({state:'visible'});await host.locator('#confirm-cancel').press('Escape');assert.equal(await host.locator('body').getAttribute('data-stage'),'voice');
   await settings(host);assert.equal(await host.locator('#share-mode').inputValue(),'combined','system audio is enabled by default');await closeSettings(host);
+  // Reject only the picker. Use the product's actual handler and timer.
+  await host.evaluate(()=>{
+    window.__displayPicker=navigator.mediaDevices.getDisplayMedia;
+    Object.defineProperty(navigator.mediaDevices,'getDisplayMedia',{
+      configurable:true,value:()=>Promise.reject(new DOMException('Picker cancelled','NotAllowedError')),
+    });
+  });
+  await host.locator('#start-share').click();
+  const cancelled=host.locator('#watch-toast [role="status"]');
+  await cancelled.filter({hasText:'已取消屏幕选择。'}).waitFor();
+  assert.equal(await host.locator('#error-message').isVisible(),false);
+  const toastStarted=Date.now();
+  await host.waitForFunction(()=>!document.querySelector('#watch-toast').hasAttribute('data-toast-state'),null,{timeout:5500});
+  assert.ok(Date.now()-toastStarted>=2900,'the toast is readable before it fades');
+  assert.equal(await cancelled.textContent(),'');
+  assert.equal(await host.locator('#error-message').isVisible(),false);
+  await host.evaluate(()=>{
+    Object.defineProperty(navigator.mediaDevices,'getDisplayMedia',{configurable:true,value:window.__displayPicker});
+    delete window.__displayPicker;
+  });
+  evidence.checks.push({check:'picker cancellation uses an auto-dismissing toast instead of the error banner',passed:true});
   await settings(viewer);await viewer.locator('#quality-target').focus();await host.locator('#start-share').click();await stageSpring(viewer,'.screen-stage');
   assert.equal(await viewer.locator('#settings-dialog').isVisible(),true,'remote sharing preserves the current settings task');assert.equal(await viewer.locator('#quality-target').evaluate(n=>document.activeElement===n),true);await closeSettings(viewer);
   evidence.checks.push({check:'whole watch stage springs in without disrupting an open sheet',passed:true});
@@ -518,9 +609,9 @@ async function runHig(after) {
   await capture(viewer,'08b-watch-light');await axe(viewer,'watch light');
   await viewer.setViewportSize({width:390,height:844});
   await watchingStage.hover({position:{x:180,y:150}});
-  await noOverflow(viewer,'watch light review narrow');await capture(viewer,'08c-watch-light-390');
+  await axe(viewer,'watch light 390');await capture(viewer,'08c-watch-light-390');
   await viewer.emulateMedia({colorScheme:'dark'});
-  await noOverflow(viewer,'watch dark review narrow');await capture(viewer,'08d-watch-dark-390');
+  await axe(viewer,'watch dark 390');await capture(viewer,'08d-watch-dark-390');
   await viewer.setViewportSize({width:1440,height:1000});
   evidence.checks.push({check:'watch HUD and dock apply both glass palettes and the ruby live indicator',passed:true});
   await viewer.waitForFunction(()=>document.querySelector('#share-panel').classList.contains('pointer-idle')&&
@@ -622,15 +713,23 @@ async function runHig(after) {
   assert.equal(await viewer.locator('#remote-screen').evaluate((node,original)=>node===original,video),true,'fullscreen preserves the exact player');
   await host.bringToFront();
   await host.waitForFunction(()=>document.querySelector('#remote-screen').videoWidth>0);
-  assert.equal(await host.locator('#voice-only').getAttribute('aria-describedby'),'voice-only-warning');
-  assert.match(await host.locator('#voice-only').getAttribute('title'),/停止你的共享/);
-  assert.equal(await host.locator('.room-controls #voice-only-warning').count(),0);
+  const stopShare=host.getByRole('button',{name:'停止共享',exact:true});
+  await stopShare.waitFor();
+  assert.equal(await host.locator('#voice-only').isVisible(),false);
+  assert.equal(await host.locator('.room-controls').getByRole('button',{name:/停止共享/}).count(),1);
+  assert.equal(await stopShare.getAttribute('title'),'所有人停止观看，房间语音继续');
   const dock = await host.locator('.room-controls').evaluate(node => ({
     height:node.getBoundingClientRect().height, width:node.getBoundingClientRect().width,
     rows:new Set([...node.querySelectorAll('button')].filter(button=>button.getClientRects().length).map(button=>Math.round(button.getBoundingClientRect().y))).size,
   }));
   assert.ok(dock.rows===1 && dock.width>4*dock.height,JSON.stringify(dock));
   await capture(host,'33-phase-three-sharer-dock');await axe(host,'sharer slim dock');
+  await host.setViewportSize({width:390,height:844});
+  for(const theme of ['light','dark']){
+    await host.emulateMedia({colorScheme:theme});
+    await axe(host,`sharer ${theme} 390`);
+  }
+  await host.setViewportSize({width:1440,height:1000});
 
   await viewer.bringToFront();
   const source = await viewer.locator('#remote-screen').evaluateHandle(node=>node.srcObject);
@@ -815,16 +914,90 @@ async function runHig(after) {
   await other.evaluate(()=>window.__lanScreenTest.sockets.findLast(socket=>new URL(socket.url).pathname==='/ws/v1'&&socket.readyState===WebSocket.OPEN).close());
   await pttSending(other,false);
   await other.waitForFunction(count=>window.__lanScreenTest.incoming.filter(message=>message.type==='room.joined').length>count,beforeRecovery);
-  await other.locator('#connection-status').filter({hasText:'房间已恢复'}).waitFor();await capture(other,'23-local-recovered');await ax(other,'local connection recovered');await axe(other,'local connection recovered');
+  await other.locator('#connection-status').filter({hasText:'媒体已连接'}).waitFor();await capture(other,'23-local-recovered');await ax(other,'local connection recovered');await axe(other,'local connection recovered');
   await pttSending(other,false);await other.keyboard.up('Space');
   assert.equal(await microphoneRequests(other),beforeRecoveryCaptures);
   assert.equal(await host.locator('#topbar-room-count').textContent(),'3 人');
   assert.equal(await other.locator('#toggle-mic').getAttribute('aria-pressed'),'true');
   evidence.checks.push({check:'actual local socket loss releases held PTT and restores the seat in silence without recapture',passed:true});
-  await other.reload();
-  await other.locator('#connection-status').filter({hasText:'房间已恢复'}).waitFor();
-  assert.equal(await microphoneRequests(other),0,'refresh and room restoration never request a microphone');
+  await reloadWithUnloadCheck(other,true);
+  await other.locator('#watch-toast [role="status"]').filter({hasText:'已恢复麦克风'}).waitFor();
+  await other.locator('#connection-status').filter({hasText:'媒体已连接'}).waitFor();
+  await pttSending(other,false);
+  assert.equal(await microphoneRequests(other),1,'refresh reacquires the enabled microphone once and leaves PTT silent');
   await axe(other,'refreshed room restoration');
+  // First establish that this viewer had a sound control for the previous
+  // full-screen share. It must disappear when the same host shares a window.
+  const roomSound=other.getByRole('dialog',{name:'你听到的声音'});
+  const watchSound=other.locator('#watch-sound');
+  const sharedAudioRow=roomSound.locator('.audio-source[data-role="systemAudio"]');
+  await watchSound.click();
+  await sharedAudioRow.waitFor();
+  await roomSound.locator('[data-close-dialog]').click();
+  await stopShare.click();
+  await other.locator('body[data-stage="voice"]').waitFor();
+  await host.evaluate(()=>{window.__lanScreenTest.displaySurface='window';});
+  await host.getByRole('button',{name:'选择内容并开始共享',exact:true}).click();
+  await stopShare.waitFor();
+  const windowStatus=host.locator('.topbar #connection-status').getByText('正在共享应用窗口 · 无应用声音',{exact:true});
+  await windowStatus.waitFor();
+  const windowToast=host.locator('#watch-toast [role=status]').getByText('已开始共享画面与房间语音，不含共享声音。',{exact:true});
+  await windowToast.waitFor();
+  assert.equal(await host.locator('#window-audio-note').count(),0);
+  const inFlowBeforeScreen=await host.locator('.screen-stage').evaluate(screen => {
+    const siblings=[...screen.parentElement.children];
+    return siblings.slice(0,siblings.indexOf(screen)).filter(node =>
+      node.getClientRects().length && !['absolute','fixed'].includes(getComputedStyle(node).position)).map(node => node.id);
+  });
+  assert.deepEqual(inFlowBeforeScreen,[],'window sharing adds no visible row before the screen');
+  await other.locator('body[data-stage="watch"]').waitFor();
+  await other.waitForFunction(()=>document.querySelector('#remote-screen').videoWidth>0);
+  assert.deepEqual(await host.evaluate(()=>{
+    const {tracks}=window.__lanScreenTest.captures.findLast(item=>item.type==='display');
+    return tracks.map(track=>[track.kind,track.readyState]);
+  }),[['video','live'],['audio','ended']],'window capture starts without publishing the supplied application audio');
+  await other.setViewportSize({width:390,height:844});
+  await watchSound.click();
+  await roomSound.locator('.audio-source[data-role="microphone"]').first().waitFor();
+  assert.equal(await sharedAudioRow.isVisible(),false);
+  assert.equal(await roomSound.getByRole('button',{name:'共享声音',exact:true}).count(),0);
+  for(const theme of ['light','dark']){
+    await other.emulateMedia({colorScheme:theme});
+    await axe(other,`window share voice-only sound controls ${theme} 390`);
+  }
+  await roomSound.locator('[data-close-dialog]').click();
+  await windowToast.waitFor({state:'hidden',timeout:6000});
+  assert.equal(await windowStatus.isVisible(),true);
+  evidence.checks.push({check:'window selection shares immediately with voice but without empty shared-audio controls',passed:true});
+  const micPermission=await other.context().newCDPSession(other);
+  const {targetInfo:{browserContextId}}=await micPermission.send('Target.getTargetInfo');
+  const origin=new URL(other.url()).origin;
+  const setMicPermission=setting => micPermission.send('Browser.setPermission',{
+    permission:{name:'microphone'}, setting, origin, browserContextId,
+  });
+  await setMicPermission('granted');
+  assert.equal(await other.evaluate(async () => (await navigator.permissions.query({name:'microphone'})).state),'granted');
+  const navigationURL=other.url();
+  let deniedDuringNavigation;
+  await other.route(navigationURL,async route => {
+    deniedDuringNavigation=setMicPermission('denied');
+    try { await deniedDuringNavigation; } finally { await route.continue(); }
+  },{times:1});
+  await reloadWithUnloadCheck(other,true);
+  assert.ok(deniedDuringNavigation,'permission was changed on the intercepted refresh request');
+  await deniedDuringNavigation;
+  assert.equal(await other.evaluate(async () => (await navigator.permissions.query({name:'microphone'})).state),'denied');
+  const micFeedback=other.locator('#mic-restore-feedback').getByText('麦克风已关闭，请在浏览器中允许麦克风后再开启。',{exact:true});
+  await micFeedback.waitFor();
+  assert.equal(await other.locator('#toggle-mic').getAttribute('aria-pressed'),'false');
+  assert.equal(await other.locator('#toggle-mic').getAttribute('aria-describedby'),'mic-restore-feedback');
+  assert.equal(await microphoneRequests(other),0,'denied auto restore does not start capture');
+  await setMicPermission('granted');
+  await other.locator('#toggle-mic').click();
+  await micFeedback.waitFor({state:'hidden'});
+  assert.equal(await other.locator('#toggle-mic').getAttribute('aria-pressed'),'true');
+  await micPermission.detach();
+  evidence.checks.push({check:'revoking Edge microphone permission during reload leaves an explicit in-room alert, cleared after successful manual retry',passed:true});
   await viewer.locator('#leave-room').click();await viewer.locator('body[data-stage="entry"]').waitFor();assert.equal(await viewer.locator('#text-log').textContent(),'','leaving clears local message history');
   await host.waitForFunction(()=>document.querySelector('#members .member-seat[data-seat="left"]')?.dataset.empty==='true'&&
     document.querySelector('#members .member-seat[data-seat="right"] > strong')?.textContent==='成员 2');
@@ -894,11 +1067,13 @@ async function runHig(after) {
   await editing.locator('#nickname').fill('  日落🌇  ');
   await editing.locator('input[value="orange"]').check();
   await editing.locator('#exit-program').click();
+  exitingContexts.set(editing.context(),persistence.baseURL);
   await Promise.all([
     editing.waitForResponse(response=>response.url().endsWith('/api/v1/shutdown')&&response.status()===202),
     editing.locator('#confirm-accept').click(),
   ]);
   assert.equal((await persistence.shutdown()).exitCode,0);
+  await editing.context().close();
   const reopened=await startOwnedService({lanIP,autoLAN:true,preferencesPath:profile.preferencesPath,signalPort:0,excludePort:persistence.port});services.push(reopened);
   assert.notEqual(reopened.port,persistence.port);
   assert.equal(reopened.bootstrap.lanIPv4,chosen);
@@ -926,7 +1101,11 @@ async function runHig(after) {
   await axe(persisted,'reopened light voice trial');
   await closeSettings(persisted);
   await persisted.waitForFunction(()=>window.__lanScreenTest.sources.at(-1).track.readyState==='ended');
+  await persisted.locator('body[data-stage="entry"]').waitFor();
+  await closeEntryWithoutUnloadDialog(persisted);
+  evidence.checks.push({check:'entry refresh and close do not prompt; in-room refresh shows native Edge beforeunload',passed:true});
   evidence.checks.push({check:'executable exited and restarted on a different localhost port and browser context with identity, network, sharing and microphone preferences restored',passed:true,realAlternateLAN:!!alternate});
+  evidence.expectedExitConsole=expectedExitConsole;
   assert.deepEqual(errors,[]);assert.deepEqual(external,[]);
   evidence.checks.push({check:'all core paths above',passed:true,realHardwareCapture:false});
   evidence.completed=true;

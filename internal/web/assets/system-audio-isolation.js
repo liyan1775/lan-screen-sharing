@@ -1,5 +1,12 @@
 import { isolationStatus } from './state.js';
 
+export const WINDOW_VIDEO_ONLY_NOTE = '此窗口未共享声音，房间语音不受影响。';
+export const CAPTURE_SOURCE_NOTE = '打游戏选整个屏幕，看 B 站或网页视频选单个浏览器标签页，展示单个软件可直接选应用窗口（仅画面，房间语音不受影响）。';
+
+export function describeSilentCapture(displaySurface, reason, recognized) {
+  return { displaySurface, reason, recognized: !!recognized, audioAvailable: false };
+}
+
 const setting = (track) => {
   try { const value = track.getSettings?.().restrictOwnAudio; return typeof value === 'boolean' ? value : null; }
   catch { return null; }
@@ -28,8 +35,16 @@ export function formatSystemAudioDiagnostics(d, userAgent = '') {
   const lines = [
     `浏览器：${(String(userAgent).match(browser) || []).join(' · ') || '未报告'}`,
   ];
+  if (d.displaySurface === 'window') {
+    return lines.concat(['采集来源：单个应用窗口', '本次未共享声音：应用窗口仅传送画面，房间语音单独传送。']).join('\n');
+  }
   if (d.displaySurface === 'browser' && d.audioAvailable) {
     lines.push('采集来源：单个浏览器标签页（仅采集所选标签页声音，不混入房间语音）');
+  }
+  if (d.reason) {
+    const source = d.displaySurface === 'browser' ? '单个浏览器标签页' : '整个屏幕';
+    const reason = d.reason === 'missing_audio' ? '浏览器未返回可用的共享音轨。' : '已选择不共享系统声音。';
+    return lines.concat([`采集来源：${source}`, `本次未共享声音：${reason}`]).join('\n');
   }
   return lines.concat([
     `隔离接口识别：${value(d.recognized)}；初始音轨设置：${value(d.initial)}`,

@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96">
+  <title>LAN / 分享</title>
+  <defs>
+    <linearGradient id="metal" x1="0" y1="0" x2=".82" y2="1">
+      <stop stop-color="#a9e7eb"/>
+      <stop offset=".42" stop-color="#287e8b"/>
+      <stop offset="1" stop-color="#34304f"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2=".8" y2="1">
+      <stop stop-color="#e8fcff" stop-opacity=".75"/>
+      <stop offset=".52" stop-color="#b4e8ef" stop-opacity=".22"/>
+      <stop offset="1" stop-color="#cbbcf0" stop-opacity=".6"/>
+    </linearGradient>
+    <style>
+      .tiny { display: none; }
+      @media (max-width: 18px) {
+        .regular { display: none; }
+        .tiny { display: inline; }
+      }
+    </style>
+  </defs>
+  <rect x="1" y="1" width="94" height="94" rx="26" fill="url(#metal)" stroke="url(#rim)" stroke-width="2"/>
+  <g fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round">
+    <g class="regular" stroke-width="7">
+      <path d="M25 54a7 7 0 0 1-7-7V28a7 7 0 0 1 7-7h31a7 7 0 0 1 7 7"/>
+      <rect x="36" y="39" width="42" height="26" rx="6"/>
+      <path d="M50 77h14"/>
+    </g>
+    <g class="tiny" stroke-width="8">
+      <path d="M25 50a5 5 0 0 1-4-5V26a5 5 0 0 1 5-5h30a5 5 0 0 1 5 5"/>
+      <rect x="39" y="39" width="36" height="24" rx="5"/>
+      <path d="M51 75h12"/>
+    </g>
+  </g>
+</svg>

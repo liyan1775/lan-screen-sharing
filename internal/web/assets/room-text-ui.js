@@ -48,12 +48,17 @@ function copyIcon(documentRef) {
 }
 
 export function createRoomTextUI({documentRef = document, transport, nameForPeer, selfPeerId = () => '',
-  clipboard = globalThis.navigator?.clipboard, onNotice = () => {}}) {
+  clipboard = globalThis.navigator?.clipboard, onNotice = () => {}, onOpenChange = () => {}}) {
   const $ = selector => documentRef.querySelector(selector);
   const panel = $('#text-panel'), input = $('#text-input'), log = $('#text-log');
   const triggers = [$('#room-text'), $('#watch-text')];
   const unreadAnimations = new Map();
-  let roomId = '', unread = 0, returnTarget = null;
+  let roomId = '', unread = 0, returnTarget = null, connectionError = false, wasReady = false;
+  const clearError = () => {
+    connectionError = false;
+    $('#text-error').hidden = true;
+    $('#text-error').textContent = '';
+  };
   const refreshTriggers = () => triggers.forEach(button => {
     const label = button.querySelector('.button-label') || button;
     const countChanged = button.dataset.unreadCount !== String(unread);
@@ -75,17 +80,24 @@ export function createRoomTextUI({documentRef = document, transport, nameForPeer
     button.setAttribute('aria-expanded', String(!panel.hidden));
     button.setAttribute('aria-label', unread ? `房间文字，${unread} 条未读消息` : '房间文字');
   });
+  function setOpen(open) {
+    panel.hidden = !open;
+    if (open) {
+      if (unread) log.scrollTop = log.scrollHeight;
+      unread = 0;
+    }
+    refreshTriggers();
+  }
   function close() {
-    panel.hidden = true; refreshTriggers();
+    setOpen(false);
+    onOpenChange(false);
     if (returnTarget?.isConnected && !returnTarget.hidden) returnTarget.focus({preventScroll:true});
   }
   triggers.forEach(button => button.addEventListener('click', () => {
     if (!panel.hidden) { close(); return; }
     returnTarget = button;
-    panel.hidden = false;
-    if (unread) log.scrollTop = log.scrollHeight;
-    unread = 0;
-    refreshTriggers();
+    setOpen(true);
+    onOpenChange(true);
     input.focus({preventScroll:true});
   }));
   $('#close-text').addEventListener('click', close);
@@ -127,18 +139,23 @@ export function createRoomTextUI({documentRef = document, transport, nameForPeer
   }
   $('#text-form').addEventListener('submit', event => {
     event.preventDefault();
-    const error = $('#text-error'); error.hidden = true; input.setCustomValidity('');
+    const error = $('#text-error'); clearError(); input.setCustomValidity('');
     try {
       const message = transport.send(input.value);
       if (message.sent) append(message, true);
-      if (message.failed) throw new Error('部分文字未发送成功，请等待连接恢复后再发送。');
+      if (message.failed) {
+        connectionError = true;
+        throw new Error('部分文字未发送成功，请等待连接恢复后再发送。');
+      }
       input.value = ''; input.focus({preventScroll:true});
     } catch (failure) { error.textContent = failure.message; error.hidden = false; }
   });
+  input.addEventListener('input', clearError);
   input.addEventListener('keydown', event => {
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) { event.preventDefault(); if (!$('#send-text').disabled) $('#text-form').requestSubmit(); }
   });
   return {
+    setOpen,
     receive: message => append(message),
     refreshNames() {
       for (const sender of log.querySelectorAll('[data-sender-peer]')) {
@@ -147,9 +164,15 @@ export function createRoomTextUI({documentRef = document, transport, nameForPeer
       }
     },
     sync(nextRoomId) {
-      if (nextRoomId !== roomId) { roomId = nextRoomId; log.replaceChildren(); input.value = ''; unread = 0; panel.hidden = true; $('#text-error').hidden = true; refreshTriggers(); }
-      $('#send-text').disabled = !transport.ready;
-      const status = !transport.peers.size ? '朋友加入后就可以发送文字。' : transport.ready ? '文字已连接' : '正在连接文字，请稍候…';
+      if (nextRoomId !== roomId) {
+        roomId = nextRoomId; log.replaceChildren(); input.value = ''; unread = 0; returnTarget = null;
+        $('#ui-announcement').textContent = ''; clearError(); setOpen(false);
+      }
+      const ready = transport.ready;
+      if (ready && !wasReady && connectionError) clearError();
+      wasReady = ready;
+      $('#send-text').disabled = !ready;
+      const status = !transport.peers.size ? '朋友加入后就可以发送文字。' : ready ? '文字已连接' : '正在连接文字，请稍候…';
       if ($('#text-connection').textContent !== status) $('#text-connection').textContent = status;
     },
   };

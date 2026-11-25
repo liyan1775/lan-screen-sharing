@@ -38,6 +38,7 @@ export class ScreenRelay {
     this.share = null;
     this.source = null;
     this.views = new Map();
+    this.presenterHasAudio = false;
     this.retiredViewEpochs = new Map();
   }
 
@@ -248,7 +249,12 @@ export class ScreenRelay {
       if (isVideo && codecMode === 'h264') {
         view.firstFrameCheck = setTimeout(() => void this.checkFirstFrame(peerId, view), 4000);
       }
-      this.onTrack(peerId,isVideo ? 'screenVideo' : 'systemAudio',event.track);
+      if (isVideo) this.onTrack(peerId, 'screenVideo', event.track);
+      else {
+        // The relay always negotiates an audio slot, even during silent sharing.
+        view.audioTrack = event.track;
+        this.publishViewAudio(peerId, view);
+      }
     };
     pc.onconnectionstatechange = () => {
       if (this.views.get(peerId) === view && pc.connectionState === 'failed') {
@@ -280,9 +286,18 @@ export class ScreenRelay {
     this.views.delete(peerId); clearTimeout(view.firstFrameCheck); view.pc.close(); this.onViewClosed(peerId);
   }
 
-  syncPresenter(peerId) {
+  publishViewAudio(peerId, view) {
+    const track = view?.audioTrack;
+    if (!this.presenterHasAudio || peerId !== this.presenter() || !track || track.readyState === 'ended' || view.publishedAudio === track) return;
+    view.publishedAudio = track;
+    this.onTrack(peerId, 'systemAudio', track);
+  }
+
+  syncPresenter(peerId, hasSystemAudio = false) {
+    this.presenterHasAudio = hasSystemAudio;
     for (const id of this.views.keys()) if (id !== peerId) this.closeView(id);
     for (const id of this.retiredViewEpochs.keys()) if (id !== peerId) this.retiredViewEpochs.delete(id);
+    this.publishViewAudio(peerId, this.views.get(peerId));
   }
 
   removePeer(peerId, departed = true) {

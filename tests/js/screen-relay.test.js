@@ -60,6 +60,22 @@ test('receiver negotiation is restricted to the authenticated presenter and curr
   await relay.handle('screen.description',{fromPeerId:'presenter',epoch:'one',description:{type:'answer',sdp:'current'}});
   assert.equal(PC.instances[0].remoteDescription.sdp,'current');relay.syncPresenter('');assert.deepEqual(closed,['presenter']);
 });
+
+test('a relay audio transceiver is not an audible source until the room publishes shared sound', async t => {
+  const { relay } = fixture(t);
+  const tracks = [];
+  relay.onTrack = (...track) => tracks.push(track);
+  relay.syncPresenter('presenter', false);
+  await relay.handle('screen.ready', { fromPeerId: 'presenter', epoch: 'one' });
+  const { pc } = relay.views.get('presenter');
+  const video = { kind: 'video', readyState: 'live' }, audio = { kind: 'audio', readyState: 'live' };
+  pc.ontrack({ track: audio });
+  pc.ontrack({ track: video });
+  assert.deepEqual(tracks, [['presenter', 'screenVideo', video]]);
+  relay.syncPresenter('presenter', true);
+  relay.syncPresenter('presenter', true);
+  assert.deepEqual(tracks, [['presenter', 'screenVideo', video], ['presenter', 'systemAudio', audio]]);
+});
 test('leaving during a publisher request aborts it and cannot resurrect its local PC',async t=>{
   let resolveRequest, signal;
   const {relay,calls}=fixture(t,(payload,options)=>payload.action==='start'?new Promise(resolve=>{resolveRequest=resolve;signal=options.signal;}):undefined);

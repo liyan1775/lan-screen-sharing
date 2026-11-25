@@ -39,3 +39,29 @@ test('corrupted or blocked browser storage does not break normal application sta
   const blocked=joined('host',{setItem(){throw new Error('blocked');},getItem(){throw new Error('blocked');},removeItem(){throw new Error('blocked');}});
   assert.doesNotThrow(()=>blocked.saveSession());assert.equal(blocked.prepareRestore(),false);
 });
+
+test('refresh remembers a local share, not a remote share or a share already stopped', () => {
+  for (const role of ['host', 'viewer']) {
+    const cache = storage(), before = joined(role, cache);
+    const restore = () => {
+      const after = new RoomClient({ storageImpl: cache });
+      after.bootstrap = before.bootstrap;
+      assert.equal(after.prepareRestore(), true);
+      return after.wasPresentingBeforeRestore;
+    };
+    before.room.presenterPeerId = 'somebody-else';
+    before.room.screenSharing = true;
+    before.saveSession();
+    assert.equal(restore(), false);
+    before.room.presenterPeerId = before.peerId;
+    before.saveSession();
+    assert.equal(restore(), true);
+    before.saveSession({ presenting: false });
+    before.saveSession();
+    assert.equal(restore(), false, 'explicit stop is saved even before the server echoes it');
+    before.room.screenSharing = false;
+    before.saveSession({ presenting: true });
+    before.saveSession();
+    assert.equal(restore(), true, 'starting sharing is also saved before the server echoes it');
+  }
+});

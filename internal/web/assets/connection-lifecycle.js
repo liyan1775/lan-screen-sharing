@@ -1,5 +1,11 @@
+export function guardRoomUnload(event, { inRoom, recovering, sharing, intentionalExit }) {
+  if (intentionalExit || !(inRoom || recovering || sharing)) return;
+  event.preventDefault();
+  event.returnValue = '';
+}
+
 export function bindLocalConnectionLifecycle(client, media, onDisconnected, {
-  onRecovering = () => {}, onRecovered = () => {},
+  onRecovering = () => {}, onRecovered = () => {}, onAbandoned = () => {},
   windowMs = 30_000, now = Date.now,
   setTimeoutImpl = globalThis.setTimeout.bind(globalThis), clearTimeoutImpl = globalThis.clearTimeout.bind(globalThis),
 } = {}) {
@@ -11,6 +17,7 @@ export function bindLocalConnectionLifecycle(client, media, onDisconnected, {
   }
   async function finish() {
     cancel(); client.cancelRecovery();
+    onAbandoned();
     client.close?.();
     client.room = null; client.peerId = ''; client.resumeToken = ''; client.joinDetails = null;
     await Promise.resolve(media.closeAll()).catch(() => {});
@@ -47,5 +54,5 @@ export function bindLocalConnectionLifecycle(client, media, onDisconnected, {
   client.addEventListener('errorMessage', event => {
     if (event.detail.code === 'SIGNAL_CONNECTION_LOST' && event.detail.retryable) recover();
   });
-  return {recover, cancel};
+  return {recover, cancel, get recovering() { return running; }};
 }

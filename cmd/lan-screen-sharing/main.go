@@ -7,10 +7,9 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"net/url"
 	"os"
-	"os/exec"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -33,7 +32,7 @@ func parseLaunchOptions(args []string) (launchOptions, error) {
 	fs.StringVar(&options.lanIP, "lan-ip", "", "override the preferred or automatically recommended private IPv4")
 	fs.IntVar(&options.signalPort, "signal-port", 0, "LAN signaling port; 0 selects an ephemeral port")
 	fs.IntVar(&options.port, "port", 0, "localhost UI port; 0 selects an available port")
-	fs.BoolVar(&options.openBrowser, "open-browser", true, "open the local page in the default browser")
+	fs.BoolVar(&options.openBrowser, "open-browser", true, "open the local page in an app window when available")
 	fs.BoolVar(&options.showVersion, "version", false, "print the build version")
 	if err := fs.Parse(args); err != nil {
 		return options, err
@@ -53,15 +52,14 @@ func localPageURL(addr net.Addr) string {
 }
 
 func openLocalBrowser(target string, opener func(string) error) error {
-	u, err := url.Parse(target)
-	if err != nil || u.Scheme != "http" || u.User != nil || !strings.EqualFold(u.Hostname(), "localhost") || u.Port() == "" || u.Path != "/" || u.RawQuery != "" || u.Fragment != "" {
-		return errors.New("browser URL must use localhost")
+	const prefix = "http://localhost:"
+	if len(target) > len(prefix)+1 && strings.EqualFold(target[:len(prefix)], prefix) && strings.HasSuffix(target, "/") {
+		port, err := strconv.ParseUint(target[len(prefix):len(target)-1], 10, 16)
+		if err == nil && port != 0 {
+			return opener(target)
+		}
 	}
-	return opener(target)
-}
-
-func systemBrowserOpen(target string) error {
-	return exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", target).Start()
+	return errors.New("browser URL must be http://localhost:<port>/")
 }
 
 func main() {

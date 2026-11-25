@@ -531,7 +531,8 @@ func (s *session) localFeedback() {
 		if ssrc := s.ssrc.Load(); ssrc != 0 {
 			sources = []uint32{ssrc}
 		}
-		_ = s.up.WriteRTCP([]rtcp.Packet{&rtcp.ReceiverEstimatedMaximumBitrate{Bitrate: 16_000_000, SSRCs: sources}})
+		// Leave room above the 15 Mbps video target for audio and RTP overhead.
+		_ = s.up.WriteRTCP([]rtcp.Packet{&rtcp.ReceiverEstimatedMaximumBitrate{Bitrate: 24_000_000, SSRCs: sources}})
 		select {
 		case <-s.done:
 			return

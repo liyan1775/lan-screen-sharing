@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { RoomClient } from '../../internal/web/assets/client.js';
 import { MeshMedia } from '../../internal/web/assets/media.js';
-import { bindLocalConnectionLifecycle } from '../../internal/web/assets/connection-lifecycle.js';
+import { bindLocalConnectionLifecycle, guardRoomUnload } from '../../internal/web/assets/connection-lifecycle.js';
 
 class FakeWebSocket {
   static OPEN = 1;
@@ -153,4 +153,19 @@ test('recovery deadline stops capture and a cancelled recovery cannot restore a 
   assert.equal(closed,1);assert.equal(reset,1);assert.equal(client.room,null);
   assert.equal(client.transportClosed,true,'the recovery deadline also closes the old signaling transport');
   lifecycle.cancel();
+});
+test('beforeunload prompts only for active room use and not for an intentional exit', () => {
+  for (const [activity, expected] of [
+    [{}, false],
+    [{ inRoom: true }, true],
+    [{ recovering: true }, true],
+    [{ sharing: true }, true],
+    [{ inRoom: true, recovering: true, sharing: true, intentionalExit: true }, false],
+  ]) {
+    let prevented = false;
+    const event = { preventDefault() { prevented = true; }, returnValue: undefined };
+    guardRoomUnload(event, activity);
+    assert.equal(prevented, expected);
+    assert.equal(event.returnValue, expected ? '' : undefined);
+  }
 });

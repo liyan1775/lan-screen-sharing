@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 )
@@ -54,7 +55,8 @@ func verifyFanout(t *testing.T, codec webrtc.RTPCodecCapability) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = source.AddTrack(track); err != nil {
+	sender, err := source.AddTrack(track)
+	if err != nil {
 		t.Fatal(err)
 	}
 	id, answer, err := m.Start(ctx, offer(t, ctx, source))
@@ -215,6 +217,7 @@ func verifyFanout(t *testing.T, codec webrtc.RTPCodecCapability) {
 			t.Fatal("removing a receiver interrupted the other")
 		}
 	}
+	checkUpstreamREMB(t, sender)
 	m.Stop("old-session")
 	if _, err = m.session(id); err != nil {
 		t.Fatal("a stale stop closed the current publisher")
@@ -222,6 +225,28 @@ func verifyFanout(t *testing.T, codec webrtc.RTPCodecCapability) {
 	m.Stop(id)
 	if _, err = m.session(id); err == nil {
 		t.Fatal("publisher survived stop")
+	}
+}
+
+func checkUpstreamREMB(t *testing.T, sender *webrtc.RTPSender) {
+	t.Helper()
+	if err := sender.SetReadDeadline(time.Now().Add(4 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	ssrc := uint32(sender.GetParameters().Encodings[0].SSRC)
+	for {
+		packets, _, err := sender.ReadRTCP()
+		if err != nil {
+			t.Fatalf("reading upstream REMB: %v", err)
+		}
+		for _, packet := range packets {
+			if remb, ok := packet.(*rtcp.ReceiverEstimatedMaximumBitrate); ok && len(remb.SSRCs) == 1 && remb.SSRCs[0] == ssrc {
+				if remb.Bitrate != 24_000_000 {
+					t.Fatalf("upstream REMB = %v bps, want 24000000 bps", remb.Bitrate)
+				}
+				return
+			}
+		}
 	}
 }
 

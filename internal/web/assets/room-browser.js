@@ -1,7 +1,8 @@
 import { icon } from './icons.js';
 import { maxPeerHosts, privatePeerHost } from './preferences.js';
+import { NOTICE_MS } from './ui-state.js';
 
-export function createRoomBrowser({ documentRef = document, list, status, refreshButton, load, refreshDiscovery = async () => {}, onJoin, onDiagnostics = () => {}, onRooms = () => {}, setIntervalImpl = setInterval, clearIntervalImpl = clearInterval }) {
+export function createRoomBrowser({ documentRef = document, list, status, refreshButton, load, refreshDiscovery = async () => {}, onJoin, onRetry = () => {}, onDiagnostics = () => {}, onRooms = () => {}, setIntervalImpl = setInterval, clearIntervalImpl = clearInterval }) {
   let timer = null, loading = null, joining = false, stopped = false, started = false, active = true;
   let networkGeneration = 0;
   const cards = new Map();
@@ -100,6 +101,7 @@ export function createRoomBrowser({ documentRef = document, list, status, refres
   }
   refreshButton.addEventListener('click', async () => {
     if (refreshButton.disabled) return;
+    onRetry();
     refreshButton.disabled = true;
     try { await refresh({probe: true}); }
     finally { refreshButton.disabled = false; }
@@ -121,10 +123,30 @@ export function createRoomBrowser({ documentRef = document, list, status, refres
   };
 }
 
-export function bindPeerHosts({ form, input, list, status, getHosts, save, onSaved, ready = async () => {} }) {
+export function bindPeerHosts({ form, input, list, status, getHosts, save, onSaved, onNotice, ready = async () => {},
+  start = setTimeout, stop = clearTimeout }) {
   const documentRef = form.ownerDocument;
   const chips = new Map();
-  let pending = Promise.resolve();
+  let pending = Promise.resolve(), statusTimer = null, feedbackRevision = 0;
+  function clearStatus() {
+    if (statusTimer !== null) stop(statusTimer);
+    statusTimer = null;
+    status.textContent = '';
+    input.removeAttribute('aria-invalid');
+    return ++feedbackRevision;
+  }
+  function feedback(revision, message, temporary = false) {
+    if (revision !== feedbackRevision) return false;
+    clearStatus();
+    // In the app the toast announces the temporary result. This inline copy is for reference.
+    status.setAttribute('aria-live', temporary && onNotice ? 'off' : 'polite');
+    status.textContent = message;
+    if (temporary) {
+      onNotice?.(message);
+      statusTimer = start(clearStatus, NOTICE_MS);
+    }
+    return true;
+  }
   function queue(change) {
     const result = pending.then(change);
     pending = result.catch(() => {});
@@ -150,8 +172,9 @@ export function bindPeerHosts({ form, input, list, status, getHosts, save, onSav
       remove.setAttribute('aria-label', `移除查找地址 ${host}`);
       remove.textContent = '×';
       remove.addEventListener('click', async () => {
+        const revision = clearStatus();
         await queue(() => getHosts().includes(host) &&
-          update(getHosts().filter(value => value !== host), '已移除地址。'));
+          update(getHosts().filter(value => value !== host), '已移除地址。', revision));
       });
       chip.append(address, remove);
       chips.set(host, chip);
@@ -159,42 +182,43 @@ export function bindPeerHosts({ form, input, list, status, getHosts, save, onSav
     }
     list.hidden = hosts.length === 0;
   }
-  async function update(hosts, message, quiet = false) {
+  async function update(hosts, message, revision = null) {
     try {
       await save(hosts);
       render();
-      if (!quiet) status.textContent = message;
+      if (revision !== null) feedback(revision, message, true);
       onSaved();
       return true;
     } catch {
-      if (!quiet) status.textContent = '暂时无法保存地址，请稍后重试。';
+      if (revision !== null) feedback(revision, '暂时无法保存地址，请稍后重试。', true);
       else throw new Error('已加入房间，暂时无法记住地址。');
       return false;
     }
   }
   function add(value, {quiet = false} = {}) {
     const host = privatePeerHost(value);
+    const revision = quiet ? null : clearStatus();
     return queue(async () => {
       await ready();
       const hosts = getHosts();
       if (!host || hosts.includes(host) || hosts.length >= maxPeerHosts) {
-        if (!quiet) {
-          status.textContent = !host ? '请输入局域网 IPv4 地址，例如 10.208.1.20。'
-            : hosts.includes(host) ? '该地址已添加。' : `最多添加 ${maxPeerHosts} 个地址，请先移除一个。`;
-          if (!host) input.setAttribute('aria-invalid', 'true');
+        if (revision !== null) {
+          const shown = feedback(revision, !host ? '请输入局域网 IPv4 地址，例如 10.208.1.20。'
+            : hosts.includes(host) ? '该地址已添加。' : `最多添加 ${maxPeerHosts} 个地址，请先移除一个。`, !!host && hosts.includes(host));
+          if (!host && shown) input.setAttribute('aria-invalid', 'true');
         }
         return false;
       }
-      return update([...hosts, host], '已添加地址。', quiet);
+      return update([...hosts, host], '已添加地址。', revision);
     });
   }
-  input.addEventListener('input', () => input.removeAttribute('aria-invalid'));
+  input.addEventListener('input', clearStatus);
   form.addEventListener('submit', async event => {
     event.preventDefault();
     const value = input.value;
     if (await add(value) && input.value === value) input.value = '';
   });
-  return {add, render};
+  return {add, render, clearStatus};
 }
 
 export function formatDiscoveryDiagnostics(d = {}) {

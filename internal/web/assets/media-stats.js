@@ -1,4 +1,14 @@
-import { formatActualStats } from './media.js';
+import { formatActualStats, QUALITY } from './media.js';
+
+export function formatEncodingCounters(row) {
+  const sending = row.direction === 'outbound-rtp';
+  const keyFrames = sending ? row.keyFramesEncoded : row.keyFramesDecoded;
+  return [
+    Number.isFinite(keyFrames) ? `${sending ? '编码' : '解码'}关键帧 ${keyFrames}` : '',
+    Number.isFinite(row.averageQp) ? `QP ${row.averageQp.toFixed(1)}` : '',
+    Number.isFinite(row.packetsLost) ? `丢包 ${row.packetsLost}` : '',
+  ].filter(Boolean).join(' · ');
+}
 
 export function formatCaptureStats(track, rows = []) {
   if (!track) return '';
@@ -10,7 +20,7 @@ export function formatCaptureStats(track, rows = []) {
 }
 
 export function formatVideoLinks(rows, memberName = () => '成员') {
-  return rows.filter((row) => row.role === 'screenVideo' && row.width && row.height).map((row) => {
+  return rows.filter((row) => row.role === 'screenVideo' && ((row.width && row.height) || formatEncodingCounters(row))).map((row) => {
     const direction = row.localRelay ? '本机编码 → 房间转发（编码一次）' : row.direction === 'outbound-rtp' ? `发送给${memberName(row.peerId)}` : `接收${memberName(row.peerId)}`;
     const limit = { cpu: '编码性能限制', bandwidth: '带宽限制', other: '其他限制' }[row.qualityLimitationReason];
     const codec = row.codec ? ` · ${row.codec}` : '';
@@ -19,7 +29,8 @@ export function formatVideoLinks(rows, memberName = () => '成员') {
     const implementation = sending ? row.encoderImplementation : row.decoderImplementation;
     const role = sending ? '编码' : '解码';
     const acceleration = efficient === true ? ` · 节能${role}` : efficient === false ? ` · 非节能${role}` : '';
-    return `${direction} · ${formatActualStats(row)}${codec}${acceleration}${implementation ? ` · ${role}实现 ${implementation}` : ''}${limit ? ` · 浏览器报告：${limit}` : ''}`;
+    const counters = formatEncodingCounters(row);
+    return `${direction} · ${formatActualStats(row)}${codec}${acceleration}${implementation ? ` · ${role}实现 ${implementation}` : ''}${limit ? ` · 浏览器报告：${limit}` : ''}${counters ? ` · ${counters}` : ''}`;
   }).join('\n');
 }
 
@@ -49,7 +60,8 @@ export function formatMediaDiagnostics({ track, rows = [], target = '', shareCur
     const interval = Number.isFinite(row.intervalEncodeMs) ? row.intervalEncodeMs.toFixed(2) : '未报告';
     return `连接 ${index + 1}：实际采集 ${source} FPS；累计平均编码 ${encode} ms/帧；本区间编码 ${interval} ms/帧；浏览器报告节能编码 ${efficient}`;
   });
-  return [`我的共享目标：${target}（设置值，非实测） · 页面：${['visible', 'hidden'].includes(visibility) ? visibility : '未报告'}`,
+  const cap = QUALITY[target]?.bitrate;
+  return [`我的共享目标：${target}（设置值，非实测）${cap ? ` · 码率上限 ${cap / 1_000_000} Mbps` : ''} · 页面：${['visible', 'hidden'].includes(visibility) ? visibility : '未报告'}`,
     formatCaptureStats(track, rows) || '当前没有本机共享画面',
     `本机共享鼠标请求：${shareCursor ? '显示' : '隐藏'}；浏览器实际设置：${cursor}`,
     formatVideoLinks(rows) || '尚无实际视频连接统计', ...detail, audio].filter(Boolean).join('\n');

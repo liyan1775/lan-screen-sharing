@@ -16,6 +16,7 @@ export function installSyntheticMedia({ denyMicrophone = false, participantAlias
   const syntheticToneFrequency = (label, alias) => label === 'systemAudio' ? 440 : ({ host:523, 'viewer-1':617, 'viewer-2':733, 'viewer-extra':811 }[alias] ?? 0);
   const state = { pcs: [], sent: [], incoming: [], received: [], localDescriptions: [], remoteDescriptions: [], captures: [], sources: [], sockets: [], localSockets: [], nextSocketId: 1, denyMicrophone, participantAlias, network: { httpErrors: 0, wsErrors: 0, wsCloses: [], externalResources: 0, pageErrors: 0, unhandledRejections: 0, policyViolations: 0 } };
   state.microphones = microphones;
+  state.displaySurface = 'monitor';
   Object.defineProperty(window, '__lanScreenTest', { value: state, configurable: false });
 
   const safeLocalURL = (value) => {
@@ -177,7 +178,8 @@ export function installSyntheticMedia({ denyMicrophone = false, participantAlias
     draw();
     const video = canvas.captureStream(captureFps).getVideoTracks()[0];
     const audio = oscillatorTrack('systemAudio');
-    video.getSettings = () => ({ ...originalTrackSettings.call(video), displaySurface: 'monitor' });
+    const displaySurface = state.displaySurface;
+    video.getSettings = () => ({ ...originalTrackSettings.call(video), displaySurface });
     const audioNativeSettings = originalTrackSettings.call(audio);
     audio.getSettings = () => ({ ...audioNativeSettings, restrictOwnAudio: true });
     state.syntheticReportedIsolation = true;

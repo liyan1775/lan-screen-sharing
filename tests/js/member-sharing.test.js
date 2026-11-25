@@ -89,7 +89,7 @@ test('voice-only mutes game audio and video but retains participant voices and u
   const voice={dataset:{trackRole:'microphone',sourcePeerId:'presenter'},muted:false};
   const video=track('video');
   media.audioElements.set('presenter:systemAudio',game); media.audioElements.set('presenter:microphone',voice);
-  media.remoteScreens.set('presenter',stream(video)); media.setPresenter('presenter');
+  media.remoteScreens.set('presenter',stream(video)); media.setPresenter('presenter', true);
   media.setVoiceOnly(true); assert.equal(game.muted,true); assert.equal(voice.muted,false); assert.equal(video.enabled,false);
   media.setVoiceOnly(false); assert.equal(game.muted,false); assert.equal(video.enabled,true);
   media.setAudioControl('presenter','systemAudio',{muted:true}); media.setVoiceOnly(true); media.setVoiceOnly(false); assert.equal(game.muted,true);

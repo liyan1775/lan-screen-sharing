@@ -3,6 +3,7 @@ import test from 'node:test';
 import { chromium } from 'playwright-core';
 import { installSyntheticMedia } from './fixtures/synthetic-media.js';
 import { selectedLANIPv4, shutdownOwnedServices, startOwnedService } from './fixtures/services.js';
+import { reloadWithUnloadCheck } from './fixtures/unload.js';
 
 const browserPath = process.env.LANSW_BROWSER_PATH;
 
@@ -451,41 +452,110 @@ test('localSocketLossAutomaticallyResumesSameSeatAndRetainsMicrophone', async (t
   assert.equal(services.length, 3);
 }));
 
-test('viewerAndHostRefreshRestoreRoomIdentityAndWatchingWithoutRecapturing', async (t) => withScenario(t, {}, async ({ host, viewers, invite }) => {
+test('viewerAndHostRefreshRestoreRoomAndMicrophoneWithoutRecapturingScreen', async (t) => withScenario(t, {}, async ({ host, viewers, invite }) => {
   const [viewer,other]=viewers;
   const originalHost=await host.evaluate(()=>window.__lanScreenTest.incoming.find(message=>message.type==='room.created'));
   const originalViewer=await viewer.evaluate(()=>window.__lanScreenTest.incoming.find(message=>message.type==='room.joined'));
-  await enableMic(viewer);await shareSyntheticScreen(host);
+  await enableMic(host);await enableMic(viewer);await shareSyntheticScreen(host);
   await viewer.waitForFunction(()=>document.querySelector('#remote-screen').videoWidth>0);
-  await viewer.reload();await viewer.locator('body[data-stage="watch"]').waitFor();
+  const hostVolume=viewer.getByRole('slider',{name:'房主 · 语音音量',exact:true});
+  const hostMute=viewer.getByRole('button',{name:/^(取消静音|静音)房主 · 语音$/});
+  const assertAudio=async (volume,muted)=>{
+    assert.equal(await hostVolume.inputValue(),String(volume));
+    assert.equal(await hostMute.getAttribute('aria-pressed'),String(muted));
+    await viewer.waitForFunction(({volume,muted})=>{
+      const hostId=document.querySelector('#members [data-role="host"]')?.dataset.peerId;
+      const audio=[...document.querySelectorAll('audio[data-track-role="microphone"]')]
+        .find(element=>element.dataset.sourcePeerId===hostId);
+      return audio?.volume===volume && audio.muted===muted;
+    },{volume,muted});
+  };
+  const openSound=async()=>{
+    await viewer.locator('#watch-sound').click();
+    await hostVolume.waitFor();
+  };
+  const closeSound=()=>viewer.locator('#sound-dialog [data-close-dialog]').click();
+  await openSound();
+  await hostVolume.fill('0.4');
+  await hostMute.click();
+  await assertAudio(0.4,true);
+  await closeSound();
+  await viewer.locator('#voice-only').click();
+  await viewer.locator('#room-text').click();
+  await viewer.locator('#text-panel').waitFor();
+  await reloadWithUnloadCheck(viewer,true);
+  await viewer.locator('#watch-toast [role="status"]').filter({hasText:'已恢复麦克风'}).waitFor();
+  await viewer.locator('#text-panel').waitFor();
+  assert.equal(await viewer.locator('#voice-only').getAttribute('aria-pressed'),'true');
+  await viewer.locator('#close-text').click();
+  await viewer.locator('#voice-only').click();
+  await viewer.locator('body[data-stage="watch"]').waitFor();
+  await openSound();
+  await assertAudio(0.4,true);
+  await closeSound();
   const restored=await viewer.evaluate(()=>window.__lanScreenTest.incoming.findLast(message=>message.type==='room.joined'));
   assert.equal(restored.roomId,originalViewer.roomId);assert.equal(restored.peerId,originalViewer.peerId);
-  assert.equal(await viewer.locator('#toggle-mic').getAttribute('aria-pressed'),'false');
-  assert.equal(await viewer.evaluate(()=>window.__lanScreenTest.captures.length),0,'refresh cannot silently recapture microphone or screen');
+  assert.equal(await viewer.locator('#toggle-mic').getAttribute('aria-pressed'),'true');
+  assert.equal(await viewer.evaluate(()=>window.__lanScreenTest.captures.filter(item=>item.type==='microphone-request').length),1);
+  assert.equal(await viewer.evaluate(()=>window.__lanScreenTest.captures.filter(item=>item.type==='display-request').length),0);
   await viewer.waitForFunction(()=>document.querySelector('#remote-screen').videoWidth>0);
   await host.locator('#stop-share').click();await shareSyntheticScreen(other);
   await host.waitForFunction(()=>document.querySelector('#remote-screen').videoWidth>0);
-  await host.reload();await host.locator('body[data-stage="watch"]').waitFor();
+  await reloadWithUnloadCheck(host, true);await host.locator('body[data-stage="watch"]').waitFor();
   const resumedHost=await host.evaluate(()=>window.__lanScreenTest.incoming.find(message=>message.type==='room.state'&&message.payload.resumed));
   assert.equal(resumedHost.roomId,originalHost.roomId);assert.equal(resumedHost.peerId,originalHost.peerId);assert.equal(resumedHost.payload.roomCode,invite.roomCode);
-  assert.equal(await host.evaluate(()=>window.__lanScreenTest.captures.length),0);
+  await host.locator('#watch-toast [role="status"]').filter({hasText:'已恢复麦克风'}).waitFor();
+  assert.equal(await host.evaluate(()=>window.__lanScreenTest.captures.filter(item=>item.type==='display-request').length),0);
   await host.waitForFunction(()=>document.querySelector('#remote-screen').videoWidth>0);
   for(const page of [host,...viewers])assert.equal((await memberIds(page)).length,3,'refresh does not remove or duplicate a seat');
-  await other.locator('#stop-share').click();await enableMic(host);await shareSyntheticScreen(host);
+  await other.locator('#stop-share').click();await shareSyntheticScreen(host);
   const captures=await host.evaluate(()=>window.__lanScreenTest.captures.length);
   await host.evaluate(()=>window.__lanScreenTest.sockets.findLast(socket=>new URL(socket.url).pathname==='/ws/v1'&&socket.readyState===WebSocket.OPEN).close());
   await host.waitForFunction(()=>window.__lanScreenTest.incoming.filter(message=>message.type==='room.state'&&message.payload.resumed).length>=2);
-  await host.locator('#connection-status').filter({hasText:'房间已恢复'}).waitFor();
+  await host.locator('#connection-status').filter({hasText:'正在共享屏幕'}).waitFor();
   assert.equal(await host.evaluate(()=>window.__lanScreenTest.captures.length),captures,'a transport interruption retains all active capture');
   assert.equal(await host.locator('#toggle-mic').getAttribute('aria-pressed'),'true');
   assert.equal(await host.locator('#stop-share').isEnabled(),true);
   await viewer.waitForFunction(()=>document.querySelector('#remote-screen').videoWidth>0);
-  await host.reload();await host.locator('body[data-stage="voice"]').waitFor();
+  await reloadWithUnloadCheck(host, true);await host.locator('body[data-stage="voice"]').waitFor();
   await viewer.locator('body[data-stage="voice"]').waitFor();
-  assert.equal(await host.evaluate(()=>window.__lanScreenTest.captures.length),0,'refreshing a presenter releases its vanished capture without ending the room');
+  const notice=host.locator('#restore-share-note');
+  await notice.waitFor();
+  assert.match(await notice.textContent(),/之前的共享已停止/);
+  const startShare=host.getByRole('button',{name:'选择内容并开始共享',exact:true});
+  await startShare.waitFor();
+  assert.equal(await startShare.isEnabled(),true);
+  const presenterRestored=await host.evaluate(()=>window.__lanScreenTest.incoming.find(message=>message.type==='room.state'&&message.payload.resumed));
+  assert.equal(presenterRestored.roomId,originalHost.roomId);assert.equal(presenterRestored.peerId,originalHost.peerId);
+  await host.locator('#watch-toast [role="status"]').filter({hasText:'已恢复麦克风'}).waitFor();
+  assert.equal(await host.evaluate(()=>window.__lanScreenTest.captures.filter(item=>item.type==='display-request').length),0,
+    'refreshing a presenter releases its vanished screen capture without ending the room');
   assert.equal((await memberIds(host)).length,3);
+  await viewer.locator('#leave-room').click();
+  await viewer.locator('body[data-stage="entry"]').waitFor();
+  assert.equal(await viewer.evaluate(()=>sessionStorage.getItem('lan-screen-sharing.room-ui')),null);
   await host.locator('#end-room').click();await host.locator('#confirm-accept').click();
-  for(const page of [host,...viewers]) { await page.locator('body[data-stage="entry"]').waitFor();await page.reload();await page.locator('#quick-create-room').waitFor();assert.equal(await page.evaluate(()=>sessionStorage.getItem('lan-screen-sharing.room')),null,'explicit end clears refresh recovery'); }
+  for(const page of [host,...viewers]) { await page.locator('body[data-stage="entry"]').waitFor();await reloadWithUnloadCheck(page,false);await page.locator('#quick-create-room').waitFor();assert.equal(await page.evaluate(()=>sessionStorage.getItem('lan-screen-sharing.room')),null,'explicit end clears refresh recovery'); }
+  await host.locator('#quick-create-room').click();
+  await host.locator('#create-room').click();
+  await host.locator('#invite-room').click();
+  const newInvite=await host.locator('#invite-text').inputValue();
+  await host.locator('#invite-dialog [data-close-dialog]').click();
+  await viewer.locator('#quick-manual-join').click();
+  await viewer.locator('#join-invite').fill(newInvite);
+  await viewer.locator('#join-room').click();
+  await viewer.locator('body[data-stage="voice"]').waitFor();
+  const joined=await viewer.evaluate(()=>window.__lanScreenTest.incoming.findLast(message=>message.type==='room.joined'));
+  assert.notEqual(joined.roomId,originalViewer.roomId);
+  assert.equal(await viewer.locator('#toggle-mic').getAttribute('aria-pressed'),'false');
+  assert.equal(await viewer.locator('#text-panel').isVisible(),false);
+  assert.equal(await viewer.evaluate(()=>window.__lanScreenTest.captures.length),0);
+  await enableMic(host);await shareSyntheticScreen(host);
+  await viewer.locator('body[data-stage="watch"]').waitFor();
+  assert.equal(await viewer.locator('#voice-only').getAttribute('aria-pressed'),'false');
+  await openSound();
+  await assertAudio(1,false);
+  await closeSound();
 }));
 
 test('briefLocalServiceFailureRetriesWithoutLeavingOrRecapturing', async (t) => withScenario(t, {}, async ({ host, viewers }) => {
@@ -495,13 +565,13 @@ test('briefLocalServiceFailureRetriesWithoutLeavingOrRecapturing', async (t) => 
   await viewer.route('**/api/v1/bootstrap',route=>++failures<=2 ? route.fulfill({status:503,body:'temporary test outage'}) : route.continue());
   await viewer.evaluate(()=>{window.__recoveryStages=[];window.__recoveryObserver=new MutationObserver(()=>window.__recoveryStages.push(document.querySelector('#app').dataset.stage));window.__recoveryObserver.observe(document.querySelector('#app'),{attributes:true,attributeFilter:['data-stage']});window.__lanScreenTest.sockets.findLast(socket=>new URL(socket.url).pathname==='/ws/v1'&&socket.readyState===WebSocket.OPEN).close();});
   await viewer.waitForFunction(()=>window.__lanScreenTest.incoming.filter(message=>message.type==='room.joined').length>=2);
-  await viewer.locator('#connection-status').filter({hasText:'房间已恢复'}).waitFor();
+  await viewer.locator('#connection-status').filter({hasText:'媒体已连接'}).waitFor();
   const restored=await viewer.evaluate(()=>window.__lanScreenTest.incoming.findLast(message=>message.type==='room.joined'));
   assert.equal(restored.peerId,original.peerId);assert.equal(restored.roomId,original.roomId);assert.ok(failures>=3);
   assert.equal(await viewer.evaluate(()=>window.__recoveryStages.includes('entry')),false,'the room stays visible through retries');
   assert.equal(await viewer.locator('#toggle-mic').getAttribute('aria-pressed'),'true');
   assert.equal((await memberIds(host)).length,3);
-  await viewer.locator('#leave-room').click();await viewer.reload();await viewer.locator('#quick-create-room').waitFor();
+  await viewer.locator('#leave-room').click();await viewer.locator('body[data-stage="entry"]').waitFor();await reloadWithUnloadCheck(viewer,false);await viewer.locator('#quick-create-room').waitFor();
   assert.equal(await viewer.evaluate(()=>sessionStorage.getItem('lan-screen-sharing.room')),null,'explicit leave does not refresh back into the room');
 }));
 
@@ -556,7 +626,13 @@ test('gameFocusPausesOnlyTheLocalPreviewAndPreservesSelectedQualityAndRTP', asyn
     return result;
   });
   assert.equal(codecs.length, 1, 'two viewers share one browser video encoder');
-  assert.ok(codecs.every(row => row.width === 1920 && row.height === 1080 && row.maxFramerate === 60 && row.maxBitrate === 8_000_000));
+  await host.waitForFunction(async()=>{
+    const relay=window.__lanScreenTest.pcs.find(pc=>pc.getSenders().some(sender=>sender.track?.kind==='video'));
+    return relay && [...(await relay.getStats()).values()].some(row=>row.type==='candidate-pair'&&
+      row.nominated&&row.availableOutgoingBitrate===24_000_000);
+  },null,{timeout:12_000});
+  t.diagnostic('Native relay candidate-pair estimate after REMB: 24 Mbps');
+  assert.ok(codecs.every(row => row.width === 1920 && row.height === 1080 && row.maxFramerate === 60 && row.maxBitrate === 15_000_000));
   await host.locator('#settings-dialog [data-close-dialog]').click();
   const before = await Promise.all(viewers.map(collectActualPCStats));
   for (const viewer of viewers) await waitForActualPCStats(viewer,rows => rows.some(row => row.type==='inbound-rtp' && row.kind==='video' && row.width===1920 && row.height===1080 && row.frames>0),'each viewer must decode actual 1080p frames');
@@ -595,7 +671,7 @@ test('gameFocusPausesOnlyTheLocalPreviewAndPreservesSelectedQualityAndRTP', asyn
   await host.waitForFunction(() => document.querySelector('#remote-screen').srcObject && document.querySelector('#remote-screen').videoWidth > 0);
   const targets = await host.evaluate(() => window.__lanScreenTest.pcs.flatMap(pc => pc.getSenders().filter(sender => sender.track?.kind === 'video').map(sender=>sender.getParameters().encodings[0])));
   assert.equal(targets.length,1);
-  assert.ok(targets.every(target => target.maxFramerate === 60 && target.maxBitrate === 8_000_000));
+  assert.ok(targets.every(target => target.maxFramerate === 60 && target.maxBitrate === 15_000_000));
   assert.equal(await host.locator('#quality-target').inputValue(), '1080p60');
   t.diagnostic('Native encoder evidence with selected quality preserved: ' + JSON.stringify(codecs));
   t.diagnostic('Native encode / two receiver decode with all three microphones: '+JSON.stringify(actualVideo));

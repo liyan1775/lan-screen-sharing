@@ -33,7 +33,7 @@ test('background preview preference preserves selected capture resolution, frame
   await media.setQuality('1080p60');
   assert.equal(constraints.at(-1).width.max, 1920); assert.equal(constraints.at(-1).height.max, 1080);
   assert.equal(constraints.at(-1).frameRate.max, 60); assert.equal(encodings.length, 2);
-  assert.ok(encodings.every(encoding => encoding.maxFramerate === 60 && encoding.maxBitrate === 8_000_000));
+  assert.ok(encodings.every(encoding => encoding.maxFramerate === 60 && encoding.maxBitrate === 15_000_000));
   assert.equal(media.microphoneTrack, microphone); assert.equal(media.systemAudioTrack, systemAudio);
   assert.ok(media.ownsPresentation); assert.deepEqual([...media.peers.values()].map(peer => peer.pc), pcs);
   media.pauseBackgroundPreview = false; media.pauseBackgroundPreview = true;

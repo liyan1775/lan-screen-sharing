@@ -1,0 +1,12 @@
+{
+  "name": "LAN / 分享 · 局域网屏幕共享",
+  "short_name": "LAN / 分享",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#05080c",
+  "theme_color": "#146c7a",
+  "icons": [
+    { "src": "/assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/assets/icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

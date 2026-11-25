@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"image/png"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,38 @@ import (
 	"github.com/coder/websocket"
 	"lan-screen-sharing/internal/protocol"
 )
+
+func TestEmbeddedBrandAssets(t *testing.T) {
+	h := New(Config{}).Handler()
+	for _, tc := range []struct{ path, contentType string }{
+		{"/favicon.ico", "image/x-icon"},
+		{"/assets/manifest.webmanifest", "application/manifest+json"},
+		{"/assets/icons/icon-32.png", "image/png"},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, tc.path, nil))
+			if w.Code != http.StatusOK || w.Body.Len() == 0 || w.Header().Get("Content-Type") != tc.contentType {
+				t.Fatalf("status = %d, size = %d, Content-Type = %q", w.Code, w.Body.Len(), w.Header().Get("Content-Type"))
+			}
+			switch tc.contentType {
+			case "image/x-icon":
+				if !strings.HasPrefix(w.Body.String(), "\x00\x00\x01\x00\x05\x00") {
+					t.Fatal("favicon is not a five-image ICO")
+				}
+			case "application/manifest+json":
+				if !json.Valid(w.Body.Bytes()) {
+					t.Fatal("manifest is not valid JSON")
+				}
+			case "image/png":
+				cfg, err := png.DecodeConfig(w.Body)
+				if err != nil || cfg.Width != 32 || cfg.Height != 32 {
+					t.Fatalf("expected a 32x32 PNG, got %dx%d (error: %v)", cfg.Width, cfg.Height, err)
+				}
+			}
+		})
+	}
+}
 
 func TestBootstrapOnlyReturnsHostTokenOnLoopback(t *testing.T) {
 	s := New(Config{})

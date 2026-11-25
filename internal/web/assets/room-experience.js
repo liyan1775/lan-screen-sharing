@@ -1,4 +1,5 @@
 import { icon } from './icons.js';
+import { CAPTURE_SOURCE_NOTE } from './system-audio-isolation.js';
 
 const stageViews = { entry: '#discovery-panel', setup: '#room-panel', voice: '#voice-stage', watch: '.screen-stage' };
 const spotlightPanels = '.discovered-room, .member-seat, .voice-activity, .panel, .empty-rooms';
@@ -12,7 +13,7 @@ export function createVoiceMeter(documentRef) {
 }
 
 // Reparent controls, never the media elements. A mode change must not restart a stream.
-export function createRoomExperience(documentRef = document) {
+export function createRoomExperience(documentRef = document, { onAudioFilter = () => {} } = {}) {
   const $ = selector => documentRef.querySelector(selector);
   const activity = $('#voice-activity');
   let current = {};
@@ -86,6 +87,7 @@ export function createRoomExperience(documentRef = document) {
     button.addEventListener('click', () => {
       selectAudioFilter(button.dataset.audioFilter);
       syncAudio();
+      onAudioFilter(audioFilter);
     });
   }
   function prepareMembers() {
@@ -97,15 +99,15 @@ export function createRoomExperience(documentRef = document) {
     const open = !!$('#sound-dialog').open;
     const seats = [...$('#members').children];
     const rows = allRows();
+    const hasPublishedAudio = row => current.hasSystemAudio === true && row.dataset.peerId === current.presenterPeerId;
     const mixed = open && rows.some(row => row.dataset.role === 'microphone') &&
-      rows.some(row => row.dataset.role === 'systemAudio' && row.dataset.peerId === current.presenterPeerId);
+      rows.some(row => row.dataset.role === 'systemAudio' && hasPublishedAudio(row));
     if (filter) filter.hidden = !mixed;
-    if (!mixed && audioFilter !== 'all') selectAudioFilter('all');
     let available = 0;
     for (const row of rows) {
       const system = row.dataset.role === 'systemAudio';
-      const valid = !system || row.dataset.peerId === current.presenterPeerId;
-      const shown = valid && (audioFilter === 'all' || audioFilter === row.dataset.role);
+      const valid = !system || hasPublishedAudio(row);
+      const shown = valid && (!mixed || audioFilter === 'all' || audioFilter === row.dataset.role);
       row.hidden = !shown;
       if (shown) available++;
       const seat = seats.find(node => node.dataset.peerId === row.dataset.peerId);
@@ -144,7 +146,7 @@ export function createRoomExperience(documentRef = document) {
     dialog.addEventListener('keydown', event => {
       if (event.key !== 'Tab' || event.ctrlKey || event.altKey || event.metaKey) return;
       const controls = [...dialog.querySelectorAll('button,input,select,textarea,summary,a[href],[tabindex]')].filter(node => {
-        if (node.disabled || node.tabIndex < 0 || !node.getClientRects().length) return false;
+        if (node.hidden || node.disabled || node.tabIndex < 0 || !node.getClientRects().length) return false;
         if (node.type === 'radio' && !node.checked) return false;
         // Chromium can report rectangles for descendants of a closed details element.
         for (let details = node.parentElement?.closest('details:not([open])'); details; details = details.parentElement?.closest('details:not([open])')) {
@@ -181,7 +183,12 @@ export function createRoomExperience(documentRef = document) {
   $('#confirm-cancel').addEventListener('click', () => $('#confirm-dialog').close('cancel'));
   $('#confirm-accept').addEventListener('click', () => $('#confirm-dialog').close('confirm'));
   for (const id of ['voice-sound', 'watch-sound', 'members-sound']) $(`#${id}`).addEventListener('click', event => open('sound-dialog', event.currentTarget));
-  for (const id of ['open-settings', 'entry-settings', 'entry-identity', 'share-options']) $(`#${id}`).addEventListener('click', event => open('settings-dialog', event.currentTarget));
+  for (const id of ['open-settings', 'entry-settings', 'entry-identity']) $(`#${id}`).addEventListener('click', event => open('settings-dialog', event.currentTarget));
+  $('#share-options').addEventListener('click', event => {
+    open('settings-dialog', event.currentTarget);
+    $('#sharing-settings-title').scrollIntoView({block:'start', behavior:'instant'});
+    $('#quality-target').focus({preventScroll:true});
+  });
   $('#open-peer-hosts').addEventListener('click', event => {
     open('settings-dialog', event.currentTarget);
     const input = $('#peer-host-input');
@@ -201,11 +208,21 @@ export function createRoomExperience(documentRef = document) {
     if ($('#error-message').parentElement !== errorHome) errorHome.prepend($('#error-message'));
     $('#topbar-room-name').textContent = state.roomName || '房间';
     $('#topbar-room-count').textContent = `${state.memberCount || 0} 人`;
+    const voiceStatus = state.voiceConnection;
+    $('#voice-connection').hidden = !voiceStatus;
+    const failedName = state.failedVoicePeers?.length === 1 ? state.failedVoicePeers[0].name : '';
+    const voiceMessage = voiceStatus === 'failed' ? (failedName ? `与 ${failedName} 的语音未连上，你仍在房间内。` : '部分成员的语音未连上，你仍在房间内。')
+      : voiceStatus === 'connecting' ? '正在连接语音…' : '';
+    if ($('#voice-connection-message').textContent !== voiceMessage) $('#voice-connection-message').textContent = voiceMessage;
+    $('#retry-voice').hidden = voiceStatus !== 'failed';
+    $('#room-audio-activation').hidden = !state.needsAudioActivation;
+    $('#enable-audio').hidden = !state.needsAudioActivation;
     $('#watch-source').textContent = state.presenterPeerId ? `${state.presenterName || '成员'}正在共享${state.voiceOnly ? ' · 本机只聊语音' : ''}` : '';
     $('#screen-source-label').textContent = state.presenterPeerId ? `${state.presenterName || '成员'}的共享画面` : '';
     $('#watch-title').textContent = state.presenterPeerId ? `正在观看${state.presenterName || '成员'}的共享画面` : '等待共享画面';
     $('#voice-activity-title').textContent = state.presenterPeerId ? `${state.presenterName || '成员'}正在共享` : '还没有人共享';
-    $('#voice-stage-message').textContent = state.presenterPeerId ? '画面由你决定是否观看，语音仍在房间里。' : '先聊着，任何人都可以开始共享。';
+    const stageMessage = state.presenterPeerId ? '画面由你决定是否观看，语音仍在房间里。' : CAPTURE_SOURCE_NOTE;
+    if ($('#voice-stage-message').textContent !== stageMessage) $('#voice-stage-message').textContent = stageMessage;
     const seats = [...$('#members').children].filter(node => node.classList.contains('member-seat'));
     if (state.stage === 'voice') {
       const left = seats.find(node => node.dataset.seat === 'left');
@@ -226,7 +243,11 @@ export function createRoomExperience(documentRef = document) {
       place($('#voice-only'), $('#view-home'));
       place($('#members'), $('.orbit-table'));
     }
-    $('#voice-only').hidden = !state.presenterPeerId && !state.voiceOnly;
+    const voiceOnly = $('#voice-only');
+    voiceOnly.hidden = !!state.localSharing || (!state.screenSharing && !state.voiceOnly);
+    decorate(voiceOnly, state.voiceOnly ? 'screen' : 'headphones');
+    voiceOnly.querySelector('.button-label').textContent = state.voiceOnly ? '恢复观看' : '只聊语音';
+    voiceOnly.setAttribute('aria-pressed', String(!!state.voiceOnly && !state.localSharing));
     $('#stop-share').hidden = $('#stop-share').disabled;
     $('#start-share').hidden = !!state.screenSharing;
     $('#voice-only').classList.toggle('button-primary', state.stage === 'voice' && !!state.voiceOnly && !!state.screenSharing);
@@ -258,10 +279,10 @@ export function createRoomExperience(documentRef = document) {
     summaryNodes.forEach((node,index) => { if (summary.children[index] !== node) summary.insertBefore(node, summary.children[index] || null); });
     decorate($('#toggle-mic'), state.microphone ? 'mic' : 'mic-off');
     decorate($('#start-share'), 'screen'); decorate($('#stop-share'), 'screen');
-    decorate($('#voice-only'), state.voiceOnly ? 'screen' : 'headphones');
     for (const id of ['toggle-mic', 'start-share', 'stop-share', 'enable-audio']) {
       const button = $(`#${id}`);
-      if (button && button.title !== button.textContent.trim()) button.title = button.textContent.trim();
+      const title = id === 'stop-share' && state.localSharing ? '所有人停止观看，房间语音继续' : button?.textContent.trim();
+      if (button && button.title !== title) button.title = title;
     }
     const invite = $('.manual-invite');
     if (invite) { place(invite, joined ? $('#invite-content') : $('#host-panel')); invite.open = joined; }
@@ -271,5 +292,7 @@ export function createRoomExperience(documentRef = document) {
       animateStage(state.stage);
     }
   }
-  return { prepareMembers, sync, syncAudio, open, confirm };
+  return { prepareMembers, sync, syncAudio, open, confirm,
+    setAudioFilter(value) { selectAudioFilter(value); syncAudio(); },
+  };
 }

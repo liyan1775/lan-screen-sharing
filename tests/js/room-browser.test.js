@@ -178,6 +178,41 @@ test('saved addresses render immediately and queued additions respect the eight-
   assert.equal(status.textContent, '最多添加 8 个地址，请先移除一个。');
 });
 
+test('address results expire inline at 3.5 seconds, while invalid addresses stay until the next edit or submission', async () => {
+  const {document, Event} = parseHTML('<form><input></form><ul></ul><p role="status"></p>');
+  const [form, input, list, status] = ['form','input','ul','p'].map(selector => document.querySelector(selector));
+  let hosts = [], notice, expire;
+  const peers = bindPeerHosts({form, input, list, status, getHosts:() => hosts,
+    save:async value => { hosts = value; }, onSaved() {}, onNotice:value => { notice = value; },
+    start(callback, delay) { assert.equal(delay, 3500); expire = callback; return 1; }, stop() { expire = undefined; },
+  });
+  for (const expected of ['已添加地址。', '该地址已添加。']) {
+    await peers.add('192.168.1.25');
+    assert.equal(notice, expected);
+    assert.equal(status.textContent, expected);
+    expire();
+    assert.equal(status.textContent, '');
+  }
+  list.querySelector('button').click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(notice, '已移除地址。');
+  expire();
+  await peers.add('8.8.8.8');
+  assert.match(status.textContent, /请输入局域网/);
+  assert.equal(expire, undefined);
+  assert.equal(input.getAttribute('aria-invalid'), 'true');
+  input.dispatchEvent(new Event('input'));
+  assert.equal(status.textContent, '');
+  assert.equal(input.hasAttribute('aria-invalid'), false);
+  await peers.add('invalid');
+  input.value = '192.168.1.25';
+  form.dispatchEvent(new Event('submit', {cancelable:true}));
+  assert.equal(status.textContent, '', 'resubmitting first clears the old validation error');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(status.textContent, '已添加地址。');
+  expire();
+});
+
 test('discovery diagnostics show traffic and failures without copying invitations or control tokens',()=>{
   const text=formatDiscoveryDiagnostics({interfaceName:'WLAN',localIPv4:'192.168.1.20',transport:'multicast+broadcast',running:true,directPeers:2,paths:{directUnicast:{queriesSent:3,queriesReceived:1}},queriesSent:4,queriesReceived:0,repliesReceived:0,sendErrors:1,lastError:'NETWORK_PERMISSION_DENIED',roomCode:'secret-code',hostControlToken:'secret-token'});
   assert.match(text,/指定查找的地址：2 个 · 直连查找包：发出 3，收到 1/);

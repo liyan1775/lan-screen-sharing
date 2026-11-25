@@ -155,6 +155,14 @@ func New(config Config) *Server {
 	s.localMux.HandleFunc("/", s.servePage)
 	assetFS, _ := fs.Sub(web.Assets, "assets")
 	s.localMux.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(assetFS))))
+	s.localMux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/x-icon")
+		http.ServeFileFS(w, r, assetFS, "icons/favicon.ico")
+	})
+	s.localMux.HandleFunc("/assets/manifest.webmanifest", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/manifest+json")
+		http.ServeFileFS(w, r, assetFS, "manifest.webmanifest")
+	})
 	s.localMux.HandleFunc("/api/v1/bootstrap", s.serveBootstrap)
 	s.localMux.HandleFunc("/api/v1/network", s.serveNetwork)
 	s.localMux.HandleFunc("/api/v1/preferences", s.servePreferences)

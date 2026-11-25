@@ -47,6 +47,64 @@ test('destructive confirmation is cancellable and uses explicit safe and destruc
   $('#confirm-dialog').close('cancel');assert.equal(await result,false);
 });
 
+test('sound settings ignore a reserved system slot during silent sharing and restore it when audio is published', async () => {
+  const { document, experience, $ } = await fixture();
+  for (const role of ['microphone', 'systemAudio']) {
+    const row = document.createElement('div');
+    row.className = 'audio-source';
+    Object.assign(row.dataset, { role, peerId: 'friend' });
+    $('#audio-stash').append(row);
+  }
+  const state = { stage: 'watch', roomId: 'room', presenterPeerId: 'friend', screenSharing: true };
+  const system = $('.audio-source[data-role=systemAudio]');
+  experience.sync({ ...state, hasSystemAudio: false });
+  experience.open('sound-dialog');
+  assert.equal(system.hidden, true);
+  assert.equal(system.parentElement.id, 'audio-stash');
+  assert.equal($('#audio-filter').hidden, true);
+  assert.equal($('#audio-sources').children.length, 1);
+
+  experience.sync({ ...state, hasSystemAudio: true });
+  assert.equal(system.hidden, false);
+  assert.equal(system.parentElement.id, 'audio-sources');
+  assert.equal($('#audio-filter').hidden, false);
+  $('[data-audio-filter=systemAudio]').click();
+  assert.equal($('[data-audio-filter=systemAudio]').getAttribute('aria-pressed'), 'true');
+
+  experience.sync({ ...state, hasSystemAudio: false });
+  assert.equal(system.hidden, true);
+  assert.equal($('#audio-filter').hidden, true);
+  assert.equal($('[data-audio-filter=systemAudio]').getAttribute('aria-pressed'), 'true', 'a temporarily unavailable source must not reset the saved filter');
+  assert.equal($('.audio-source[data-role=microphone]').hidden, false);
+  experience.sync({ ...state, hasSystemAudio: true });
+  assert.equal($('.audio-source[data-role=microphone]').hidden, true);
+});
+
+test('room notices distinguish voice retry, name one failed member, and clear once connected', async () => {
+  const { experience, $ } = await fixture();
+  const state = { stage: 'voice', roomId: 'room', memberCount: 3 };
+  experience.sync(state);
+  assert.equal($('#voice-connection').hidden, true, 'a healthy join is quiet');
+  experience.sync({ ...state, voiceConnection: 'connecting' });
+  assert.equal($('#voice-connection').hidden, false);
+  assert.equal($('#voice-connection-message').textContent, '正在连接语音…');
+  assert.equal($('#retry-voice').hidden, true);
+  assert.equal($('#topbar-room-count').textContent, '3 人');
+  const failedVoicePeers = [{peerId:'friend', name:'小夏'}];
+  experience.sync({ ...state, voiceConnection: 'failed', needsAudioActivation: true, failedVoicePeers });
+  assert.equal($('#voice-connection-message').textContent, '与 小夏 的语音未连上，你仍在房间内。');
+  assert.equal($('#retry-voice').hidden, false);
+  assert.equal($('#retry-voice').textContent, '重试语音连接');
+  assert.equal($('#enable-audio').hidden, false);
+  experience.sync({ ...state, voiceConnection:'failed', failedVoicePeers:[...failedVoicePeers, {peerId:'friend-two', name:'阿立'}] });
+  assert.equal($('#voice-connection-message').textContent, '部分成员的语音未连上，你仍在房间内。');
+  assert.equal($('#start-share').hidden, false);
+  experience.sync(state);
+  assert.equal($('#enable-audio').hidden, true);
+  assert.equal($('#voice-connection').hidden, true);
+  assert.equal($('#voice-connection-message').textContent, '');
+});
+
 test('voice member controls precede the sharing area in reading and keyboard order',async()=>{
   const {document,experience,$}=await fixture();
   for (const name of ['left','right','near']) {

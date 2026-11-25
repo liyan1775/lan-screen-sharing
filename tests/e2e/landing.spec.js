@@ -113,12 +113,15 @@ test('offline Apple Pro landing: synchronized stage, keyboard, simulator and acc
   evidence.firstFoldAxe.push({width:1440,...firstFold});
   assert.deepEqual(firstFold.violations,[],'first-fold contrast before any scroll');
   assert.equal(await page.evaluate(()=>matchMedia('(prefers-reduced-motion: reduce)').matches),true);
-  assert.match(await page.title(),/LAN \/ 分享 v1\.1\.1/);
+  assert.match(await page.title(),/LAN \/ 分享 v1\.2\.0/);
   const release='https://github.com/liyan1775/lan-screen-sharing/releases';
   const downloadLinks=await page.locator('a[href*="/releases/download/"]').evaluateAll(links=>links.map(link=>link.href));
-  const zip=`${release}/download/v1.1.1/lan-screen-sharing-1.1.1-windows-x64.zip`;
+  const zip=`${release}/download/v1.2.0/lan-screen-sharing-1.2.0-windows-x64.zip`;
   assert.deepEqual(downloadLinks,[zip,zip]);
-  assert.equal(await page.locator(`a[href="${release}/tag/v1.1.1"]`).count(),1);
+  assert.equal(await page.locator(`a[href="${release}/tag/v1.2.0"]`).count(),1);
+  assert.match(await page.getByRole('row').filter({hasText:'视频画质目标'}).textContent(),/1080p60，码率上限 15 Mbps/);
+  const refreshFAQ=page.locator('details').filter({hasText:'停止共享、短暂断线或刷新，会怎样？'});
+  assert.match(await refreshFAQ.textContent(),/音量、静音.*原设备开启.*房内提示.*重新选择内容/);
   const screens=['heroHostCanvas','heroViewerACanvas','heroViewerBCanvas'];
   const snapshots=await page.evaluate(ids=>ids.map(id=>{
     const source=document.getElementById(id);

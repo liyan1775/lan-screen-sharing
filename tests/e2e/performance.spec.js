@@ -105,6 +105,7 @@ test('idle, voice and screen sessions only perform the background work they need
     await page.locator('#join-room').click();
   }
   await Promise.all(pages.map(page => page.waitForFunction(() => window.__lanScreenTest.pcs.length === 2 && window.__lanScreenTest.pcs.every(pc => pc.connectionState === 'connected'))));
+  await Promise.all(pages.map(page=>page.locator('#connection-status').filter({hasText:'媒体已连接'}).waitFor()));
   await Promise.all(pages.map(page => page.locator('#toggle-mic').click()));
   const voice = await measure('voice');
   if (!baseline) assert.ok(voice.every(row => row.stats === 0 && row.roomRequests === 0 && row.diagnosticsMutations === 0), 'voice-only rooms do not poll video stats or hidden discovery');
@@ -112,6 +113,7 @@ test('idle, voice and screen sessions only perform the background work they need
   await host.locator('#start-share').click();
   await Promise.all(pages.map(page => page.waitForFunction(() => document.querySelector('#remote-screen').videoWidth > 0)));
   measurements.activePlayers = await Promise.all(pages.map(page => page.evaluate(() => [...document.querySelectorAll('video')].filter(video => video.srcObject && !video.paused).length)));
+  await host.locator('#connection-status').filter({hasText:'正在共享屏幕'}).waitFor();
   const sharing = await measure('sharingDiagnosticsClosed', 11_000);
   if (!baseline) {
     assert.deepEqual(measurements.activePlayers, [1, 1, 1], 'each participant plays the screen in one video element');
@@ -125,6 +127,10 @@ test('idle, voice and screen sessions only perform the background work they need
     await page.locator('.settings-section > summary').click();
     await page.waitForFunction(() => /实际 \d+×\d+/.test(document.querySelector('#actual-stats').textContent));
   }));
+  assert.match(await host.locator('#quality-target-text').textContent(), /1080p60 · 码率上限 15 Mbps/);
+  await host.waitForFunction(()=>/编码关键帧 [1-9]\d* · QP \d+\.\d/.test(document.querySelector('#actual-stats').textContent));
+  await Promise.all(viewers.map(page=>page.waitForFunction(()=>
+    /解码关键帧 [1-9]\d*/.test(document.querySelector('#actual-stats').textContent))));
   if (!baseline) {
     // Keep native sampling. Replay one size and a short gap where Chromium
     // omits dimensions, so both cases must keep the same capsule stable.
@@ -143,8 +149,10 @@ test('idle, voice and screen sessions only perform the background work they need
     await host.evaluate(() => { window.__repeatOutboundDimensions = false; });
   }
   await Promise.all(pages.map(page => page.locator('#settings-dialog [data-close-dialog]').click()));
-  await host.locator('#stop-share').click();
+  if (!baseline) assert.equal(await host.locator('#voice-only').isVisible(), false);
+  await host.getByRole('button', { name: '停止共享', exact: true }).click();
   await Promise.all(pages.map(page => page.waitForFunction(() => document.querySelector('#app').dataset.stage === 'voice')));
+  assert.equal(await host.locator('#toggle-mic').getAttribute('aria-pressed'), 'true', 'stopping the screen keeps the microphone on');
   if (!baseline) assert.equal(await host.locator('#quality-trigger').getAttribute('data-degraded'), null);
   const stopped = await measure('screenStopped');
   if (!baseline) assert.ok(stopped.every(row => row.stats === 0 && row.roomRequests === 0 && row.diagnosticsMutations === 0));
