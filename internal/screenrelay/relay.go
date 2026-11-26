@@ -72,6 +72,24 @@ func New(localIPv4 string) *Manager {
 	if err := engine.RegisterDefaultCodecs(); err != nil {
 		panic(err)
 	}
+	// Pion registers High (6400) by default. Chromium may instead offer
+	// Constrained High (640c), which has distinct profile constraint flags.
+	if err := engine.RegisterCodec(webrtc.RTPCodecParameters{
+		RTPCodecCapability: webrtc.RTPCodecCapability{
+			MimeType: webrtc.MimeTypeH264, ClockRate: 90000,
+			SDPFmtpLine:  "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=640c1f",
+			RTCPFeedback: []webrtc.RTCPFeedback{{Type: "goog-remb"}, {Type: "ccm", Parameter: "fir"}, {Type: "nack"}, {Type: "nack", Parameter: "pli"}},
+		},
+		PayloadType: 114,
+	}, webrtc.RTPCodecTypeVideo); err != nil {
+		panic(err)
+	}
+	if err := engine.RegisterCodec(webrtc.RTPCodecParameters{
+		RTPCodecCapability: webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeRTX, ClockRate: 90000, SDPFmtpLine: "apt=114"},
+		PayloadType:        115,
+	}, webrtc.RTPCodecTypeVideo); err != nil {
+		panic(err)
+	}
 	if err := webrtc.ConfigureNack(engine, registry); err != nil {
 		panic(err)
 	}
@@ -531,8 +549,8 @@ func (s *session) localFeedback() {
 		if ssrc := s.ssrc.Load(); ssrc != 0 {
 			sources = []uint32{ssrc}
 		}
-		// Leave room above the 15 Mbps video target for audio and RTP overhead.
-		_ = s.up.WriteRTCP([]rtcp.Packet{&rtcp.ReceiverEstimatedMaximumBitrate{Bitrate: 24_000_000, SSRCs: sources}})
+		// Leave room above the 25 Mbps video ceiling for keyframes, audio and RTP overhead.
+		_ = s.up.WriteRTCP([]rtcp.Packet{&rtcp.ReceiverEstimatedMaximumBitrate{Bitrate: 36_000_000, SSRCs: sources}})
 		select {
 		case <-s.done:
 			return

@@ -33,6 +33,17 @@ test('missing, empty or throwing codec APIs leave the browser defaults enabled',
   assert.equal(preferScreenCodecs({setCodecPreferences:() => { throw new Error(); }}, caps, 'h264'), false);
 });
 
+test('1080p60 support takes precedence over profile; High, Main and Baseline are ranked within each tier', () => {
+  const candidate = (profile, extra = '') => ({ mimeType:'video/H264', sdpFmtpLine:`packetization-mode=1;profile-level-id=${profile}${extra}` });
+  const full = [candidate('640c2a'), candidate('4d001f',';max-fs=8160;max-mbps=489600'), h264];
+  const asymmetric = ['64001f','4d001f','42e01f'].map(profile => candidate(profile,';level-asymmetry-allowed=1'));
+  const unsupported = candidate('64001f',';max-fs=8160;max-mbps=489599');
+  const codecs = [unsupported, ...asymmetric.toReversed(), ...full.toReversed(), vp8];
+  let sorted;
+  preferScreenCodecs({setCodecPreferences:value => { sorted = value; }}, {getCapabilities:() => ({codecs})}, 'h264');
+  assert.deepEqual(sorted, [...full, ...asymmetric, vp8, unsupported]);
+});
+
 test('a nominated candidate pair can start when bitrate statistics are omitted', async () => {
   const controller = new AbortController();
   const abort = setTimeout(() => controller.abort(), 2500);
@@ -53,14 +64,20 @@ class FakePC {
     return { sender, setCodecPreferences:codecs => { if (kind === 'video') this.codec = codecs[0]; } };
   }
   getSenders() { return this.senders; }
-  async createOffer() { return {type:'offer', sdp:'mock offer'}; }
+  async createOffer() {
+    const mime = this.codec?.mimeType.split('/')[1];
+    return {type:'offer', sdp:`v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 98\r\na=rtpmap:98 ${mime}/90000\r\na=fmtp:98 ${this.codec?.sdpFmtpLine ?? ''}\r\n`};
+  }
   async setLocalDescription(value) { this.localDescription = {toJSON:() => value}; }
-  async setRemoteDescription() {}
+  async setRemoteDescription(description) {
+    const params = description.sdp.match(/^a=fmtp:98 (.+)$/m)?.[1];
+    if (params) this.codec = {...this.codec, sdpFmtpLine:params};
+  }
   async getStats() {
     return new Map([
       ['pair',{type:'candidate-pair',state:'succeeded',nominated:true,availableOutgoingBitrate:16_000_000}],
       ['code',this.codec],
-      ['video',{type:'outbound-rtp',kind:'video',framesEncoded:3,codecId:'code'}],
+      ['video',{type:'outbound-rtp',kind:'video',framesEncoded:3,frameWidth:1280,frameHeight:720,codecId:'code'}],
     ]);
   }
   close() { this.connectionState = 'closed'; }
@@ -81,7 +98,7 @@ function setup(t) {
     async requestScreenRelay(request) {
       actions.push(request);
       if (request.action === 'receiver') return new Promise((resolve, reject) => pending.push(reject));
-      return { sessionId:crypto.randomUUID(), description:{type:'answer',sdp:'mock answer'} };
+      return { sessionId:crypto.randomUUID(), description:{type:'answer',sdp:request.description?.sdp ?? 'mock answer'} };
     },
   };
   const relay = new ScreenRelay(client, {
@@ -94,6 +111,32 @@ function setup(t) {
 const mismatch = () => Object.assign(new Error('mismatch'), { code:'SCREEN_RELAY_CODEC_MISMATCH' });
 const offer = (fromPeerId, epoch) => ({ fromPeerId, epoch, description:{type:'offer',sdp:'mock offer'} });
 const failedDecode = (fromPeerId, epoch) => ({ ...offer(fromPeerId, epoch), codecMismatch:true });
+
+test('a viewer offering only Constrained Baseline gets a compatible encoder before VP8; departure restores High', async t => {
+  const { relay, pending, peers, signals } = setup(t);
+  const high = { mimeType:'video/H264', sdpFmtpLine:'profile-level-id=640c2a;packetization-mode=1' };
+  const baseline = { mimeType:'video/H264', sdpFmtpLine:'profile-level-id=42e02a;packetization-mode=1' };
+  globalThis.RTCRtpSender = {getCapabilities:() => ({codecs:[baseline, vp8, high]})};
+  const video = {kind:'video',readyState:'live'};
+  await relay.start(video, null);
+  assert.deepEqual(relay.source.pc.codec, high);
+  const sdp = 'v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 98\r\na=rtpmap:98 H264/90000\r\na=fmtp:98 packetization-mode=1;profile-level-id=42e01f\r\n';
+  const attempt = relay.handle('screen.description', {fromPeerId:'b',epoch:relay.source.epoch,description:{type:'offer',sdp}});
+  while (!pending.length) await Promise.resolve();
+  pending[0](mismatch());
+  await attempt;
+  assert.match(relay.source.pc.codec.sdpFmtpLine, /level-asymmetry-allowed=0;profile-level-id=42e01f/);
+  assert.deepEqual(relay.source.qualityLimit, {width:1280,height:720,fps:30,bitrate:14_000_000});
+  assert.equal(relay.source.videoSender.track, video);
+  assert.ok(signals.some(([type,id,payload]) => type === 'screen.ready' && id === 'b' && payload.codecMode === 'h264'));
+  peers.delete('b');
+  relay.removePeer('b');
+  await relay.share.operation;
+  assert.deepEqual(relay.source.pc.codec, high);
+  assert.equal(relay.source.qualityLimit, undefined);
+  assert.equal(relay.source.videoSender.track, video);
+  await relay.close();
+});
 
 test('concurrent mismatches share one fallback; departing members trigger at most one recovery', async t => {
   const { relay, peers, signals, notices, actions, pending } = setup(t);
@@ -200,8 +243,8 @@ test('one native stats sample feeds directional, three-state diagnostics and kee
   assert.equal(calls,1);
   assert.deepEqual(rows.map(row => [row.powerEfficientEncoder,row.powerEfficientDecoder]), [[true,undefined],[undefined,false],[undefined,undefined]]);
   const text = formatVideoLinks(rows.map(row => ({...row,bitrate:8_000_000})));
-  assert.match(text, /实际 1920×1080 · 60\.0 FPS · 8\.0 Mbps · 丢帧 0 · H264 · 节能编码 · 编码实现 Native encoder/);
-  assert.match(text, /H264 · 非节能解码 · 解码实现 Native decoder/);
+  assert.match(text, /实际 1920×1080 · 60\.0 FPS · 8\.0 Mbps · 丢帧 0 · H264 · 硬件编码/);
+  assert.match(text, /H264 · 软件或未加速解码/);
   assert.ok(text.endsWith(' · H264'));
   assert.match(formatMediaDiagnostics({rows}), /解码实现 Native decoder/);
 });

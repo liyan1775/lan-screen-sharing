@@ -302,7 +302,7 @@ test('the page head references the supplied high-resolution icons and manifest',
     ['/assets/icons/icon-48.png', 'image/png', '48x48'],
   ]);
   assert.equal(document.head.querySelector('link[rel=manifest]').getAttribute('href'), '/assets/manifest.webmanifest');
-  assert.match(document.querySelector('#quality-target-text').textContent, /15 Mbps/);
+  assert.match(document.querySelector('#quality-target-text').textContent, /25 Mbps/);
 });
 
 test('copy outcomes use the current settings toast without changing the long-lived room status', async t => {

@@ -127,10 +127,20 @@ test('idle, voice and screen sessions only perform the background work they need
     await page.locator('.settings-section > summary').click();
     await page.waitForFunction(() => /实际 \d+×\d+/.test(document.querySelector('#actual-stats').textContent));
   }));
-  assert.match(await host.locator('#quality-target-text').textContent(), /1080p60 · 码率上限 15 Mbps/);
-  await host.waitForFunction(()=>/编码关键帧 [1-9]\d* · QP \d+\.\d/.test(document.querySelector('#actual-stats').textContent));
-  await Promise.all(viewers.map(page=>page.waitForFunction(()=>
-    /解码关键帧 [1-9]\d*/.test(document.querySelector('#actual-stats').textContent))));
+  assert.match(await host.locator('#quality-target-text').textContent(), /1080p60 · 码率上限 25 Mbps/);
+  await host.waitForFunction(()=>/可用带宽估计 [\d.]+ Mbps/.test(document.querySelector('#actual-stats').textContent));
+  for (const page of pages) {
+    // Capture the detailed report without overwriting the other participants' clipboard.
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, 'clipboard', {configurable:true, value:{
+        writeText: async text => { window.__copiedMediaReport = text; }
+      }});
+    });
+    await page.locator('#copy-media-diagnostics').click();
+    await page.waitForFunction(sending => sending
+      ? /编码关键帧 [1-9]\d* · QP \d+\.\d/.test(window.__copiedMediaReport)
+      : /解码关键帧 [1-9]\d*/.test(window.__copiedMediaReport), page === host);
+  }
   if (!baseline) {
     // Keep native sampling. Replay one size and a short gap where Chromium
     // omits dimensions, so both cases must keep the same capsule stable.

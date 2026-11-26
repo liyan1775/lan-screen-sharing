@@ -43,8 +43,21 @@ test('sender fallback fits both dimensions of large, ultrawide and portrait sour
     assert.ok(height / encoding.scaleResolutionDownBy <= 1080);
     assert.ok(encoding.scaleResolutionDownBy >= 1);
     assert.equal(encoding.maxFramerate, 60);
-    assert.equal(encoding.maxBitrate, 15_000_000);
+    assert.equal(encoding.maxBitrate, 25_000_000);
   }
+});
+
+test('Level 3.1 compatibility caps only the replacement encoder and preserves the selected quality', async () => {
+  const {media} = mediaFixture();
+  const sender = {params:{encodings:[{}]}, getParameters(){ return structuredClone(this.params); }, async setParameters(value){ this.params = value; }};
+  media.screenVideoTrack = {getSettings:() => ({width:1920,height:1080})};
+  media.relay.source = {videoSender:sender,qualityLimit:{width:1280,height:720,fps:30,bitrate:14_000_000}};
+  assert.equal(await media.applyVideoQuality(sender, {confirm:true}), true);
+  assert.deepEqual(sender.params.encodings[0], {scaleResolutionDownBy:1.5,maxFramerate:30,maxBitrate:14_000_000});
+  assert.equal(media.quality, '1080p60');
+  media.relay.source = null;
+  assert.equal(await media.applyVideoQuality(sender, {confirm:true}), true);
+  assert.deepEqual(sender.params.encodings[0], {scaleResolutionDownBy:1,maxFramerate:60,maxBitrate:25_000_000});
 });
 
 test('video diagnostics skip unrelated peer connections and start requested reads concurrently', async () => {
@@ -110,7 +123,7 @@ test('relay confirmation succeeds with basic targets when the browser rejects re
   assert.equal(attempts.length, 2);
   assert.equal(attempts[0].degradationPreference, 'maintain-resolution');
   assert.equal(attempts[1].degradationPreference, undefined);
-  assert.deepEqual(applied.encodings[0], { maxBitrate: 15_000_000, maxFramerate: 60, scaleResolutionDownBy: 2 });
+  assert.deepEqual(applied.encodings[0], { maxBitrate: 25_000_000, maxFramerate: 60, scaleResolutionDownBy: 2 });
   assert.deepEqual(states, [{
     state: 'quality_preference_unsupported',
     message: '浏览器未接受清晰度优先策略，已保留基本画质设置；请以实际统计为准。',
@@ -136,7 +149,7 @@ test('screen senders use high network priority when exposed and retry without it
     assert.equal(attempts.length, support === 'rejected' ? 2 : 1);
     if (support !== 'absent') assert.equal(attempts[0].encodings[0].networkPriority, 'high');
     if (support !== 'supported') assert.equal('networkPriority' in attempts.at(-1).encodings[0], false);
-    assert.equal(attempts.at(-1).encodings[0].maxBitrate, 15_000_000);
+    assert.equal(attempts.at(-1).encodings[0].maxBitrate, 25_000_000);
     assert.equal(attempts.at(-1).degradationPreference, 'maintain-resolution');
     assert.deepEqual(states, [], 'optional network priority must not report a failure');
     await media.applyVideoQuality(sender);
@@ -167,12 +180,12 @@ test('interval QP uses encoded/decoded frame counts and diagnostics preserve key
   assert.deepEqual(rows.map(r => r.averageQp), [24.5,28.5]);
   assert.equal(rows[0].keyFramesEncoded, 2);
   assert.equal(rows[1].keyFramesDecoded, 3);
-  const text = formatVideoLinks(rows);
+  assert.match(formatVideoLinks(rows), /实际 1920×1080/);
   const report = formatMediaDiagnostics({rows, target:'1080p60'});
-  assert.match(report, /我的共享目标：1080p60（设置值，非实测） · 码率上限 15 Mbps/);
+  assert.match(report, /我的共享目标：1080p60（设置值，非实测） · 码率上限 25 Mbps/);
   const history = new MediaDiagnosticsHistory();
   history.record({rows, target:'1080p60'});
-  for (const result of [text, report, history.format()]) {
+  for (const result of [report, history.format()]) {
     assert.match(result, /编码关键帧 2 · QP 24.5 · 丢包 3/);
     assert.match(result, /解码关键帧 3 · QP 28.5 · 丢包 7/);
   }

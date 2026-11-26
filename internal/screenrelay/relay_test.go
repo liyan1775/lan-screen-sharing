@@ -228,6 +228,51 @@ func verifyFanout(t *testing.T, codec webrtc.RTPCodecCapability) {
 	}
 }
 
+func TestConstrainedHighAndBaselineNegotiateDistinctPayloads(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	m := New("")
+	defer m.Close()
+	pc, err := m.localAPI.NewPeerConnection(webrtc.Configuration{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pc.Close()
+	tx, err := pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo, webrtc.RTPTransceiverInit{Direction: webrtc.RTPTransceiverDirectionSendonly})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ordered []webrtc.RTPCodecParameters
+	for _, profile := range []string{"640c1f", "42e01f"} {
+		for _, codec := range tx.Sender().GetParameters().Codecs {
+			params := fmtpParams(codec.SDPFmtpLine)
+			if params["profile-level-id"] == profile && params["packetization-mode"] == "1" {
+				ordered = append(ordered, codec)
+			}
+		}
+	}
+	if len(ordered) != 2 {
+		t.Fatalf("local relay codecs missing: %+v", ordered)
+	}
+	if err = tx.SetCodecPreferences(ordered); err != nil {
+		t.Fatal(err)
+	}
+	_, answer, err := m.Start(ctx, offer(t, ctx, pc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(answer.SDP, "SAVPF 114 106") {
+		t.Fatalf("relay did not preserve High before Baseline: %s", answer.SDP)
+	}
+	viewer := "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=video 9 UDP/TLS/RTP/SAVPF 98\r\na=mid:0\r\na=recvonly\r\na=rtpmap:98 H264/90000\r\na=fmtp:98 packetization-mode=1;profile-level-id=42e01f\r\n"
+	if _, err := receiverCodec(viewer, ordered[0].RTPCodecCapability); !errors.Is(err, ErrCodecMismatch) {
+		t.Fatalf("High RTP would reach a Baseline-only viewer: %v", err)
+	}
+	if codec, err := receiverCodec(viewer, ordered[1].RTPCodecCapability); err != nil || codec.PayloadType != 98 {
+		t.Fatalf("Baseline encoder cannot serve Baseline-only viewer: %+v, %v", codec, err)
+	}
+}
+
 func checkUpstreamREMB(t *testing.T, sender *webrtc.RTPSender) {
 	t.Helper()
 	if err := sender.SetReadDeadline(time.Now().Add(4 * time.Second)); err != nil {
@@ -241,8 +286,8 @@ func checkUpstreamREMB(t *testing.T, sender *webrtc.RTPSender) {
 		}
 		for _, packet := range packets {
 			if remb, ok := packet.(*rtcp.ReceiverEstimatedMaximumBitrate); ok && len(remb.SSRCs) == 1 && remb.SSRCs[0] == ssrc {
-				if remb.Bitrate != 24_000_000 {
-					t.Fatalf("upstream REMB = %v bps, want 24000000 bps", remb.Bitrate)
+				if remb.Bitrate != 36_000_000 {
+					t.Fatalf("upstream REMB = %v bps, want 36000000 bps", remb.Bitrate)
 				}
 				return
 			}

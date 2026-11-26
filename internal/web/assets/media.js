@@ -4,7 +4,7 @@ import { RoomText } from './room-text.js';
 import { ScreenRelay } from './screen-relay.js';
 
 export const QUALITY = Object.freeze({
-  '1080p60': { width: 1920, height: 1080, fps: 60, bitrate: 15_000_000 },
+  '1080p60': { width: 1920, height: 1080, fps: 60, bitrate: 25_000_000 },
   '720p60': { width: 1280, height: 720, fps: 60, bitrate: 8_000_000 },
   '720p30': { width: 1280, height: 720, fps: 30, bitrate: 2_500_000 },
 });
@@ -40,6 +40,32 @@ export function formatActualStats({ width, height, fps, bitrate, droppedFrames }
 
 function readTrackRoleMap(transceivers) {
   return transceivers.map((transceiver) => ({ mid: transceiver.mid, role: transceiver.__trackRole })).filter((item) => item.mid != null && item.role);
+}
+
+// These values come from the active RTP stream's codecId, not the offer's
+// preference list. Never infer a default profile if the browser omits fmtp.
+function videoCodecStats(codecStats) {
+  const mime = codecStats?.mimeType?.toUpperCase();
+  const codec = ['VIDEO/VP8', 'VIDEO/VP9', 'VIDEO/H264', 'VIDEO/AV1'].includes(mime) ? mime.slice(6) : null;
+  const profileLevelId = codec === 'H264'
+    ? codecStats.sdpFmtpLine?.match(/(?:^|;)\s*profile-level-id\s*=\s*([\da-f]{6})\s*(?:;|$)/i)?.[1] ?? null : null;
+  if (!profileLevelId) return { codec, codecProfile: codec, profileLevelId };
+
+  const profileId = parseInt(profileLevelId.slice(0, 2), 16);
+  const constraints = parseInt(profileLevelId.slice(2, 4), 16);
+  const levelId = parseInt(profileLevelId.slice(4), 16);
+  let profile = { 0x42:'Baseline', 0x4d:'Main', 0x58:'Extended', 0x64:'High' }[profileId];
+  if ((profileId === 0x42 && (constraints & 0x40)) || (profileId === 0x4d && (constraints & 0x80)) ||
+      (profileId === 0x58 && (constraints & 0xc0) === 0xc0)) profile = 'Constrained Baseline';
+  if (profileId === 0x64 && constraints === 0x0c) profile = 'Constrained High';
+  const level1b = levelId === 11 && [0x42, 0x4d, 0x58].includes(profileId) && (constraints & 0x10);
+  const level = level1b || (levelId === 9 && profileId === 0x64) ? '1b'
+    : [10,11,12,13,20,21,22,30,31,32,40,41,42,50,51,52,60,61,62].includes(levelId) ? (levelId / 10).toFixed(1) : '';
+  return { codec, codecProfile: [codec, profile, level && `L${level}`].filter(Boolean).join(' '), profileLevelId };
+}
+
+function counterDelta(current, previous) {
+  return Number.isFinite(current) && Number.isFinite(previous) && current >= previous ? current - previous : null;
 }
 
 const VOICE_SIGNAL_TIMEOUT = 4000;
@@ -780,7 +806,12 @@ export class MeshMedia extends EventTarget {
   async applyVideoQuality(sender, { confirm = false } = {}) {
     if (!sender?.getParameters || !sender?.setParameters) return false;
     try {
-      const target = QUALITY[this.quality];
+      const selected = QUALITY[this.quality];
+      const limit = this.relay?.source?.videoSender === sender && this.relay.source.qualityLimit;
+      const target = limit ? {
+        width:Math.min(selected.width, limit.width), height:Math.min(selected.height, limit.height),
+        fps:Math.min(selected.fps, limit.fps), bitrate:Math.min(selected.bitrate, limit.bitrate),
+      } : selected;
       const parameters = sender.getParameters();
       const source = this.screenVideoTrack?.getSettings?.() ?? {};
       const scale = Math.max(1, (source.width ?? target.width) / target.width, (source.height ?? target.height) / target.height);
@@ -818,7 +849,8 @@ export class MeshMedia extends EventTarget {
       }
       if (!confirm) return true;
       const applied = sender.getParameters().encodings?.[0];
-      return applied?.maxBitrate === target.bitrate && applied.maxFramerate === target.fps;
+      return applied?.maxBitrate === target.bitrate && applied.maxFramerate === target.fps
+        && (!limit || applied.scaleResolutionDownBy === scale);
     } catch {
       this.onState({ state: 'quality_unsupported', message: '浏览器不支持应用部分发送质量目标；仍显示实际统计。' });
       return false;
@@ -977,43 +1009,70 @@ export class MeshMedia extends EventTarget {
         const role = report.kind === 'video' || report.mediaType === 'video' ? 'screenVideo' : 'audio';
         if (videoOnly && role !== 'screenVideo') continue;
         const key = `${peerId}:${report.id}`;
-        const last = this.statsPrevious.get(key);
-        const previous = last?.peer === reading.peer ? last : null;
         const now = report.timestamp ?? performance.now();
         const bytes = report.bytesSent ?? report.bytesReceived;
+        const last = this.statsPrevious.get(key);
+        const sameStream = last?.peer === reading.peer && last.report.ssrc === report.ssrc && last.report.codecId === report.codecId;
+        // A replacement stream can reuse a report ID. Do not bridge its first
+        // sample to the retired stream, or turn a counter reset into zero Mbps.
+        const previous = sameStream && now > last.time && !(bytes < last.bytes) ? last : null;
+        const elapsed = previous ? (now - previous.time) / 1000 : null;
+        const priorReport = previous?.report;
         const outbound = report.type === 'outbound-rtp';
         const frames = outbound ? report.framesSent ?? report.framesEncoded : report.framesDecoded;
-        const qpFrames = outbound ? report.framesEncoded : report.framesDecoded;
-        const elapsed = previous && now > previous.time ? (now - previous.time) / 1000 : null;
-        const averageQp = elapsed && Number.isFinite(qpFrames) && qpFrames > previous.qpFrames &&
-          Number.isFinite(report.qpSum) && Number.isFinite(previous.qpSum) && report.qpSum >= previous.qpSum
-          ? (report.qpSum - previous.qpSum) / (qpFrames - previous.qpFrames) : null;
+        const qpFrameField = outbound ? 'framesEncoded' : 'framesDecoded';
+        const qpFramesDelta = counterDelta(report[qpFrameField], priorReport?.[qpFrameField]);
+        const qpSumDelta = counterDelta(report.qpSum, priorReport?.qpSum);
+        const averageQp = qpFramesDelta > 0 && qpSumDelta !== null ? qpSumDelta / qpFramesDelta : null;
         const remote = outbound && (reports.get(report.remoteId) ?? remoteInboundByLocalId.get(report.id));
         const packetsLost = outbound ? remote?.packetsLost : report.packetsLost;
-        const measuredFps = elapsed && Number.isFinite(frames) && Number.isFinite(previous.frames) && frames >= previous.frames ? (frames - previous.frames) / elapsed : null;
-        const bitrate = previous && now > previous.time ? Math.max(0, ((bytes - previous.bytes) * 8 * 1000) / (now - previous.time)) : null;
+        // RTP loss is signed. Late packets can reduce net loss within the
+        // same stream even while all packet and byte counters keep advancing.
+        const sameLossReport = previous && remote?.id === previous.remoteId;
+        const packetsLostDelta = sameLossReport && Number.isFinite(packetsLost) && Number.isFinite(previous.packetsLost)
+          ? packetsLost - previous.packetsLost : null;
+        const measuredFrames = counterDelta(frames, previous?.frames);
+        const measuredFps = measuredFrames !== null ? measuredFrames / elapsed : null;
+        const bytesDelta = counterDelta(bytes, previous?.bytes);
+        const bitrate = bytesDelta !== null ? bytesDelta * 8 / elapsed : null;
         const source = report.mediaSourceId ? reports.get(report.mediaSourceId) : null;
         const sourceTime = source?.timestamp ?? now;
-        const sourceDelta = previous && sourceTime > previous.sourceTime && Number.isFinite(source?.frames) && Number.isFinite(previous.sourceFrames) && source.frames >= previous.sourceFrames
+        const sourceDelta = previous && report.mediaSourceId === priorReport.mediaSourceId && sourceTime > previous.sourceTime && Number.isFinite(source?.frames) && Number.isFinite(previous.sourceFrames) && source.frames >= previous.sourceFrames
           ? (source.frames - previous.sourceFrames) * 1000 / (sourceTime - previous.sourceTime) : null;
-        const encodedFramesDelta = previous && Number.isFinite(previous.framesEncoded) && report.framesEncoded >= previous.framesEncoded ? report.framesEncoded - previous.framesEncoded : null;
-        const encodeTimeDelta = previous && Number.isFinite(previous.totalEncodeTime) && report.totalEncodeTime >= previous.totalEncodeTime ? report.totalEncodeTime - previous.totalEncodeTime : null;
-        const cpuTime = report.qualityLimitationDurations?.cpu;
-        const cpuDelta = previous && Number.isFinite(previous.cpuTime) && cpuTime >= previous.cpuTime ? cpuTime - previous.cpuTime : null;
+        const encodedFramesDelta = outbound ? qpFramesDelta : null;
+        const encodeTimeDelta = counterDelta(report.totalEncodeTime, priorReport?.totalEncodeTime);
+        const qualityLimitationDurations = {}, qualityLimitationDurationsDelta = {};
+        for (const reason of ['none', 'cpu', 'bandwidth', 'other']) {
+          const duration = report.qualityLimitationDurations?.[reason];
+          if (!Number.isFinite(duration) || duration < 0) continue;
+          qualityLimitationDurations[reason] = duration;
+          const delta = counterDelta(duration, priorReport?.qualityLimitationDurations?.[reason]);
+          if (delta !== null) qualityLimitationDurationsDelta[reason] = delta;
+        }
+        const cpuDelta = qualityLimitationDurationsDelta.cpu;
         const frameSize = report.frameWidth > 0 && report.frameHeight > 0
           ? { width: report.frameWidth, height: report.frameHeight } : previous?.frameSize;
-        this.statsPrevious.set(key, { peer:reading.peer, time: now, bytes, frames, qpFrames, qpSum:report.qpSum, sourceTime, sourceFrames: source?.frames, framesEncoded: report.framesEncoded, totalEncodeTime: report.totalEncodeTime, cpuTime, frameSize });
+        if (!sameStream || now >= last.time) this.statsPrevious.set(key, {
+          peer: reading.peer, report, time: now, bytes, frames, sourceTime, sourceFrames: source?.frames, frameSize, packetsLost, remoteId: remote?.id,
+        });
         const codec = report.codecId ? reports.get(report.codecId) : null;
         const transport = report.transportId ? reports.get(report.transportId) : null;
         const pair = transport?.selectedCandidatePairId ? reports.get(transport.selectedCandidatePairId) : null;
-        const mime = codec?.mimeType?.toUpperCase();
+        const rtt = pair?.currentRoundTripTime;
         snapshots.push({ peerId, localRelay:reading.peer.localRelay === true, direction: report.type, role, width: report.frameWidth, height: report.frameHeight, lastFrameSize: frameSize, fps: report.framesPerSecond ?? measuredFps, bitrate, droppedFrames: report.framesDropped ?? report.framesDiscarded,
           keyFramesEncoded: outbound ? report.keyFramesEncoded : undefined,
           keyFramesDecoded: outbound ? undefined : report.keyFramesDecoded,
-          averageQp, packetsLost,
+          averageQp, packetsLost, packetsLostDelta,
+          keyFramesEncodedDelta: counterDelta(report.keyFramesEncoded, priorReport?.keyFramesEncoded),
+          keyFramesDecodedDelta: counterDelta(report.keyFramesDecoded, priorReport?.keyFramesDecoded),
+          nackCount: report.nackCount, nackCountDelta: counterDelta(report.nackCount, priorReport?.nackCount),
+          pliCount: report.pliCount, pliCountDelta: counterDelta(report.pliCount, priorReport?.pliCount),
+          firCount: report.firCount, firCountDelta: counterDelta(report.firCount, priorReport?.firCount),
+          retransmittedPacketsSent: report.retransmittedPacketsSent,
+          retransmittedPacketsSentDelta: counterDelta(report.retransmittedPacketsSent, priorReport?.retransmittedPacketsSent),
           sourceFps: source?.framesPerSecond ?? sourceDelta,
           intervalFps: measuredFps, sourceIntervalFps: sourceDelta, sampleIntervalSeconds: elapsed,
-          codec: ['VIDEO/VP8', 'VIDEO/VP9', 'VIDEO/H264', 'VIDEO/AV1'].includes(mime) ? mime.slice(6) : null,
+          ...videoCodecStats(codec),
           encoderImplementation: outbound && typeof report.encoderImplementation === 'string' ? report.encoderImplementation : undefined,
           decoderImplementation: !outbound && typeof report.decoderImplementation === 'string' ? report.decoderImplementation : undefined,
           powerEfficientEncoder: outbound && typeof report.powerEfficientEncoder === 'boolean' ? report.powerEfficientEncoder : undefined,
@@ -1021,9 +1080,13 @@ export class MeshMedia extends EventTarget {
           averageEncodeMs: Number.isFinite(report.totalEncodeTime) && report.framesEncoded > 0 ? report.totalEncodeTime * 1000 / report.framesEncoded : null,
           encodedFramesDelta, intervalEncodeMs: encodedFramesDelta > 0 && encodeTimeDelta !== null ? encodeTimeDelta * 1000 / encodedFramesDelta : null,
           encodeTimeRatio: elapsed && encodeTimeDelta !== null ? encodeTimeDelta / elapsed : null,
-          cpuLimitedRatio: elapsed && cpuDelta !== null ? Math.min(1, cpuDelta / elapsed) : null,
+          cpuLimitedRatio: Number.isFinite(cpuDelta) ? Math.min(1, cpuDelta / elapsed) : null,
           qualityLimitationReason: ['none', 'cpu', 'bandwidth', 'other'].includes(report.qualityLimitationReason) ? report.qualityLimitationReason : null,
+          qualityLimitationDurations, qualityLimitationDurationsDelta,
+          targetBitrate: outbound && Number.isFinite(report.targetBitrate) ? report.targetBitrate : null,
           availableOutgoingBitrate: pair?.availableOutgoingBitrate ?? null,
+          currentRoundTripTime: rtt ?? null,
+          currentRoundTripTimeMs: Number.isFinite(rtt) ? rtt * 1000 : null,
         });
       }
     }

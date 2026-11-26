@@ -17,7 +17,7 @@ function auditLocalRequests(context, externalRequests) {
   context.on('websocket', (socket) => checkURL(socket.url()));
 }
 
-async function createScenario({ denyViewerMic = false, captureWidth = 1280, captureHeight = 720, captureFps = 30, separateSender = false, lateVP8Viewer = false } = {}) {
+async function createScenario({ denyViewerMic = false, captureWidth = 1280, captureHeight = 720, captureFps = 30, separateSender = false, lateViewerCodec = '' } = {}) {
   if (!process.env.LANSW_EXE) throw new Error('Set LANSW_EXE to the built test executable before running BrowserE2E.');
   if (!browserPath) throw new Error('Set LANSW_BROWSER_PATH to an installed Chromium or Edge executable before running BrowserE2E.');
   const lanIP = selectedLANIPv4();
@@ -48,19 +48,22 @@ async function createScenario({ denyViewerMic = false, captureWidth = 1280, capt
     const hostContext = await context(false, true);
     const viewer1Context = await context(denyViewerMic);
     const viewer2Context = await context();
-    if (lateVP8Viewer) await viewer2Context.addInitScript(() => {
+    if (lateViewerCodec) await viewer2Context.addInitScript(codecMode => {
       const addTransceiver = RTCPeerConnection.prototype.addTransceiver;
       RTCPeerConnection.prototype.addTransceiver = function (kind, init) {
         const transceiver = addTransceiver.call(this, kind, init);
         if (kind === 'video' && init.direction === 'recvonly') {
-          const vp8 = RTCRtpReceiver.getCapabilities('video').codecs.filter(codec => codec.mimeType.toLowerCase() === 'video/vp8');
+          const compatible = RTCRtpReceiver.getCapabilities('video').codecs.filter(codec =>
+            codecMode === 'vp8' ? codec.mimeType.toLowerCase() === 'video/vp8' :
+              codec.mimeType.toLowerCase() === 'video/h264' && /profile-level-id=42e0/i.test(codec.sdpFmtpLine) && /packetization-mode=1/i.test(codec.sdpFmtpLine));
+          if (!compatible.length) throw new Error('Test browser lacks the requested viewer codec: ' + codecMode);
           const setPreferences = transceiver.setCodecPreferences.bind(transceiver);
-          transceiver.setCodecPreferences = () => setPreferences(vp8);
+          transceiver.setCodecPreferences = () => setPreferences(compatible);
           transceiver.setCodecPreferences();
         }
         return transceiver;
       };
-    });
+    }, lateViewerCodec);
     const host = await hostContext.newPage();
     const viewer1 = await viewer1Context.newPage();
     const viewer2 = await viewer2Context.newPage();
@@ -90,7 +93,7 @@ async function createScenario({ denyViewerMic = false, captureWidth = 1280, capt
     }
     await join(viewer1, services[1]);
     const joinSecondViewer = () => join(viewer2, services[2]);
-    if (!lateVP8Viewer) {
+    if (!lateViewerCodec) {
       await joinSecondViewer();
       await Promise.all([host, viewer1, viewer2].map((page) => page.waitForFunction(() => document.querySelectorAll('#members .member-seat:not([data-empty="true"])').length === 3)));
     }
@@ -210,23 +213,24 @@ async function waitForActualPCStats(page, predicate, message) {
   assert.fail(message+': '+JSON.stringify(rows));
 }
 
-async function activeVideoCodec(page, codec, direction) {
-  const readCodec = () => page.evaluate(async ({ codec, direction }) => {
+async function activeVideoCodec(page, codec, direction, requiredProfile = '') {
+  const readCodec = () => page.evaluate(async ({ codec, direction, requiredProfile }) => {
     for (const pc of window.__lanScreenTest.pcs) {
       if (pc.connectionState !== 'connected') continue;
       const reports = await pc.getStats();
       for (const report of reports.values()) {
         if (report.type !== direction || report.kind !== 'video' || !(report.framesDecoded || report.framesEncoded)) continue;
-        const mime = reports.get(report.codecId)?.mimeType;
-        if (mime?.toLowerCase() === `video/${codec.toLowerCase()}`) return {
-          mime, implementation: report.encoderImplementation ?? report.decoderImplementation ?? null,
+        const active = reports.get(report.codecId);
+        const profile = active?.sdpFmtpLine?.match(/profile-level-id=([0-9a-f]{6})/i)?.[1]?.toLowerCase() ?? '';
+        if (active?.mimeType?.toLowerCase() === `video/${codec.toLowerCase()}` && profile.startsWith(requiredProfile)) return {
+          mime:active.mimeType, profile, implementation: report.encoderImplementation ?? report.decoderImplementation ?? null,
           efficient: report.powerEfficientEncoder ?? report.powerEfficientDecoder ?? null,
           width:report.frameWidth, height:report.frameHeight,
         };
       }
     }
     return false;
-  }, { codec, direction });
+  }, { codec, direction, requiredProfile });
   const deadline = Date.now() + 15000;
   while (Date.now() < deadline) {
     const result = await readCodec();
@@ -236,7 +240,31 @@ async function activeVideoCodec(page, codec, direction) {
   assert.fail(`No active ${direction} ${codec} video was observed`);
 }
 
-test('H264 forwarding falls back for a named VP8-only viewer and restores on departure without interrupting voice', async t => withScenario(t, { lateVP8Viewer:true }, async ({host, viewers, joinSecondViewer}) => {
+test('a late Constrained Baseline-only viewer decodes video and remaining members recover the original profile', async t => withScenario(t, {lateViewerCodec:'baseline',captureWidth:1920,captureHeight:1080}, async ({host, viewers, joinSecondViewer}) => {
+  const [viewer, limited] = viewers;
+  await shareSyntheticScreen(host);
+  const initial = await activeVideoCodec(host, 'H264', 'outbound-rtp');
+  assert.match(initial.profile, /^[0-9a-f]{6}$/);
+  await activeVideoCodec(viewer, 'H264', 'inbound-rtp', initial.profile.slice(0, 4));
+  await joinSecondViewer();
+  const receivers = await Promise.all(viewers.map(page => activeVideoCodec(page, 'H264', 'inbound-rtp', '42e0')));
+  if (!initial.profile.startsWith('42e0') && receivers[1].profile === '42e01f') {
+    assert.ok(receivers.every(result => result.width <= 1280 && result.height <= 720));
+    const encoding = await host.evaluate(() => {
+      const sender = window.__lanScreenTest.pcs.filter(pc => pc.connectionState === 'connected')
+        .flatMap(pc => pc.getSenders()).find(sender => sender.track?.kind === 'video');
+      return sender.getParameters().encodings[0];
+    });
+    assert.ok(encoding.maxFramerate <= 30 && encoding.maxBitrate <= 14_000_000);
+  }
+  await limited.waitForFunction(() => document.querySelector('#remote-screen').videoWidth > 0);
+  await limited.locator('#leave-room').click();
+  const restored = await activeVideoCodec(viewer, 'H264', 'inbound-rtp', initial.profile.slice(0, 4));
+  assert.equal(await host.evaluate(() => window.__lanScreenTest.captures.filter(item => item.type === 'display-request').length), 1);
+  t.diagnostic('H264 profile IDs ' + JSON.stringify({initial:initial.profile, viewers:receivers.map(item => item.profile), restored:restored.profile}));
+}));
+
+test('H264 forwarding falls back for a named VP8-only viewer and restores on departure without interrupting voice', async t => withScenario(t, { lateViewerCodec:'vp8' }, async ({host, viewers, joinSecondViewer}) => {
   const [viewer, incompatible] = viewers;
   await Promise.all([enableMic(host), enableMic(viewer)]);
   const before = await waitForActualPCStats(viewer, rows => rows.some(row => row.type === 'inbound-rtp' && row.kind === 'audio' && row.bytes > 0), 'initial microphone audio');
@@ -621,7 +649,7 @@ test('gameFocusPausesOnlyTheLocalPreviewAndPreservesSelectedQualityAndRTP', asyn
       if (report.type !== 'outbound-rtp' || report.kind !== 'video' || !report.framesEncoded) continue;
       const stats = await pc.getStats(), codec = stats.get(report.codecId);
       const encoding = pc.getSenders().find(sender => sender.track?.kind === 'video')?.getParameters().encodings[0];
-      result.push({ codec: codec?.mimeType, efficient: report.powerEfficientEncoder ?? null, width: report.frameWidth, height: report.frameHeight, maxFramerate: encoding?.maxFramerate, maxBitrate: encoding?.maxBitrate });
+      result.push({ codec: codec?.mimeType, fmtp: codec?.sdpFmtpLine, efficient: report.powerEfficientEncoder ?? null, width: report.frameWidth, height: report.frameHeight, maxFramerate: encoding?.maxFramerate, maxBitrate: encoding?.maxBitrate });
     }
     return result;
   });
@@ -629,16 +657,18 @@ test('gameFocusPausesOnlyTheLocalPreviewAndPreservesSelectedQualityAndRTP', asyn
   await host.waitForFunction(async()=>{
     const relay=window.__lanScreenTest.pcs.find(pc=>pc.getSenders().some(sender=>sender.track?.kind==='video'));
     return relay && [...(await relay.getStats()).values()].some(row=>row.type==='candidate-pair'&&
-      row.nominated&&row.availableOutgoingBitrate===24_000_000);
+      row.nominated&&row.availableOutgoingBitrate===36_000_000);
   },null,{timeout:12_000});
-  t.diagnostic('Native relay candidate-pair estimate after REMB: 24 Mbps');
-  assert.ok(codecs.every(row => row.width === 1920 && row.height === 1080 && row.maxFramerate === 60 && row.maxBitrate === 15_000_000));
+  t.diagnostic('Native relay candidate-pair estimate after REMB: 36 Mbps');
+  assert.ok(codecs.every(row => row.width === 1920 && row.height === 1080 && row.maxFramerate === 60 && row.maxBitrate === 25_000_000));
   await host.locator('#settings-dialog [data-close-dialog]').click();
   const before = await Promise.all(viewers.map(collectActualPCStats));
   for (const viewer of viewers) await waitForActualPCStats(viewer,rows => rows.some(row => row.type==='inbound-rtp' && row.kind==='video' && row.width===1920 && row.height===1080 && row.frames>0),'each viewer must decode actual 1080p frames');
   await host.evaluate(() => {
-    // Simulate the focus state only; all capture tracks, encoders and RTP remain native.
+    // Simulate the game's foreground state while capture, RTP and the product's timer stay native.
     Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => false });
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
     window.dispatchEvent(new Event('blur'));
   });
   await host.waitForFunction(() => document.querySelector('#remote-screen').srcObject === null);
@@ -650,7 +680,8 @@ test('gameFocusPausesOnlyTheLocalPreviewAndPreservesSelectedQualityAndRTP', asyn
       && rows.filter(row => row.type === 'inbound-rtp' && row.kind === 'audio').reduce((sum, row) => sum + row.bytes, 0) > priorAudio, 'receivers retain video and audio with local preview detached');
   }
   const sampleBefore=await Promise.all([host,...viewers].map(collectActualPCStats));
-  await new Promise(resolve=>setTimeout(resolve,5000));
+  // Include one full ten-second history interval with the settings panel closed.
+  await new Promise(resolve=>setTimeout(resolve,11_000));
   const sampleAfter=await Promise.all([host,...viewers].map(collectActualPCStats));
   const actualVideo=sampleAfter.map((rows,index)=>{
     const active=rows.find(row=>row.kind==='video' && row.frames>0);
@@ -667,11 +698,39 @@ test('gameFocusPausesOnlyTheLocalPreviewAndPreservesSelectedQualityAndRTP', asyn
     }
     return { width:active.width, height:active.height, fps };
   });
-  await host.evaluate(() => { delete document.hasFocus; window.dispatchEvent(new Event('focus')); });
+  await host.evaluate(() => {
+    delete document.hasFocus;
+    delete document.visibilityState;
+    document.dispatchEvent(new Event('visibilitychange'));
+    window.dispatchEvent(new Event('focus'));
+  });
   await host.waitForFunction(() => document.querySelector('#remote-screen').srcObject && document.querySelector('#remote-screen').videoWidth > 0);
+  await host.bringToFront();
+  await host.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await openDiagnostics(host);
+  await host.evaluate(() => navigator.clipboard.writeText('等待本次媒体诊断'));
+  await host.locator('#copy-media-diagnostics').click();
+  await host.waitForFunction(async () => (await navigator.clipboard.readText()).includes('当前视频快照'));
+  const report = await host.evaluate(() => navigator.clipboard.readText());
+  const history = report.split(/\r?\n/).filter(line => /^\d{2}:\d{2}:\d{2} · /.test(line));
+  const first = history[0];
+  assert.match(first, /首个样本（待下次采样计算区间均值）/);
+  const intoGame = history.findIndex(line => line.includes('前台→后台（跨切换区间）'));
+  const inGame = history.findIndex((line, i) => i > intoGame && line.includes(' · 页面后台 · '));
+  const returned = history.findIndex((line, i) => i > inGame && line.includes('后台→前台（跨切换区间）'));
+  assert.ok(intoGame >= 0 && inGame > intoGame && returned > inGame, 'both transition intervals surround the stable background sample');
+  assert.match(report, /突发关键帧时，短区间的平均码率可能高于用户上限/);
+  for (const line of [first, history[intoGame], history[inGame], history[returned]]) t.diagnostic(line.split(' / 编码目标')[0]);
+  const background = history[inGame];
+  assert.match(background, /实际发送 \d+[.\d]* Mbps/);
+  assert.match(background, /编码目标 \d+[.\d]* Mbps/);
+  assert.match(background, /可用带宽估计 36(?:\.0+)? Mbps/);
+  const profile = /profile-level-id=([0-9a-f]{6})/i.exec(codecs[0].fmtp);
+  if (profile) assert.ok(background.toLowerCase().includes(profile[0].toLowerCase()), 'history carries the native negotiated profile');
+  assert.ok(background.includes(codecs[0].codec.split('/')[1]), 'history carries the active codec');
   const targets = await host.evaluate(() => window.__lanScreenTest.pcs.flatMap(pc => pc.getSenders().filter(sender => sender.track?.kind === 'video').map(sender=>sender.getParameters().encodings[0])));
   assert.equal(targets.length,1);
-  assert.ok(targets.every(target => target.maxFramerate === 60 && target.maxBitrate === 15_000_000));
+  assert.ok(targets.every(target => target.maxFramerate === 60 && target.maxBitrate === 25_000_000));
   assert.equal(await host.locator('#quality-target').inputValue(), '1080p60');
   t.diagnostic('Native encoder evidence with selected quality preserved: ' + JSON.stringify(codecs));
   t.diagnostic('Native encode / two receiver decode with all three microphones: '+JSON.stringify(actualVideo));

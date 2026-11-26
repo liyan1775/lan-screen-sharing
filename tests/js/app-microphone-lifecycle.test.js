@@ -286,7 +286,9 @@ test('member UI joins a discovered room in one click and preserves mic across sh
   assert.equal(capturedVideo.stopped,false,'stopping system sound retains the picture');
   assert.equal(mediaInstance.microphoneTrack,secondMicrophone,'stopping system sound retains voice');
   const originalGetStats = mediaInstance.getStatsSnapshot;
-  let videoRow = {role:'screenVideo',direction:'outbound-rtp',width:1920,height:1080,fps:25,sourceFps:25,intervalFps:25,sourceIntervalFps:25,sampleIntervalSeconds:2};
+  let videoRow = {role:'screenVideo',direction:'outbound-rtp',width:1920,height:1080,fps:25,sourceFps:25,intervalFps:25,sourceIntervalFps:25,sampleIntervalSeconds:2,
+    bitrate:12_000_000, targetBitrate:20_000_000, availableOutgoingBitrate:30_000_000,
+    codec:'H264', codecProfile:'H264 High L4.2', profileLevelId:'64002a'};
   mediaInstance.peers.set('stats-only',{pc:{close(){}}});
   let statsReads = 0;
   mediaInstance.getStatsSnapshot = async () => { statsReads++; return [videoRow]; };
@@ -296,15 +298,21 @@ test('member UI joins a discovered room in one click and preserves mic across sh
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(statsReads, 1, 'background sharing retains diagnostic samples');
   assert.equal(document.querySelector('#actual-stats').textContent, hiddenText, 'hidden diagnostic text is not rendered');
-  document.visibilityState = 'visible'; videoRow = {...videoRow,fps:59,sourceFps:59};
+  document.visibilityState = 'visible'; videoRow = {...videoRow,fps:59,sourceFps:59,bitrate:2_000_000,targetBitrate:3_000_000,availableOutgoingBitrate:36_000_000};
   document.dispatchEvent(new window.Event('visibilitychange'));
   await document.querySelector('#open-settings').click();
   document.querySelector('.settings-section').open = true;
   document.querySelector('.settings-section').dispatchEvent(new window.Event('toggle'));
   await until(() => document.querySelector('#actual-stats').textContent.includes('59.0 FPS'));
+  const readsBeforeCopy = statsReads;
   await document.querySelector('#copy-media-diagnostics').click();
+  assert.equal(statsReads, readsBeforeCopy, 'copying the current panel preserves its completed measurement interval');
   assert.match(copiedReport,/页面后台.*25.0/,'the app must preserve fullscreen-era samples after foreground rates recover');
-  assert.match(copiedReport,/页面前台.*59.0/);
+  const backgroundLine = copiedReport.split('\n').find(line => line.includes('页面后台'));
+  for (const value of ['实际发送 12.0 Mbps', '编码目标 20.0 Mbps', '可用带宽估计 30.0 Mbps', 'H264 High L4.2', '64002a']) {
+    assert.ok(backgroundLine.includes(value), `copied background sample must retain ${value}`);
+  }
+  assert.match(copiedReport,/后台→前台（跨切换区间）.*59.0/);
   globalThis.location.href = 'http://127.0.0.1:41000/?private=test-only';
   await document.querySelector('#copy-background-site').click();
   assert.equal(copiedReport,'http://127.0.0.1:41000/','the Edge site exception address must exclude queries and control information');

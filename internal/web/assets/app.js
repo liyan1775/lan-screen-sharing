@@ -101,6 +101,7 @@ let restoringPage = false;
 let pendingMicRestore = null, micRestoreAttempt = null;
 let intentionalRoomExit = false;
 let latestMediaRows = [];
+let lastMediaSampleAt = 0;
 let statsInFlight = null;
 let statsUnavailable = false;
 let statsContext = '';
@@ -971,7 +972,10 @@ $('#share-cursor').addEventListener('change', async () => {
 });
 $('#copy-media-diagnostics').addEventListener('click', async () => {
   const notice = noticeInCurrentView();
-  await sampleStats();
+  syncStatsContext();
+  // Reuse a fresh panel sample. An immediate second getStats can return the
+  // same browser timestamp and lose the interval bitrate and QP in the copy.
+  if (statsInFlight || !latestMediaRows.length || performance.now() - lastMediaSampleAt >= 2000) await sampleStats();
   const report = [formatMediaDiagnostics({ track: media.screenVideoTrack, rows: latestMediaRows, target: ui.quality.value, shareCursor: media.shareCursor,
     visibility: document.visibilityState,
     audio: formatSystemAudioDiagnostics(media.systemAudioDiagnostics, navigator.userAgent) }), mediaHistory.format()].join('\n\n');
@@ -1324,6 +1328,7 @@ async function readStats(kind, isCurrent) {
     statsUnavailable = false;
     latestMediaRows = snapshots.filter(row => row.role === 'screenVideo' &&
       (own ? row.direction === 'outbound-rtp' : row.direction === 'inbound-rtp' && row.peerId === presenter));
+    lastMediaSampleAt = performance.now();
     mediaHistory.record({rows:latestMediaRows, visibility:document.visibilityState, target:ui.quality.value});
   } catch {
     if (!isCurrent()) return;
@@ -1358,6 +1363,7 @@ function syncStatsContext() {
     latestMediaRows = [];
     statsUnavailable = false;
     media.statsPrevious.clear();
+    mediaHistory.resetInterval();
   }
 }
 

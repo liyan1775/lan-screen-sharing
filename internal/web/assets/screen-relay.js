@@ -2,32 +2,88 @@
 // the room mesh; received screen tracks still carry the authenticated peer ID.
 const CODEC_MISMATCH = 'SCREEN_RELAY_CODEC_MISMATCH';
 
-function h264Preference(codec) {
-  if (codec.mimeType?.toLowerCase() !== 'video/h264') return 0;
+function h264Config(codec) {
+  if (codec.mimeType?.toLowerCase() !== 'video/h264') return null;
   const params = new Map((codec.sdpFmtpLine ?? '').toLowerCase().split(';').map(entry => entry.split('=').map(part => part.trim())));
   const profile = params.get('profile-level-id') ?? '42e01f';
-  if (params.get('packetization-mode') !== '1' || !/^(42|4d|64)[0-9a-f]{4}$/.test(profile)) return 0;
-  if (parseInt(profile.slice(4), 16) >= 0x2a || (Number(params.get('max-fs')) >= 8160 && Number(params.get('max-mbps')) >= 489600)) return 2;
-  // A sender can encode above its advertised receive level. In that case
-  // verify the negotiated encoder and output dimensions after attaching video.
-  return params.get('level-asymmetry-allowed') === '1' ? 1 : 0;
+  if (params.get('packetization-mode') !== '1' || !/^(42|4d|64)[0-9a-f]{4}$/.test(profile)) return null;
+  const fullRate = parseInt(profile.slice(4), 16) >= 0x2a || (Number(params.get('max-fs')) >= 8160 && Number(params.get('max-mbps')) >= 489600);
+  const tier = fullRate ? 0 : params.get('level-asymmetry-allowed') === '1' ? 1 : 2;
+  return { profile, tier, rank:tier * 3 + ['64','4d','42'].indexOf(profile.slice(0, 2)) };
 }
 
-export function preferScreenCodecs(transceiver, capabilities, mode) {
+// This is a hint for one encoder restart. The relay independently validates
+// the next offer against the actual upstream codec before forwarding any RTP.
+function viewerH264Profiles(sdp) {
+  const video = sdp.split(/(?:^|\r?\n)m=/).find(section => /^video [1-9]/i.test(section));
+  if (!video) return [];
+  const formats = video.split(/\r?\n/, 1)[0].trim().split(/\s+/).slice(3);
+  const fmtps = new Map(Array.from(video.matchAll(/^a=fmtp:(\d+) (.+)$/gmi), ([, pt, params]) => [pt, params]));
+  const h264 = new Set(Array.from(video.matchAll(/^a=rtpmap:(\d+) H264\/90000\s*$/gmi), ([, pt]) => pt));
+  const profiles = new Set();
+  for (const pt of formats) {
+    if (!h264.has(pt)) continue;
+    const config = h264Config({ mimeType:'video/h264', sdpFmtpLine:fmtps.get(pt) });
+    if (config) profiles.add(config.profile);
+  }
+  return [...profiles];
+}
+
+// Conservative encoder limits within H.264 Annex A for a viewer that cannot
+// decode the original stream. These apply only to the replacement sender.
+function compatibleQuality(profile) {
+  const level = parseInt(profile.slice(4), 16);
+  if (level >= 42) return null;
+  if (level >= 40) return { width:1920, height:1080, fps:30, bitrate:20_000_000 };
+  if (level >= 32) return { width:1280, height:720, fps:60, bitrate:20_000_000 };
+  if (level >= 31) return { width:1280, height:720, fps:30, bitrate:14_000_000 };
+  if (level >= 30) return { width:640, height:480, fps:30, bitrate:8_000_000 };
+  if (level >= 20) return { width:352, height:288, fps:15, bitrate:768_000 };
+  return { width:176, height:144, fps:15, bitrate:64_000 };
+}
+
+function negotiatedProfile(codecProfile, viewerProfiles) {
+  const sameProfile = viewerProfiles.filter(profile => profile.slice(0, 4) === codecProfile.slice(0, 4)).sort();
+  if (!sameProfile.length) return null;
+  return codecProfile < sameProfile.at(-1) ? codecProfile : sameProfile.at(-1);
+}
+
+function constrainLocalOffer(description, viewerProfiles) {
+  const sections = description.sdp.split(/(?=^m=)/m);
+  const videoIndex = sections.findIndex(section => /^m=video /.test(section));
+  const offered = videoIndex >= 0 && viewerH264Profiles(sections[videoIndex])[0];
+  const profile = offered && negotiatedProfile(offered, viewerProfiles);
+  if (!profile) throw new Error(CODEC_MISMATCH);
+  // Negotiate the lower level with the actual browser encoder before it sees
+  // any capture frames. Never rewrite downstream SDP or forwarded RTP.
+  sections[videoIndex] = sections[videoIndex].replace(/^(a=fmtp:\d+ )([^\r\n]+)/gmi, (line, prefix, params) =>
+    h264Config({mimeType:'video/h264',sdpFmtpLine:params})?.profile === offered
+      ? prefix + 'packetization-mode=1;level-asymmetry-allowed=0;profile-level-id=' + profile
+      : line);
+  return { description:{ ...description, sdp:sections.join('') }, profile };
+}
+
+export function preferScreenCodecs(transceiver, capabilities, mode, viewerProfiles = null) {
   try {
     if (typeof transceiver.setCodecPreferences !== 'function') return false;
     const codecs = capabilities?.getCapabilities('video')?.codecs;
     if (!codecs?.length) return false;
     const mime = codec => codec.mimeType?.toLowerCase();
-    const preferred = mode === 'h264' ? h264Preference : codec => mime(codec) === 'video/vp8' ? 2 : 0;
     const ranked = codecs.map(codec => {
-      const priority = preferred(codec);
-      const rank = priority ? 2 - priority : mime(codec) === 'video/vp9' ? 2 : mime(codec) === 'video/vp8' ? 3 : 4;
+      const config = mode === 'h264' ? h264Config(codec) : null;
+      let rank = mime(codec) === 'video/vp9' ? 10 : mime(codec) === 'video/vp8' ? 11 : 12;
+      if (mode === 'vp8' && mime(codec) === 'video/vp8') rank = 0;
+      if (config && (viewerProfiles
+        ? negotiatedProfile(config.profile, viewerProfiles)
+        : config.tier < 2)) rank = config.rank;
       return { codec, rank };
     });
-    if (!ranked.some(item => item.rank < 2)) return 'unavailable';
+    if (!ranked.some(item => item.rank < 10)) return 'unavailable';
     ranked.sort((a, b) => a.rank - b.rank);
-    transceiver.setCodecPreferences(ranked.map(item => item.codec));
+    if (viewerProfiles) {
+      const repair = codecs.filter(codec => ['video/rtx','video/red','video/ulpfec','video/flexfec-03'].includes(mime(codec)));
+      transceiver.setCodecPreferences([ranked[0].codec, ...repair]);
+    } else transceiver.setCodecPreferences(ranked.map(item => item.codec));
     return true;
   } catch { return false; }
 }
@@ -81,8 +137,8 @@ export class ScreenRelay {
       await previous;
       if (this.source !== source) return;
       const video = pc.addTransceiver('video', { direction:'sendonly' });
-      const preference = preferScreenCodecs(video, globalThis.RTCRtpSender, share.mode);
-      if (preference === 'unavailable') {
+      const preference = preferScreenCodecs(video, globalThis.RTCRtpSender, share.mode, share.viewerProfiles);
+      if (preference === 'unavailable' || (share.viewerProfiles && preference !== true)) {
         if (share.mode === 'h264') throw new Error(CODEC_MISMATCH);
         throw new Error('当前浏览器无法使用兼容编码 VP8。');
       }
@@ -90,7 +146,13 @@ export class ScreenRelay {
       source.videoSender = video.sender;
       source.audioSender = pc.addTransceiver('audio', { direction: 'sendonly' }).sender;
       await this.applyQuality(source.videoSender);
-      const description = await completeOffer(pc);
+      let description = await completeOffer(pc);
+      if (share.viewerProfiles) {
+        const constrained = constrainLocalOffer(description, share.viewerProfiles);
+        description = constrained.description;
+        source.compatibilityProfile = constrained.profile;
+        source.qualityLimit = compatibleQuality(constrained.profile);
+      }
       if (this.source !== source) return;
       const result = await this.client.requestScreenRelay({ action:'start', description },{signal:source.abort.signal});
       source.sessionId = result.sessionId;
@@ -101,6 +163,7 @@ export class ScreenRelay {
       // so its first frames do not trigger resolution adaptation at startup.
       await waitForLocalBudget(pc, source.abort.signal);
       if (this.source !== source) return;
+      if (source.qualityLimit && await this.applyQuality(source.videoSender, {confirm:true}) === false) throw new Error(CODEC_MISMATCH);
       await source.videoSender.replaceTrack(share.video);
       const quality = await this.applyQuality(source.videoSender, { confirm:true });
       if (this.source !== source) return;
@@ -115,7 +178,7 @@ export class ScreenRelay {
       source.started = true;
     } catch (error) {
       if (this.source !== source) return;
-      if (share.mode === 'h264' && (source.codecMode === 'h264' || error.message === CODEC_MISMATCH)) {
+      if (share.mode === 'h264' && !share.viewerProfiles && (source.codecMode === 'h264' || error.message === CODEC_MISMATCH)) {
         await this.fallback(share, source);
         return;
       }
@@ -124,16 +187,28 @@ export class ScreenRelay {
     }
   }
 
-  async fallback(share, source, peerId = '') {
+  async fallback(share, source, peerId = '', profiles = []) {
     if (this.share !== share || (this.source !== source && share.fallbackSource !== source)) return;
     if (peerId && !this.peerIds().includes(peerId)) return;
     if (peerId) share.incompatibleH264Peers.add(peerId);
-    if (share.mode !== 'h264') return;
-    share.mode = 'vp8';
+    if (share.mode !== 'h264' || share.fallbackSource) return;
     share.fallbackReason = peerId ? 'peer' : 'sharer';
     share.fallbackSource = source;
     const change = { reason:share.fallbackReason, peerId };
     try {
+      if (profiles.length && !share.viewerProfiles) {
+        share.viewerProfiles = profiles;
+        try {
+          await this.runSource(share);
+          if (this.share === share && this.source?.started) this.announce();
+          return;
+        } catch {
+          if (this.share !== share) return;
+          // The browser could not start a common H264 profile. Try VP8 once.
+        }
+      }
+      share.viewerProfiles = null;
+      share.mode = 'vp8';
       await this.runSource(share);
       if (this.share !== share || !this.source?.started) return;
       this.publishCodecChange(change);
@@ -149,6 +224,7 @@ export class ScreenRelay {
       || share.restored || !share.departedPeerId) return;
     share.restored = true; // One recovery attempt per capture, even if another viewer fails.
     share.mode = 'h264';
+    share.viewerProfiles = null;
     const peerId = share.departedPeerId;
     return this.runSource(share).then(() => {
       if (this.share === share && this.source?.started && this.source.codecMode === 'h264') this.publishCodecChange({ reason:'restored', peerId });
@@ -217,7 +293,7 @@ export class ScreenRelay {
         result = await this.client.requestScreenRelay({ action:'receiver',sessionId:source.sessionId,peerId,description:payload.description });
       } catch (error) {
         if (source.codecMode === 'h264' && error.code === CODEC_MISMATCH) {
-          await this.fallback(share, source, peerId);
+          await this.fallback(share, source, peerId, viewerH264Profiles(payload.description.sdp));
           return;
         }
         if (this.source !== source || !this.peerIds().includes(peerId)) return;
@@ -347,8 +423,16 @@ async function confirmEncoder(source) {
     const reports = await source.pc.getStats();
     for (const report of reports.values()) {
       if (report.type !== 'outbound-rtp' || (report.kind ?? report.mediaType) !== 'video' || !report.framesEncoded) continue;
-      if (reports.get(report.codecId)?.mimeType?.toLowerCase() !== `video/${source.codecMode}`) {
+      const codec = reports.get(report.codecId);
+      if (codec?.mimeType?.toLowerCase() !== `video/${source.codecMode}`) {
         throw new Error('浏览器未能启动所选的视频编码。');
+      }
+      if (source.compatibilityProfile) {
+        const actual = h264Config(codec);
+        if (!actual || negotiatedProfile(actual.profile, [source.compatibilityProfile]) !== actual.profile) throw new Error(CODEC_MISMATCH);
+        if (source.qualityLimit && (report.frameWidth > source.qualityLimit.width || report.frameHeight > source.qualityLimit.height)) continue;
+        if (report.frameWidth > 0 && report.frameHeight > 0) return;
+        continue;
       }
       if (source.codecMode !== 'h264' || !width || !height
         || (report.frameWidth >= width / scale - 2 && report.frameHeight >= height / scale - 2)) return;
